@@ -1,18 +1,18 @@
 # Enterprise AI Knowledge & Action Agent
 
-This repository contains **Product Milestone V0**: the smallest working Python application that
-sends one employee question to one LLM provider and accepts the result only after structured-output
-schema validation.
+This repository contains the released **Product Milestone V0** LLM foundation and the
+review-candidate implementation of **Product Milestone V1**: a small FastAPI backend with typed REST
+contracts and a trusted synthetic employee-identity boundary.
 
-V0 is an engineering foundation, not the finished enterprise assistant. The approved product plan is
-in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
+This is not yet the finished enterprise assistant. The approved product plan is in
+[`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
 
 ## Milestone Status
 
 | Milestone | Status |
 |---|---|
 | V0 — Python + LLM API | ✅ Complete |
-| V1 — FastAPI | Not started |
+| V1 — FastAPI | Implementation complete; awaiting engineering review |
 | V2 — RAG | Not started |
 | V3 — Agent + Tools | Not started |
 | V4 — LangGraph + HITL | Not started |
@@ -25,6 +25,13 @@ in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md
 - Ruff format check: **passed**
 - Live Gemini structured-output smoke test: **passed**
 
+### V1 Implementation Verification
+
+- Tests: **41 passed** (23 preserved V0 tests + 18 V1 tests)
+- Ruff lint: **passed**
+- Ruff format check: **passed**
+- API and OpenAPI smoke checks: **passed**
+
 ## What V0 demonstrates
 
 - a Python 3.12+ `src` project layout;
@@ -36,6 +43,17 @@ in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md
   and malformed-output failures;
 - a deliberately small CLI; and
 - offline unit tests with all provider calls mocked.
+
+## What V1 adds
+
+- FastAPI with versioned REST endpoints under `/api/v1`;
+- Pydantic request, response, and consistent error-envelope models;
+- server-resolved synthetic employee identity through `X-Demo-Session`;
+- deterministic profile, leave-balance, and ownership-scoped ticket reads;
+- a small service/repository separation over fictitious seeded data;
+- request IDs returned in `X-Request-ID` and structured error responses;
+- OpenAPI and Swagger documentation; and
+- offline API, identity, ownership, validation, and regression tests.
 
 ## Prerequisites
 
@@ -67,7 +85,48 @@ GEMINI_API_KEY=your-real-api-key
 `.env` is ignored by Git. Do not add a real key to `.env.example`, source code, tests, shell history,
 or documentation. The optional model, timeout, and retry settings are documented in `.env.example`.
 
-## Run
+## Run the API
+
+Start the development server:
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+OpenAPI JSON is available at `http://127.0.0.1:8000/openapi.json` and Swagger UI at
+`http://127.0.0.1:8000/docs`.
+
+### Demo sessions
+
+The `/api/v1/me/*` routes require an `X-Demo-Session` header. These fixed values identify only
+fictitious seeded employees and are not production credentials:
+
+| Header value | Synthetic employee |
+|---|---|
+| `demo-v1-7f4c2a91` | Alex Morgan (`EMP-1001`) |
+| `demo-v1-3b8e6d50` | Sam Lee (`EMP-1002`) |
+
+Example:
+
+```bash
+curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
+  http://127.0.0.1:8000/api/v1/me/profile
+```
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/health` | Typed liveness response |
+| `POST` | `/api/v1/chat` | Existing schema-validated Gemini capability |
+| `GET` | `/api/v1/me/profile` | Authenticated synthetic employee's profile |
+| `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
+| `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
+
+Only the chat endpoint requires `GEMINI_API_KEY`. Health and seeded `/me/*` reads start and work
+without provider credentials.
+
+## Run the V0 CLI
 
 Pass one question as a quoted argument:
 
@@ -86,7 +145,7 @@ error message to standard error and exit non-zero without a traceback.
 
 ## Test and lint
 
-Ordinary tests require no internet, API key, or paid provider call:
+All ordinary V0 and V1 tests require no internet, API key, or paid provider call:
 
 ```bash
 uv run pytest
@@ -131,18 +190,41 @@ milestones pass review.
 enterprise-ai-knowledge-action-agent/
 ├── docs/
 │   ├── adr/
-│   │   └── 0001-primary-llm-provider.md
-│   └── project-kickoff-approved-1.0.md
+│   │   ├── 0001-primary-llm-provider.md
+│   │   └── 0002-trusted-demo-identity.md
+│   ├── project-kickoff-approved-1.0.md
+│   └── v1-implementation-notes.md
 ├── src/
 │   └── app/
+│       ├── api/
+│       │   ├── routes/
+│       │   │   ├── chat.py
+│       │   │   ├── health.py
+│       │   │   └── me.py
+│       │   ├── application.py
+│       │   ├── dependencies.py
+│       │   ├── errors.py
+│       │   └── models.py
 │       ├── __init__.py
 │       ├── config.py
+│       ├── errors.py
+│       ├── identity.py
 │       ├── main.py
-│       └── llm/
-│           ├── __init__.py
-│           ├── client.py
-│           └── models.py
+│       ├── llm/
+│       │   ├── __init__.py
+│       │   ├── client.py
+│       │   └── models.py
+│       ├── repositories/
+│       │   └── demo.py
+│       └── services/
+│           ├── chat.py
+│           ├── employee.py
+│           └── it.py
 ├── tests/
+│   ├── api/
+│   │   ├── test_health_and_chat.py
+│   │   ├── test_identity_and_me.py
+│   │   └── test_openapi_and_errors.py
 │   ├── test_llm_client.py
 │   └── test_models.py
 ├── .env.example
@@ -153,14 +235,16 @@ enterprise-ai-knowledge-action-agent/
 └── README.md
 ```
 
-The provider ADR exists because selecting the previously unresolved V0 provider is a consequential
-decision. No directories have been created for future milestone functionality.
+ADRs record only the consequential provider and trusted-identity decisions. No directories have been
+created for future milestone functionality.
 
 ## Current limitations
 
-V0 classifies and summarizes one question at a time. It has no conversation persistence, company
-knowledge, business-system access, user authentication, HTTP API, or user interface.
+V1 remains a local portfolio backend. Identity uses fixed synthetic sessions rather than OAuth,
+OIDC, SSO, or production RBAC. Employee data is fictitious and in memory; it resets with the process.
+The chat endpoint remains a single structured LLM request with no conversation persistence or
+company-knowledge grounding.
 
-V0 explicitly does **not** contain FastAPI, RAG, embeddings, agents, tool calling, LangGraph,
-LangChain, PostgreSQL, pgvector, vector databases, MCP, Docker application images, multi-agent
-systems, or frontend frameworks. Those capabilities remain outside this milestone.
+V1 explicitly does **not** contain RAG, embeddings, agents, tool calling, LangGraph, LangChain,
+PostgreSQL, pgvector, vector databases, business writes, MCP, Docker application images, multi-agent
+systems, enterprise integrations, or a frontend. Those capabilities remain outside this milestone.
