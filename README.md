@@ -7,6 +7,24 @@ schema validation.
 V0 is an engineering foundation, not the finished enterprise assistant. The approved product plan is
 in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
 
+## Milestone Status
+
+| Milestone | Status |
+|---|---|
+| V0 — Python + LLM API | ✅ Complete |
+| V1 — FastAPI | Not started |
+| V2 — RAG | Not started |
+| V3 — Agent + Tools | Not started |
+| V4 — LangGraph + HITL | Not started |
+| V5 — Evaluation + Deployment | Not started |
+
+### V0 Verification
+
+- Tests: **23 passed**
+- Ruff lint: **passed**
+- Ruff format check: **passed**
+- Live Gemini structured-output smoke test: **passed**
+
 ## What V0 demonstrates
 
 - a Python 3.12+ `src` project layout;
@@ -78,6 +96,34 @@ uv run ruff format --check .
 
 There is no live-provider test in the automated suite. A manual run of the CLI is the explicit live
 smoke test when credentials are available.
+
+## Development Workflow
+
+```text
+feature branch
+      ↓
+develop
+      ↓
+milestone implementation + engineering review
+      ↓
+main
+      ↓
+annotated tag
+      ↓
+GitHub Release
+```
+
+- Feature branches originate from `develop` and remain short-lived.
+- Completed milestone work integrates into `develop`.
+- After milestone implementation and engineering review pass, milestone-complete code merges to
+  `main`.
+- Each completed milestone on `main` receives an annotated version tag and a GitHub Release.
+- Pull Requests may be used as review checkpoints in this solo project, but are not mandatory for
+  every small documentation change.
+
+Planned release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, V3 → `v0.4.0`,
+V4 → `v0.5.0`, and portfolio-ready V5 → `v1.0.0`. Future tags are created only when their
+milestones pass review.
 
 ## Project structure
 
