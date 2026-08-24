@@ -1,12 +1,15 @@
-"""Minimal command-line interface for the V0 structured LLM call."""
+"""ASGI application and preserved V0 command-line interface."""
 
 import argparse
 import sys
 from collections.abc import Sequence
 
+from app.api.application import create_app
 from app.config import ConfigurationError, load_settings
 from app.llm.client import GeminiStructuredClient, LLMClientError
 from app.llm.models import QuestionAnalysis
+
+app = create_app()
 
 
 def build_parser() -> argparse.ArgumentParser:

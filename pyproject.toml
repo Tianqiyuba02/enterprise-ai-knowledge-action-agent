@@ -4,14 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "enterprise-ai-knowledge-action-agent"
-version = "0.1.0"
-description = "V0 structured LLM CLI for the Enterprise AI Knowledge & Action Agent"
+version = "0.2.0"
+description = "Enterprise AI Knowledge & Action Agent backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.141.1,<1",
     "google-genai>=2.19.0,<3",
+    "httpx>=0.28.1,<1",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
+    "uvicorn>=0.52.4,<1",
 ]
 
 [project.scripts]
@@ -19,6 +22,7 @@ enterprise-ai = "app.main:run"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.12.0,<3",
     "pytest>=9.1.1,<10",
     "ruff>=0.16.4,<1",
 ]
