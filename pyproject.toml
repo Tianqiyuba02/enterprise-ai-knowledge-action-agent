@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1,<1",
     "google-genai>=2.19.0,<3",
+    "httpx>=0.28.1,<1",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
     "uvicorn>=0.52.4,<1",

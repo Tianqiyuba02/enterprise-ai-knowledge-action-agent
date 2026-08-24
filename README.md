@@ -1,8 +1,9 @@
 # Enterprise AI Knowledge & Action Agent
 
 This repository contains the released **Product Milestone V0** LLM foundation and the
-review-candidate implementation of **Product Milestone V1**: a small FastAPI backend with typed REST
-contracts and a trusted synthetic employee-identity boundary.
+release-candidate implementation of **Product Milestone V1**: a small FastAPI backend with typed
+REST contracts and a trusted synthetic employee-identity boundary. V1 has passed final engineering
+review but has not yet been released.
 
 This is not yet the finished enterprise assistant. The approved product plan is in
 [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -12,7 +13,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | Milestone | Status |
 |---|---|
 | V0 — Python + LLM API | ✅ Complete |
-| V1 — FastAPI | Implementation complete; awaiting engineering review |
+| V1 — FastAPI | Release candidate; final review passed |
 | V2 — RAG | Not started |
 | V3 — Agent + Tools | Not started |
 | V4 — LangGraph + HITL | Not started |
@@ -27,10 +28,10 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 
 ### V1 Implementation Verification
 
-- Tests: **41 passed** (23 preserved V0 tests + 18 V1 tests)
+- Tests: **42 passed** (23 preserved V0 tests + 19 V1 tests)
 - Ruff lint: **passed**
 - Ruff format check: **passed**
-- API and OpenAPI smoke checks: **passed**
+- API, OpenAPI, and manual validation: **passed**
 
 ## What V0 demonstrates
 

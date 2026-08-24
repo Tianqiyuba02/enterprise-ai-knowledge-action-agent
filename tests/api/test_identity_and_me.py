@@ -46,6 +46,19 @@ def test_request_body_cannot_override_authenticated_employee(api_client: TestCli
     assert response.json()["employee_id"] == "EMP-1001"
 
 
+def test_query_parameter_cannot_override_authenticated_employee(
+    api_client: TestClient,
+) -> None:
+    response = api_client.get(
+        "/api/v1/me/profile?employee_id=EMP-1002",
+        headers=PRIMARY_SESSION,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_id"] == "EMP-1001"
+    assert response.json()["full_name"] == "Alex Morgan"
+
+
 def test_leave_balances_are_scoped_to_authenticated_employee(api_client: TestClient) -> None:
     primary = api_client.get("/api/v1/me/leave/balances", headers=PRIMARY_SESSION)
     secondary = api_client.get("/api/v1/me/leave/balances", headers=SECONDARY_SESSION)
