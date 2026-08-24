@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enterprise-ai-knowledge-action-agent"
+version = "0.1.0"
+description = "V0 structured LLM CLI for the Enterprise AI Knowledge & Action Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=2.19.0,<3",
+    "pydantic>=2.13.4,<3",
+    "pydantic-settings>=2.15.0,<3",
+]
+
+[project.scripts]
+enterprise-ai = "app.main:run"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.4,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/app"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
