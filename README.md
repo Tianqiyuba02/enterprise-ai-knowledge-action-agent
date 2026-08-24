@@ -13,7 +13,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 |---|---|
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
-| V2 — RAG | Not started |
+| V2 — RAG | In progress — database foundation |
 | V3 — Agent + Tools | Not started |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
