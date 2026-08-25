@@ -2,12 +2,12 @@
 
 ## Current stage
 
-Product Milestone V3 — Agent + Tools is in Stage 0 architecture/capability definition on
+Product Milestone V3 — Agent + Tools has completed Stage 1 deterministic read-tool dispatch on
 `feature/v3-agent-tools`, based on released V2 develop commit
 `0121bbab58b7c0e7b47b09f8c3cbaf029abd6182`.
 
-No agent loop, tool dispatch, public assistant endpoint, preparation handler, persistence, or
-execution path exists yet.
+No agent loop, public assistant endpoint, preparation handler, persistence, or execution path
+exists yet.
 
 ## Provider capability
 
@@ -39,11 +39,30 @@ capability checks. No synthetic function was executed and no business state was 
 
 ADR 0005 records the full trust, read/prepare, loop, endpoint, and V4 deferral decisions.
 
-## Recommended Stage 1 scope
+## Stage 1 deterministic read-tool layer
 
-Implement only the bounded provider request/response adapter, strict tool-call schemas, registry
-lookup, deterministic read-tool dispatch over existing services, and mocked loop tests. Add the
-authenticated assistant route only after those internal boundaries pass.
+The immutable registry contains exactly `knowledge_query`, `get_my_profile`,
+`get_my_leave_balances`, and `get_my_ticket`. Each contract owns a strict Pydantic argument model,
+read classification, provider-safe description, and fixed handler key. Provider declarations are
+generated only from these trusted contracts.
+
+`ToolDispatcher` receives `AuthenticatedEmployeeContext` from application code, validates a
+provider-neutral name/arguments object, and calls the existing employee, IT, or V2 knowledge
+service directly. Knowledge applicability remains server-derived. Cross-user and absent tickets
+produce the same `not_found_or_inaccessible` envelope.
+
+Success data is narrowed into profile, leave, ticket, or knowledge models without employee IDs or
+internal document/chunk IDs. Every result is marked `untrusted_data=true`. Validation,
+not-found/inaccessible, temporary/provider availability, budget, and internal failures are bounded
+typed data; raw infrastructure details are discarded.
+
+There is no automatic chaining, model invocation, public route, or SDK dispatch in Stage 1.
+
+## Recommended Stage 2 scope
+
+Implement the bounded provider request/response adapter and one linear model→validated call→manual
+dispatch→typed result→model cycle with hard budget enforcement and mocked loop tests. Add the
+authenticated assistant route only after that internal loop passes.
 
 Leave calculation, typed preparation tools, and multi-tool user journeys should follow in later V3
 stages. Execution, confirmation, proposal persistence, idempotency, audit, and LangGraph remain V4.
@@ -57,3 +76,13 @@ stages. Execution, confirmation, proposal persistence, idempotency, audit, and L
 
 Released V1/V2 routes, services, corpus, evaluation data, prompts, model boundaries, and persistence
 were not modified.
+
+## Stage 1 verification
+
+- ordinary provider-free suite: 205 passed, 39 explicitly gated PostgreSQL tests skipped;
+- all V3 configuration/registry/dispatch tests: 25 passed;
+- Ruff lint and format checks: passed; and
+- Alembic head remains `0001_v2_knowledge` with no V3 migration.
+
+No agent loop, public assistant route, prepare tool, write path, proposal, confirmation, LangGraph,
+or V4 behavior was added.
