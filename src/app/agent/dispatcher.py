@@ -5,12 +5,14 @@ import re
 from pydantic import ValidationError
 
 from app.agent.contracts import V3_TOOL_ALLOWLIST, ToolHandlerName, V3ToolName
+from app.agent.leave_models import PrepareLeaveRequestArguments
 from app.agent.models import (
     GetMyTicketArguments,
     KnowledgeQueryArguments,
     KnowledgeToolData,
     LeaveBalancesToolData,
     LeaveBalanceToolItem,
+    PreparedLeaveRequestToolData,
     ProfileToolData,
     ProviderToolRequest,
     TicketToolData,
@@ -28,6 +30,10 @@ from app.knowledge.query_service import KnowledgeQueryService
 from app.repositories.demo import DemoRepository
 from app.services.employee import EmployeeService
 from app.services.it import ITService
+from app.services.leave_preparation import (
+    LeavePreparationService,
+    LeavePreparationUnavailableError,
+)
 
 
 class ToolDispatcher:
@@ -40,11 +46,15 @@ class ToolDispatcher:
         it_service: ITService,
         knowledge_service: KnowledgeQueryService,
         demo_repository: DemoRepository,
+        leave_preparation_service: LeavePreparationService | None = None,
     ) -> None:
         self._employee_service = employee_service
         self._it_service = it_service
         self._knowledge_service = knowledge_service
         self._demo_repository = demo_repository
+        self._leave_preparation_service = leave_preparation_service or LeavePreparationService(
+            employee_service
+        )
 
     def dispatch(
         self,
@@ -88,6 +98,12 @@ class ToolDispatcher:
                     KnowledgeQueryArguments.model_validate(validated_arguments),
                     context,
                 )
+            if contract.handler is ToolHandlerName.PREPARE_LEAVE_REQUEST:
+                return self._prepare_leave_request(
+                    canonical_name,
+                    PrepareLeaveRequestArguments.model_validate(validated_arguments),
+                    context,
+                )
             return ToolResult.failure(
                 canonical_name.value,
                 ToolResultStatus.INTERNAL_ERROR,
@@ -104,6 +120,12 @@ class ToolDispatcher:
                 canonical_name.value,
                 ToolResultStatus.TEMPORARILY_UNAVAILABLE,
                 "The requested data is temporarily unavailable.",
+            )
+        except LeavePreparationUnavailableError:
+            return ToolResult.failure(
+                canonical_name.value,
+                ToolResultStatus.TEMPORARILY_UNAVAILABLE,
+                "Leave preparation data is temporarily unavailable.",
             )
         except (EmbeddingClientError, GroundedGenerationError):
             return ToolResult.failure(
@@ -200,6 +222,18 @@ class ToolDispatcher:
                 answer=response.answer,
                 citations=response.citations,
             ),
+        )
+
+    def _prepare_leave_request(
+        self,
+        tool_name: V3ToolName,
+        arguments: PrepareLeaveRequestArguments,
+        context: AuthenticatedEmployeeContext,
+    ) -> ToolResult:
+        draft = self._leave_preparation_service.prepare(arguments, context)
+        return ToolResult.success(
+            tool_name.value,
+            PreparedLeaveRequestToolData(draft=draft),
         )
 
 

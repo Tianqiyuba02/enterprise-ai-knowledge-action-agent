@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
@@ -9,6 +12,10 @@ from app.agent.client import (
 )
 from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
 from app.agent.dispatcher import ToolDispatcher
+from app.agent.leave_models import (
+    LeavePreparationStatus,
+    LeaveRequestDraft,
+)
 from app.agent.loop_models import (
     MAX_AGENT_CITATIONS,
     AgentModelTurn,
@@ -19,6 +26,7 @@ from app.agent.models import (
     KnowledgeToolData,
     LeaveBalancesToolData,
     LeaveBalanceToolItem,
+    PreparedLeaveRequestToolData,
     ProfileToolData,
     TicketToolData,
     ToolResult,
@@ -31,6 +39,13 @@ from app.identity import AuthenticatedEmployeeContext
 from app.repositories.demo import DemoRepository
 
 CONTEXT = AuthenticatedEmployeeContext(employee_id="EMP-1001")
+TRUSTED_TODAY = date(2026, 8, 26)
+
+
+@dataclass
+class FixedClock:
+    def today(self) -> date:
+        return TRUSTED_TODAY
 
 
 class FakeSession:
@@ -52,9 +67,11 @@ class FakeProvider:
     def __init__(self, session: FakeSession):
         self.session = session
         self.messages: list[str] = []
+        self.trusted_dates: list[date] = []
 
-    def start(self, user_message: str):
+    def start(self, user_message: str, trusted_today: date):
         self.messages.append(user_message)
+        self.trusted_dates.append(trusted_today)
         return self.session
 
 
@@ -101,6 +118,30 @@ def _leave_result() -> ToolResult:
     )
 
 
+def _prepared_result(
+    requested_hours: str,
+    projected_hours: str,
+) -> ToolResult:
+    return ToolResult.success(
+        "prepare_leave_request",
+        PreparedLeaveRequestToolData(
+            draft=LeaveRequestDraft(
+                leave_type="annual",
+                start_date=date(2026, 8, 28),
+                end_date=date(2026, 8, 28),
+                scheduled_work_days=1,
+                requested_hours=Decimal(requested_hours),
+                current_balance_hours=Decimal("76.00"),
+                projected_balance_hours=Decimal(projected_hours),
+                preparation_status=LeavePreparationStatus.READY,
+                reason=None,
+                public_holiday_check_required=True,
+                non_executing=True,
+            )
+        ),
+    )
+
+
 def _knowledge_result() -> ToolResult:
     return ToolResult.success(
         "knowledge_query",
@@ -142,7 +183,11 @@ def _service(turns, dispatcher: Mock | None = None):
     session = FakeSession(turns)
     provider = FakeProvider(session)
     resolved_dispatcher = dispatcher or Mock(spec=ToolDispatcher)
-    service = AgentService(provider=provider, dispatcher=resolved_dispatcher)
+    service = AgentService(
+        provider=provider,
+        dispatcher=resolved_dispatcher,
+        clock=FixedClock(),
+    )
     return service, provider, session, resolved_dispatcher
 
 
@@ -159,6 +204,7 @@ def test_no_tool_returns_final_text_without_dispatch() -> None:
     assert result.model_rounds == 1
     assert result.citations == ()
     assert provider.messages == ["Hello"]
+    assert provider.trusted_dates == [TRUSTED_TODAY]
     dispatcher.dispatch.assert_not_called()
 
 
@@ -468,6 +514,116 @@ def test_knowledge_citations_are_application_owned_and_deduplicated() -> None:
     serialized = result.model_dump_json()
     assert "provider_call_id" not in serialized
     assert "call-1" not in serialized
+
+
+def test_latest_successful_prepare_result_is_structured_truth() -> None:
+    dispatcher = Mock(spec=ToolDispatcher)
+    dispatcher.dispatch.side_effect = [
+        _prepared_result("7.60", "68.40"),
+        _prepared_result("15.20", "60.80"),
+    ]
+    service, _provider, _session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        {
+                            "leave_type": "annual",
+                            "start_date": "2026-08-28",
+                            "end_date": "2026-08-28",
+                        },
+                        "call-1",
+                    ),
+                    _call(
+                        "prepare_leave_request",
+                        {
+                            "leave_type": "annual",
+                            "start_date": "2026-08-28",
+                            "end_date": "2026-08-31",
+                        },
+                        "call-2",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="I prepared 80 hours."),
+        ],
+        dispatcher,
+    )
+
+    result = service.run("Prepare and revise my leave.", CONTEXT)
+
+    assert result.status is AgentRunStatus.COMPLETED
+    assert result.answer == "I prepared 80 hours."
+    assert result.prepared_leave_request.requested_hours == Decimal("15.20")
+    assert result.prepared_leave_request.projected_balance_hours == Decimal("60.80")
+
+
+def test_identity_remains_fixed_across_read_and_prepare_calls() -> None:
+    dispatcher = Mock(spec=ToolDispatcher)
+    dispatcher.dispatch.side_effect = [
+        _leave_result(),
+        _prepared_result("7.60", "68.40"),
+    ]
+    service, _provider, _session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call("get_my_leave_balances", {}, "call-1"),
+                    _call(
+                        "prepare_leave_request",
+                        {
+                            "leave_type": "annual",
+                            "start_date": "2026-08-28",
+                            "end_date": "2026-08-28",
+                        },
+                        "call-2",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="Prepared."),
+        ],
+        dispatcher,
+    )
+
+    result = service.run("Read my balance and prepare leave.", CONTEXT)
+
+    assert result.prepared_leave_request.current_balance_hours == Decimal("76.00")
+    assert [call.kwargs["context"] for call in dispatcher.dispatch.call_args_list] == [
+        CONTEXT,
+        CONTEXT,
+    ]
+    assert all(
+        "employee_id" not in call.kwargs["arguments"] for call in dispatcher.dispatch.call_args_list
+    )
+
+
+def test_failed_later_prepare_does_not_erase_successful_draft() -> None:
+    dispatcher = Mock(spec=ToolDispatcher)
+    dispatcher.dispatch.side_effect = [
+        _prepared_result("7.60", "68.40"),
+        ToolResult.failure(
+            "prepare_leave_request",
+            ToolResultStatus.INVALID_ARGUMENTS,
+            "The leave request draft arguments were invalid.",
+        ),
+    ]
+    service, _provider, _session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call("prepare_leave_request", {}, "call-1"),
+                    _call("prepare_leave_request", {}, "call-2"),
+                )
+            ),
+            AgentModelTurn(final_text="The second draft failed."),
+        ],
+        dispatcher,
+    )
+
+    result = service.run("Prepare leave.", CONTEXT)
+
+    assert result.prepared_leave_request.requested_hours == Decimal("7.60")
 
 
 def test_completed_result_caps_citations_at_first_seen_24() -> None:

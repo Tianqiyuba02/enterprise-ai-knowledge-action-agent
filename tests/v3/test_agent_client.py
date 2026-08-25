@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -162,7 +163,7 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
         _settings(),
         _agent_settings(),
         sdk_client=sdk_client,
-    ).start("What is my work email?")
+    ).start("What is my work email?", date(2026, 8, 26))
 
     first_turn = session.next()
     second_turn = session.next(
@@ -180,6 +181,8 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
     assert first_call.kwargs["model"] == "gemini-3.6-flash"
     assert first_call.kwargs["config"].automatic_function_calling.disable is True
     assert "UNTRUSTED DATA" in first_call.kwargs["config"].system_instruction
+    assert "2026-08-26" in first_call.kwargs["config"].system_instruction
+    assert "Preparation does not" in first_call.kwargs["config"].system_instruction
     second_contents = sdk_client.models.generate_content.call_args_list[1].kwargs["contents"]
     assert [content.role for content in second_contents] == ["user", "model", "tool"]
 
@@ -193,7 +196,7 @@ def test_provider_timeout_is_safe() -> None:
         _settings(),
         _agent_settings(),
         sdk_client=sdk_client,
-    ).start("Hello")
+    ).start("Hello", date(2026, 8, 26))
 
     with pytest.raises(AgentProviderTimeoutError) as captured:
         session.next()

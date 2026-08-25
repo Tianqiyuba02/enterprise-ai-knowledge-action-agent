@@ -256,3 +256,49 @@ streaming, write path, proposal, confirmation, LangGraph, HITL, or V4 execution 
 
 No prepare capability, write path, persistent state, proposal, confirmation, LangGraph, HITL, or V4
 execution behavior was added.
+
+## Stage 4 deterministic annual-leave preparation
+
+The immutable registry now adds exactly one `PREPARE` tool:
+
+```text
+prepare_leave_request(leave_type="annual", start_date, end_date, reason?)
+```
+
+Arguments require strict ISO dates, an inclusive range of at most 31 calendar days, annual leave
+only, and an optional nonempty 500-character reason. Employee ID, schedule, hours, balance,
+jurisdiction, approval, submission, and execution fields are forbidden.
+
+`LeavePreparationService` reads the authenticated employee's profile and annual balance through the
+existing employee service. It counts only configured scheduled weekdays and uses Decimal arithmetic:
+
+```text
+requested_hours = scheduled_work_days × trusted hours_per_day
+projected_balance = trusted balance - requested_hours
+```
+
+The immutable draft reports `ready`, `insufficient_balance`, or `no_scheduled_workdays`, plus
+current/projected hours, the optional reason, and `non_executing=true`. Because no authoritative
+Victorian holiday calendar exists, drafts with scheduled days set
+`public_holiday_check_required=true`; no holiday is guessed.
+
+The successful draft is typed `ToolResult` data and remains untrusted provider-visible content.
+`AgentRunResult` separately retains the latest successful deterministic draft; a failed later
+prepare does not erase it. Public `prepared_action` is explicitly mapped from that draft, never
+parsed from model prose. The action type is `leave_request`, contains no IDs/tokens/approval state,
+and remains structurally non-executing.
+
+The trusted Melbourne date is included in the agent system instruction by application-controlled
+clock input so conversational dates can become explicit ISO tool arguments. Local validation and
+calculation remain authoritative.
+
+A separate “yes, submit it” request has no prior draft memory and no execution tool, so it cannot
+submit anything. No balance/profile/repository state changes during preparation or repeated calls.
+
+### Live preparation smoke
+
+One bounded authenticated request reached the reviewed safe HTTP 503
+`assistant_model_unavailable` path. No retry, draft claim, persistence, or mutation occurred.
+
+Stage 4 adds no ticket preparation, submission, approval, conversation memory, persisted proposal,
+confirmation endpoint, LangGraph, HITL, or V4 execution path.

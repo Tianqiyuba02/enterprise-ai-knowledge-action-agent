@@ -7,6 +7,7 @@ from typing import Final
 
 from pydantic import BaseModel
 
+from app.agent.leave_models import PrepareLeaveRequestArguments
 from app.agent.models import GetMyTicketArguments, KnowledgeQueryArguments, NoToolArguments
 
 MAX_TOOL_CALLS_PER_TURN: Final = 5
@@ -17,6 +18,7 @@ class V3ToolName(StrEnum):
     GET_MY_PROFILE = "get_my_profile"
     GET_MY_LEAVE_BALANCES = "get_my_leave_balances"
     GET_MY_TICKET = "get_my_ticket"
+    PREPARE_LEAVE_REQUEST = "prepare_leave_request"
 
 
 class ToolCapability(StrEnum):
@@ -29,6 +31,7 @@ class ToolHandlerName(StrEnum):
     GET_MY_PROFILE = "get_my_profile"
     GET_MY_LEAVE_BALANCES = "get_my_leave_balances"
     GET_MY_TICKET = "get_my_ticket"
+    PREPARE_LEAVE_REQUEST = "prepare_leave_request"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,16 @@ V3_TOOL_ALLOWLIST: Final = MappingProxyType(
             ),
             argument_model=GetMyTicketArguments,
             handler=ToolHandlerName.GET_MY_TICKET,
+        ),
+        V3ToolName.PREPARE_LEAVE_REQUEST: ToolContract(
+            name=V3ToolName.PREPARE_LEAVE_REQUEST,
+            capability=ToolCapability.PREPARE,
+            description=(
+                "Build one annual leave draft from trusted schedule and balance data. "
+                "The draft changes no business state."
+            ),
+            argument_model=PrepareLeaveRequestArguments,
+            handler=ToolHandlerName.PREPARE_LEAVE_REQUEST,
         ),
     }
 )

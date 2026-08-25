@@ -1,5 +1,6 @@
 """Bounded single-turn V3 read-agent orchestration over deterministic dispatch."""
 
+from datetime import date
 from typing import Protocol
 
 from app.agent.client import (
@@ -9,6 +10,7 @@ from app.agent.client import (
 )
 from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
 from app.agent.dispatcher import ToolDispatcher
+from app.agent.leave_models import LeaveRequestDraft
 from app.agent.loop_models import (
     MAX_AGENT_CITATIONS,
     AgentModelTurn,
@@ -16,9 +18,15 @@ from app.agent.loop_models import (
     AgentRunStatus,
     AgentToolResponse,
 )
-from app.agent.models import KnowledgeToolData, ToolResult, ToolResultStatus
+from app.agent.models import (
+    KnowledgeToolData,
+    PreparedLeaveRequestToolData,
+    ToolResult,
+    ToolResultStatus,
+)
 from app.api.knowledge_models import KnowledgeCitation
 from app.identity import AuthenticatedEmployeeContext
+from app.knowledge.clock import MelbourneClock, TrustedClock
 
 MAX_MODEL_ROUNDS_PER_TURN = 7
 
@@ -31,7 +39,11 @@ class AgentProviderSession(Protocol):
 
 
 class AgentProviderClient(Protocol):
-    def start(self, user_message: str) -> AgentProviderSession: ...
+    def start(
+        self,
+        user_message: str,
+        trusted_today: date,
+    ) -> AgentProviderSession: ...
 
 
 class AgentService:
@@ -42,9 +54,11 @@ class AgentService:
         *,
         provider: AgentProviderClient,
         dispatcher: ToolDispatcher,
+        clock: TrustedClock | None = None,
     ) -> None:
         self._provider = provider
         self._dispatcher = dispatcher
+        self._clock = clock or MelbourneClock()
 
     def run(
         self,
@@ -58,7 +72,7 @@ class AgentService:
             return _unable("The assistant request was too long.", tool_calls=0, rounds=0)
 
         try:
-            session = self._provider.start(cleaned_message)
+            session = self._provider.start(cleaned_message, self._clock.today())
         except AgentProviderRateLimitError:
             return _provider_rate_limited(tool_calls=0, rounds=0)
         except AgentProviderError:
@@ -74,6 +88,7 @@ class AgentService:
         citations: list[KnowledgeCitation] = []
         citation_identities: set[tuple[str, str, str, str, int | None]] = set()
         tool_calls_attempted = 0
+        prepared_leave_request: LeaveRequestDraft | None = None
 
         for model_round in range(1, MAX_MODEL_ROUNDS_PER_TURN + 1):
             try:
@@ -83,6 +98,7 @@ class AgentService:
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
+                    prepared_leave_request=prepared_leave_request,
                 )
             except InvalidAgentProviderResponseError:
                 return _unable(
@@ -90,12 +106,14 @@ class AgentService:
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
+                    prepared_leave_request=prepared_leave_request,
                 )
             except AgentProviderError:
                 return _provider_unavailable(
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
+                    prepared_leave_request=prepared_leave_request,
                 )
             except Exception:
                 return _unable(
@@ -103,6 +121,7 @@ class AgentService:
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
+                    prepared_leave_request=prepared_leave_request,
                 )
             pending_responses = ()
 
@@ -111,6 +130,7 @@ class AgentService:
                     status=AgentRunStatus.COMPLETED,
                     answer=turn.final_text,
                     citations=tuple(citations),
+                    prepared_leave_request=prepared_leave_request,
                     tool_calls_attempted=tool_calls_attempted,
                     model_rounds=model_round,
                 )
@@ -124,6 +144,7 @@ class AgentService:
                     return AgentRunResult(
                         status=AgentRunStatus.TOOL_BUDGET_EXHAUSTED,
                         citations=tuple(citations),
+                        prepared_leave_request=prepared_leave_request,
                         safe_message="The assistant reached its tool-call limit.",
                         tool_calls_attempted=tool_calls_attempted,
                         model_rounds=model_round,
@@ -142,6 +163,10 @@ class AgentService:
                         "The tool could not complete the request.",
                     )
                 _collect_citations(result, citations, citation_identities)
+                if result.status is ToolResultStatus.SUCCESS and isinstance(
+                    result.data, PreparedLeaveRequestToolData
+                ):
+                    prepared_leave_request = result.data.draft
                 responses.append(
                     AgentToolResponse(
                         name=_function_response_name(
@@ -159,6 +184,7 @@ class AgentService:
             tool_calls=tool_calls_attempted,
             rounds=MAX_MODEL_ROUNDS_PER_TURN,
             citations=tuple(citations),
+            prepared_leave_request=prepared_leave_request,
         )
 
 
@@ -199,10 +225,12 @@ def _unable(
     tool_calls: int,
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
+    prepared_leave_request: LeaveRequestDraft | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.UNABLE_TO_COMPLETE,
         citations=citations,
+        prepared_leave_request=prepared_leave_request,
         safe_message=message,
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
@@ -214,10 +242,12 @@ def _provider_unavailable(
     tool_calls: int,
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
+    prepared_leave_request: LeaveRequestDraft | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_UNAVAILABLE,
         citations=citations,
+        prepared_leave_request=prepared_leave_request,
         safe_message="The assistant provider is temporarily unavailable.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
@@ -229,10 +259,12 @@ def _provider_rate_limited(
     tool_calls: int,
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
+    prepared_leave_request: LeaveRequestDraft | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_RATE_LIMITED,
         citations=citations,
+        prepared_leave_request=prepared_leave_request,
         safe_message="The assistant provider is busy. Please try again later.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,

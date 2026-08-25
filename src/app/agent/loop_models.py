@@ -6,6 +6,7 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.agent.leave_models import LeaveRequestDraft
 from app.agent.models import ToolResult
 from app.api.knowledge_models import KnowledgeCitation
 
@@ -59,6 +60,7 @@ class AgentRunResult(BaseModel):
     status: AgentRunStatus
     answer: AgentText | None = None
     citations: tuple[KnowledgeCitation, ...] = Field(max_length=MAX_AGENT_CITATIONS)
+    prepared_leave_request: LeaveRequestDraft | None = None
     safe_message: str | None = None
     tool_calls_attempted: Annotated[int, Field(ge=0, le=5)]
     model_rounds: Annotated[int, Field(ge=0, le=7)]

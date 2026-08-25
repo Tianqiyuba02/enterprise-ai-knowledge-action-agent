@@ -28,6 +28,7 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "KnowledgeQueryRequest",
         "KnowledgeQueryResponse",
         "LeaveBalancesResponse",
+        "PreparedLeaveRequestAction",
         "TicketResponse",
     } <= component_names
     chat_properties = schema["components"]["schemas"]["ChatRequest"]["properties"]
@@ -39,6 +40,16 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     assert any(parameter["name"] == "X-Demo-Session" for parameter in knowledge_parameters)
     assistant_properties = schema["components"]["schemas"]["AssistantQueryRequest"]["properties"]
     assert set(assistant_properties) == {"message"}
+    assistant_response_properties = schema["components"]["schemas"]["AssistantQueryResponse"][
+        "properties"
+    ]
+    assert set(assistant_response_properties) == {
+        "status",
+        "answer",
+        "citations",
+        "message",
+        "prepared_action",
+    }
     assistant_parameters = schema["paths"]["/api/v1/assistant/query"]["post"]["parameters"]
     assert any(parameter["name"] == "X-Demo-Session" for parameter in assistant_parameters)
     assert not any(

@@ -15,6 +15,7 @@ from app.errors import InvalidDemoSessionError
 from app.grounding.client import GeminiGroundedGenerationClient
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.applicability import resolve_knowledge_applicability
+from app.knowledge.clock import MelbourneClock
 from app.knowledge.context import KnowledgeApplicabilityContext
 from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.repository import KnowledgeRetrievalRepository
@@ -24,6 +25,7 @@ from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
+from app.services.leave_preparation import LeavePreparationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
 DEMO_SESSIONS: Final = MappingProxyType(
@@ -106,11 +108,14 @@ def get_agent_service(
     if service is None:
         settings = load_settings()
         repository = get_demo_repository(request)
+        clock = MelbourneClock()
+        employee_service = get_employee_service(request)
         dispatcher = ToolDispatcher(
-            employee_service=get_employee_service(request),
+            employee_service=employee_service,
             it_service=get_it_service(request),
             knowledge_service=get_knowledge_query_service(request),
             demo_repository=repository,
+            leave_preparation_service=LeavePreparationService(employee_service),
         )
         service = AgentService(
             provider=GeminiAgentClient(
@@ -118,6 +123,7 @@ def get_agent_service(
                 load_agent_settings(),
             ),
             dispatcher=dispatcher,
+            clock=clock,
         )
         request.app.state.agent_service = service
     return service

@@ -1,10 +1,13 @@
 from collections.abc import Iterator
+from datetime import date
+from decimal import Decimal
 from typing import cast
 from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
 from app.agent.service import AgentService
 from app.api.application import create_app
@@ -41,6 +44,22 @@ def _completed(
         citations=(_citation(),),
         tool_calls_attempted=2,
         model_rounds=2,
+    )
+
+
+def _draft() -> LeaveRequestDraft:
+    return LeaveRequestDraft(
+        leave_type="annual",
+        start_date=date(2026, 8, 28),
+        end_date=date(2026, 8, 28),
+        scheduled_work_days=1,
+        requested_hours=Decimal("7.60"),
+        current_balance_hours=Decimal("76.00"),
+        projected_balance_hours=Decimal("68.40"),
+        preparation_status=LeavePreparationStatus.READY,
+        reason="Synthetic holiday",
+        public_holiday_check_required=True,
+        non_executing=True,
     )
 
 
@@ -158,8 +177,15 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
             }
         ],
         "message": None,
+        "prepared_action": None,
     }
-    assert set(response.json()) == {"status", "answer", "citations", "message"}
+    assert set(response.json()) == {
+        "status",
+        "answer",
+        "citations",
+        "message",
+        "prepared_action",
+    }
     for forbidden in (
         "tool_calls_attempted",
         "model_rounds",
@@ -171,6 +197,45 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
         "confidence",
     ):
         assert forbidden not in response.text
+
+
+def test_prepared_action_uses_deterministic_draft_not_model_prose(
+    assistant_api_client: tuple[TestClient, Mock],
+) -> None:
+    client, service = assistant_api_client
+    service.run.return_value = AgentRunResult(
+        status=AgentRunStatus.COMPLETED,
+        answer="I prepared 80 hours of leave.",
+        citations=(),
+        prepared_leave_request=_draft(),
+        tool_calls_attempted=1,
+        model_rounds=2,
+    )
+
+    response = client.post(
+        "/api/v1/assistant/query",
+        headers=PRIMARY_SESSION,
+        json={"message": "Prepare leave for Friday."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "I prepared 80 hours of leave."
+    assert response.json()["prepared_action"] == {
+        "type": "leave_request",
+        "leave_type": "annual",
+        "start_date": "2026-08-28",
+        "end_date": "2026-08-28",
+        "scheduled_work_days": 1,
+        "requested_hours": 7.6,
+        "current_balance_hours": 76.0,
+        "projected_balance_hours": 68.4,
+        "preparation_status": "ready",
+        "reason": "Synthetic holiday",
+        "public_holiday_check_required": True,
+        "non_executing": True,
+    }
+    assert "employee_id" not in response.text
+    assert "proposal" not in response.text.lower()
 
 
 @pytest.mark.parametrize(
@@ -205,6 +270,7 @@ def test_bounded_inability_maps_to_one_safe_public_status(
         "answer": None,
         "citations": [_citation().model_dump(mode="json")],
         "message": "The assistant could not complete the request.",
+        "prepared_action": None,
     }
     assert "budget" not in response.text.lower()
     assert "round" not in response.text.lower()

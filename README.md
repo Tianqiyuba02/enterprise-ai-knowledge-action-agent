@@ -14,7 +14,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
-| V3 — Agent + Tools | In progress — authenticated read assistant |
+| V3 — Agent + Tools | In progress — read + leave-prepare assistant |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
 
@@ -170,7 +170,7 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 | `GET` | `/api/v1/health` | Typed liveness response |
 | `POST` | `/api/v1/chat` | Existing schema-validated Gemini capability |
 | `POST` | `/api/v1/knowledge/query` | Authenticated grounded policy answer with citations |
-| `POST` | `/api/v1/assistant/query` | Authenticated bounded read-agent orchestration |
+| `POST` | `/api/v1/assistant/query` | Authenticated bounded read/prepare orchestration |
 | `GET` | `/api/v1/me/profile` | Authenticated synthetic employee's profile |
 | `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
 | `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
@@ -246,7 +246,7 @@ enterprise-ai-knowledge-action-agent/
 ├── infra/compose.yaml      # database-only PostgreSQL + pgvector
 ├── migrations/             # Alembic knowledge-schema history
 ├── src/app/
-│   ├── agent/              # V3 bounded read-agent loop and deterministic tools
+│   ├── agent/              # V3 bounded read/prepare loop and deterministic tools
 │   ├── api/                # V1/V2 routes plus the authenticated V3 read assistant
 │   ├── db/                 # synchronous SQLAlchemy knowledge models/sessions
 │   ├── embeddings/         # narrow Gemini embedding boundary

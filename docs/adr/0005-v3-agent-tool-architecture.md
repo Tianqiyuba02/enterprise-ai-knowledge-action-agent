@@ -26,14 +26,15 @@ follow-up completed the remaining checks. No declared function was dispatched.
 V3 uses `gemini-3.6-flash` through the isolated `AGENT_MODEL` setting and a plain bounded
 provider-native tool loop. LangGraph is not introduced in V3.
 
-The initial runtime allowlist is read-only:
+The current runtime allowlist contains four read tools and one prepare tool:
 
-| Tool | Model-controlled arguments | Trusted context |
-|---|---|---|
-| `knowledge_query` | `question` | employee applicability |
-| `get_my_profile` | none | employee identity |
-| `get_my_leave_balances` | none | employee identity |
-| `get_my_ticket` | `ticket_id` | employee identity and ownership |
+| Tool | Class | Model-controlled arguments | Trusted context |
+|---|---|---|---|
+| `knowledge_query` | Read | `question` | employee applicability |
+| `get_my_profile` | Read | none | employee identity |
+| `get_my_leave_balances` | Read | none | employee identity |
+| `get_my_ticket` | Read | `ticket_id` | employee identity and ownership |
+| `prepare_leave_request` | Prepare | annual type, ISO dates, optional reason | identity, schedule, balance, date |
 
 The model never supplies `employee_id`, jurisdiction, audience, authorization state, SQL, URLs,
 HTTP requests, filesystem paths, or commands. Tools adapt existing application services; they do
@@ -72,6 +73,10 @@ or confidence probabilities.
 V3 prepare may calculate/summarize trusted information, construct a typed leave or ticket draft,
 show exactly what would later be submitted, and identify missing fields. Preparation changes no
 business state and initially remains non-persistent.
+
+Stage 4 introduces only annual `prepare_leave_request`. Application code calculates scheduled work
+days and Decimal hours/balances from trusted employee data and returns a typed non-executing draft.
+No public-holiday calendar is claimed; drafts explicitly require that later check.
 
 V3 must not submit leave, change balances, create/update tickets, update employees, approve
 anything, or treat chat text such as “yes” as confirmation. Execution operations are absent from the

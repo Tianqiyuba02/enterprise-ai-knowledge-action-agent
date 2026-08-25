@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.agent.leave_models import LeaveRequestDraft
 from app.api.knowledge_models import KnowledgeCitation
 from app.grounding.models import KnowledgeAnswerStatus
 
@@ -121,8 +122,17 @@ class KnowledgeToolData(StrictToolModel):
     citations: tuple[KnowledgeCitation, ...]
 
 
+class PreparedLeaveRequestToolData(StrictToolModel):
+    kind: Literal["prepared_leave_request"] = "prepared_leave_request"
+    draft: LeaveRequestDraft
+
+
 ToolData = Annotated[
-    ProfileToolData | LeaveBalancesToolData | TicketToolData | KnowledgeToolData,
+    ProfileToolData
+    | LeaveBalancesToolData
+    | TicketToolData
+    | KnowledgeToolData
+    | PreparedLeaveRequestToolData,
     Field(discriminator="kind"),
 ]
 

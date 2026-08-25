@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from decimal import Decimal
 from typing import cast
 from unittest.mock import Mock
 
@@ -22,6 +23,7 @@ from app.knowledge.vocabulary import AudienceGroup, Jurisdiction
 from app.repositories.demo import DemoRepository, EmployeeRecord, TicketRecord
 from app.services.employee import EmployeeService
 from app.services.it import ITService
+from app.services.leave_preparation import LeavePreparationService
 
 PRIMARY_CONTEXT = AuthenticatedEmployeeContext(employee_id="EMP-1001")
 
@@ -193,6 +195,42 @@ def test_knowledge_applicability_failures_return_only_bounded_safe_envelopes() -
         knowledge_service.query.assert_not_called()
 
 
+def test_prepare_tool_uses_authenticated_employee_schedule_and_balance() -> None:
+    repository = DemoRepository()
+    employee_service = EmployeeService(repository)
+    dispatcher = ToolDispatcher(
+        employee_service=employee_service,
+        it_service=ITService(repository),
+        knowledge_service=cast(KnowledgeQueryService, Mock(spec=KnowledgeQueryService)),
+        demo_repository=repository,
+        leave_preparation_service=LeavePreparationService(employee_service),
+    )
+    arguments = {
+        "leave_type": "annual",
+        "start_date": "2026-08-28",
+        "end_date": "2026-08-28",
+    }
+
+    alex = dispatcher.dispatch(
+        name="prepare_leave_request",
+        arguments=arguments,
+        context=PRIMARY_CONTEXT,
+    )
+    sam = dispatcher.dispatch(
+        name="prepare_leave_request",
+        arguments=arguments,
+        context=AuthenticatedEmployeeContext(employee_id="EMP-1002"),
+    )
+
+    assert alex.status is ToolResultStatus.SUCCESS
+    assert alex.data.kind == "prepared_leave_request"
+    assert alex.data.draft.requested_hours == Decimal("7.60")
+    assert alex.data.draft.current_balance_hours == Decimal("76.00")
+    assert sam.data.draft.scheduled_work_days == 0
+    assert sam.data.draft.current_balance_hours == Decimal("48.00")
+    assert "employee_id" not in alex.model_dump_json()
+
+
 @pytest.mark.parametrize(
     ("name", "arguments"),
     [
@@ -209,6 +247,41 @@ def test_knowledge_applicability_failures_return_only_bounded_safe_envelopes() -
         ("knowledge_query", {"question": 123}),
         ("knowledge_query", {"question": "Policy?", "jurisdiction": "AU-NSW"}),
         ("knowledge_query", {"question": "Policy?", "audience_groups": ["managers"]}),
+        ("prepare_leave_request", {}),
+        (
+            "prepare_leave_request",
+            {
+                "leave_type": "annual",
+                "start_date": "2026-09-02",
+                "end_date": "2026-09-01",
+            },
+        ),
+        (
+            "prepare_leave_request",
+            {
+                "leave_type": "annual",
+                "start_date": "2026-08-26",
+                "end_date": "2026-09-26",
+            },
+        ),
+        (
+            "prepare_leave_request",
+            {
+                "leave_type": "annual",
+                "start_date": "2026-08-28",
+                "end_date": "2026-08-28",
+                "employee_id": "EMP-1002",
+            },
+        ),
+        (
+            "prepare_leave_request",
+            {
+                "leave_type": "annual",
+                "start_date": "2026-08-28",
+                "end_date": "2026-08-28",
+                "requested_hours": 1,
+            },
+        ),
     ],
 )
 def test_strict_tool_call_validation_rejects_malformed_or_extra_arguments(
@@ -446,7 +519,7 @@ def test_provider_declarations_match_fixed_registry_without_identity_or_write_fi
     assert [declaration.name for declaration in declarations] == [
         contract.name.value for contract in V3_TOOL_ALLOWLIST.values()
     ]
-    assert len({declaration.name for declaration in declarations}) == 4
+    assert len({declaration.name for declaration in declarations}) == 5
     for declaration in declarations:
         schema = declaration.parameters_json_schema
         assert schema == contracts_by_name[declaration.name].argument_model.model_json_schema()

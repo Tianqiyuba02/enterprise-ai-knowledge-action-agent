@@ -26,20 +26,37 @@ def test_agent_model_is_isolated_from_released_v1_v2_models() -> None:
         AgentSettings(agent_model="gemini-3.5-flash", _env_file=None)
 
 
-def test_stage0_allowlist_contains_only_expected_read_tools() -> None:
+def test_allowlist_contains_four_read_tools_and_one_prepare_tool() -> None:
     assert set(V3_TOOL_ALLOWLIST) == {
         V3ToolName.KNOWLEDGE_QUERY,
         V3ToolName.GET_MY_PROFILE,
         V3ToolName.GET_MY_LEAVE_BALANCES,
         V3ToolName.GET_MY_TICKET,
+        V3ToolName.PREPARE_LEAVE_REQUEST,
     }
+    assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].capability is ToolCapability.PREPARE
     assert all(
-        contract.capability is ToolCapability.READ for contract in V3_TOOL_ALLOWLIST.values()
+        V3_TOOL_ALLOWLIST[name].capability is ToolCapability.READ
+        for name in {
+            V3ToolName.KNOWLEDGE_QUERY,
+            V3ToolName.GET_MY_PROFILE,
+            V3ToolName.GET_MY_LEAVE_BALANCES,
+            V3ToolName.GET_MY_TICKET,
+        }
     )
 
 
 def test_model_arguments_cannot_control_identity_applicability_or_generic_capabilities() -> None:
-    forbidden_arguments = {"employee_id", "jurisdiction", "audience", "audience_groups"}
+    forbidden_arguments = {
+        "employee_id",
+        "jurisdiction",
+        "audience",
+        "audience_groups",
+        "trusted_today",
+        "timezone",
+        "hours_per_day",
+        "current_balance_hours",
+    }
     generic_fragments = {"sql", "http", "shell", "filesystem", "url", "command"}
 
     for contract in V3_TOOL_ALLOWLIST.values():
@@ -50,6 +67,12 @@ def test_model_arguments_cannot_control_identity_applicability_or_generic_capabi
     assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_LEAVE_BALANCES].llm_arguments == ()
     assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_TICKET].llm_arguments == ("ticket_id",)
     assert V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].llm_arguments == ("question",)
+    assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].llm_arguments == (
+        "leave_type",
+        "start_date",
+        "end_date",
+        "reason",
+    )
 
 
 def test_tool_budget_and_safe_error_taxonomy_are_explicit() -> None:
