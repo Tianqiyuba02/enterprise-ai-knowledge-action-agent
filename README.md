@@ -14,7 +14,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
-| V3 — Agent + Tools | Not started |
+| V3 — Agent + Tools | In progress — Stage 0 architecture |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
 
@@ -245,6 +245,7 @@ enterprise-ai-knowledge-action-agent/
 ├── infra/compose.yaml      # database-only PostgreSQL + pgvector
 ├── migrations/             # Alembic knowledge-schema history
 ├── src/app/
+│   ├── agent/              # V3 Stage 0 allowlist/contracts; no runtime loop yet
 │   ├── api/                # V1 routes plus authenticated knowledge query
 │   ├── db/                 # synchronous SQLAlchemy knowledge models/sessions
 │   ├── embeddings/         # narrow Gemini embedding boundary
