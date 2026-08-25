@@ -68,40 +68,44 @@ fabricated relevant-document label and therefore do not contribute to recall/MRR
 The machine-readable source is
 `evals/results/v2-stage5a-development-retrieval.json`.
 
-## Partially measured: development grounded responses
+## Measured: development grounded responses
 
 No valid grounded baseline exists for `gemini-3.5-flash`: repeated HTTP 503 `UNAVAILABLE` failures
 produced **0 / 20** completed cases. A minimal isolated capability check established that
 `gemini-3.6-flash` was available, so V2 grounded generation migrated for provider availability—not
 RAG tuning. V1 remained on its existing 3.5 setting.
 
-The fresh 3.6 development run completed four cases before rate limiting:
+The fresh 3.6 development run initially completed four cases before rate limiting. A later explicit
+checkpoint resume carried those four cases forward and completed the remaining 16 without rerunning
+successful cases.
 
-| Mechanical metric over completed cases | Result |
+| Mechanical metric | Result |
 |---|---:|
-| Cases completed | 4 / 20 |
-| Cases blocked by provider rate limit | 1 |
-| Cases not run after the block | 15 |
+| Cases completed | 20 / 20 |
+| Cases carried forward | 4 |
+| Cases completed in resumed invocation | 16 |
+| Final blocked/error/unattempted cases | 0 |
 | Semantic status accuracy | 1.000 |
 | Citation presence invariant rate | 1.000 |
 | Required-document citation recall | 1.000 |
 | Forbidden-citation case hit rate | 0.000 |
 | Public citation metadata validity | 1.000 |
 | Internal evidence-reference leakage rate | 0.000 |
-| Conflict distinct-source invariant | Not measured |
+| Conflict distinct-source invariant | 1.000 |
 
-All four completed cases were answerable HR questions and returned the expected status/document.
-No unsupported or conflict case completed, so this partial run does not measure refusal or conflict
-behavior. The fifth case recorded `GroundedRateLimitError`, and the runner stopped without retrying.
+Gold-case audit corrected `dev_adjacent_leave_types` from `answered` to
+`insufficient_evidence`. Both leave-policy identities remain required retrieval labels, but the
+annual-leave policy does not define annual leave's purpose, so the grounded answer correctly
+refused to infer one and returned no citations. The remaining 19 development cases had no other
+clear corpus-to-label mismatch.
 
-The machine-readable partial report is
-`evals/results/v2-stage5a-development-grounded.json`. The completed retrieval baseline remains
-unchanged because it does not depend on the grounded generation model.
+The regenerated reports use development dataset fingerprint
+`b4bd9b5406cca3a785e8fc3c4830ca43c2d95c26a584a6fb7171b40aae47f86c`. Reports under the prior
+fingerprint are not directly comparable. The retrieval measurements themselves remain unchanged
+because the two required retrieval identities for this case did not change.
 
-The partial report now carries a frozen dataset fingerprint and supports explicit evaluator
-`--resume`. Its four completed cases will be carried forward; the blocked fifth case is eligible
-for one later controller-authorized attempt, followed by the 15 unattempted cases if provider
-capacity permits. No real resume was executed as part of the checkpoint enhancement.
+The machine-readable grounded report is
+`evals/results/v2-stage5a-development-grounded.json`.
 
 ## Not yet measured: holdout
 
@@ -130,16 +134,15 @@ is made at retrieval level.
 
 ### H4 — Grounded classification may refuse despite weak retrieval
 
-Partially measured: four answerable HR cases were classified correctly, but rate limiting occurred
-before any unsupported case. The hypothesis that weak retrieval is reliably refused remains
-unmeasured in this baseline.
+Measured: all unsupported/filtered-trap cases, including the corrected adjacent-leave case, returned
+`insufficient_evidence` with no citations. The conflict case returned two distinct approved sources.
 
 ## Baseline weaknesses to review before Stage 5B
 
 - Tiny chunks occupy 35% of measured retrieval slots.
 - Adjacent/unrelated eligible chunks fill top-k when no gold evidence exists.
-- The grounded baseline is partial: four answerable cases completed, then provider rate limiting
-  prevented the remaining 16 cases, including every unsupported/conflict case.
+- Gold-label quality materially affects status metrics; one incorrect development expectation was
+  found and corrected through corpus audit.
 - No holdout result exists by design.
 
 No chunking, top-k, threshold, prompt, ranking, corpus, or status-semantic change was made in

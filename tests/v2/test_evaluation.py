@@ -139,10 +139,6 @@ def test_version_controlled_splits_are_strict_disjoint_and_expected_size() -> No
             "allowed_documents": [],
         },
         {
-            "expected_status": "insufficient_evidence",
-            "required_documents": [{"doc_code": "POL-HR-001", "version": "2.0"}],
-        },
-        {
             "expected_status": "conflicting_evidence",
             "required_documents": [{"doc_code": "POL-HR-001", "version": "2.0"}],
         },
@@ -154,6 +150,41 @@ def test_evaluation_case_schema_rejects_invalid_labels(payload: dict[str, object
 
     with pytest.raises(ValidationError):
         EvaluationCase.model_validate(base)
+
+
+def test_insufficient_case_can_require_retrieval_relevance_without_citations() -> None:
+    case = _case(
+        expected_status="insufficient_evidence",
+        required_documents=[
+            {"doc_code": "POL-HR-001", "version": "2.0"},
+            {"doc_code": "POL-HR-002", "version": "1.0"},
+        ],
+        allowed_documents=[
+            {"doc_code": "POL-HR-001", "version": "2.0"},
+            {"doc_code": "POL-HR-002", "version": "1.0"},
+        ],
+    )
+    evidence = (
+        _evidence("POL-HR-001", "2.0"),
+        _evidence("POL-HR-002", "1.0"),
+    )
+    retrieval_metrics = evaluate_retrieval_case(
+        case,
+        evidence,
+        applicability=_context(),
+        trusted_today=TODAY,
+    )
+    response = KnowledgeQueryResponse(
+        status="insufficient_evidence",
+        answer="The evidence does not define annual-leave purpose, so I will not guess.",
+        citations=(),
+    )
+    semantic_metrics = evaluate_semantic_case(case, response)
+
+    assert retrieval_metrics.required_document_recall_at_k == 1.0
+    assert semantic_metrics.status_correct is True
+    assert semantic_metrics.citation_presence_valid is True
+    assert semantic_metrics.required_document_citation_recall is None
 
 
 def test_loader_rejects_duplicate_ids(tmp_path: Path) -> None:

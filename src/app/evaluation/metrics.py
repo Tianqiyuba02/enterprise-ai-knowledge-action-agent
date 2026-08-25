@@ -79,7 +79,11 @@ def evaluate_semantic_case(
     required = set(case.required_documents)
     allowed = set(case.allowed_documents)
     forbidden = set(case.forbidden_documents)
-    required_recall = len(required & set(citation_documents)) / len(required) if required else None
+    required_recall = (
+        len(required & set(citation_documents)) / len(required)
+        if required and case.expected_status is not KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE
+        else None
+    )
     if response.status is KnowledgeAnswerStatus.ANSWERED:
         citation_presence_valid = bool(response.citations)
     elif response.status is KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE:

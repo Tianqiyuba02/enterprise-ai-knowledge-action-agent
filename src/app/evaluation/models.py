@@ -79,11 +79,6 @@ class EvaluationCase(EvaluationModel):
             raise ValueError("allowed_documents must include every required document")
         if self.expected_status is KnowledgeAnswerStatus.ANSWERED and not self.required_documents:
             raise ValueError("answered cases require at least one required document")
-        if (
-            self.expected_status is KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE
-            and self.required_documents
-        ):
-            raise ValueError("insufficient-evidence cases cannot require a document")
         if self.expected_status is KnowledgeAnswerStatus.CONFLICTING_EVIDENCE and len(required) < 2:
             raise ValueError("conflict cases require two distinct documents")
         return self

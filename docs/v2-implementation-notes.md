@@ -292,11 +292,14 @@ No valid grounded baseline exists for `gemini-3.5-flash`: repeated provider-side
 `gemini-3.6-flash` available, so V2 grounded generation moved to a separate
 `KNOWLEDGE_GROUNDED_MODEL` setting while V1 retained `GEMINI_MODEL=gemini-3.5-flash`.
 
-The fresh 3.6 run completed four answerable cases with 1.0 status accuracy, required-document
-citation recall, citation-invariant rate, and public-metadata validity; forbidden citation and
-internal-reference leakage rates were 0.0. The fifth case was rate-limited and the remaining 15
-were not attempted. Refusal/conflict metrics therefore remain unmeasured. The holdout split was
-validated but not executed and remains reserved for final post-tuning validation.
+The fresh 3.6 run initially completed four cases before rate limiting. A later explicit resume
+carried those four results forward and completed the remaining 16. Gold-case audit then corrected
+`dev_adjacent_leave_types` to `insufficient_evidence`: both policies remain required retrieval
+labels, but only personal-leave purpose is stated in the corpus. Regenerated grounded metrics are
+1.0 for status accuracy, citation invariants, required-document citation recall, conflict sources,
+and public metadata validity; forbidden citation and internal-reference leakage rates are 0.0.
+The remaining 19 development labels had no other clear corpus mismatch. Holdout was not inspected
+beyond existing structural validation and remains reserved for final post-tuning validation.
 
 The factual measured/not-measured report is `docs/v2-evaluation-baseline.md`; machine-readable
 reports live under `evals/results/`.
@@ -311,8 +314,7 @@ unattempted cases remain eligible for a later attempt. Attempt history and curre
 completion counts are preserved without duplicate case records.
 
 `--delay-seconds` optionally paces only current live case attempts and defaults to zero. A rate limit
-still records one blocked attempt and immediately stops; there is no automatic retry. The accepted
-4/20 grounded report was made resume-compatible, but no real resume was run in this enhancement.
+still records one blocked attempt and immediately stops; there is no automatic retry.
 
 Stage 5A verification:
 
