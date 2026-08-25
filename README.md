@@ -79,9 +79,9 @@ The frozen development retrieval baseline can be measured explicitly with:
 uv run enterprise-ai-eval --mode retrieval --split development --live
 ```
 
-Holdout cases are reserved for final post-tuning validation. Stage 5A records baseline evidence and
-does not tune chunking, ranking, thresholds, prompts, or corpus content. A compatible partial report
-can be continued explicitly with `--resume`; evaluator-only `--delay-seconds` defaults to zero.
+Development evidence justified no RAG tuning, so configuration was frozen before the final holdout
+run. Results are documented in `docs/v2-holdout-validation.md`. Compatible partial reports support
+explicit `--resume`; evaluator-only `--delay-seconds` defaults to zero.
 
 ## Prerequisites
 

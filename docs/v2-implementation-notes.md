@@ -327,3 +327,26 @@ Stage 5A verification:
 - Ruff lint and format checks: passed.
 
 No schema migration or Product Milestone V3/V4 capability was added.
+
+## Final V2 holdout validation
+
+Evaluation showed no measured development regression requiring RAG tuning. The existing
+configuration was therefore frozen before final holdout validation. Stage 5B tuning was explicitly
+not performed.
+
+The unseen eight-case holdout then completed without provider interruption:
+
+- retrieval recall@6 and MRR: 1.0;
+- forbidden-document and authority/applicability violation rates: 0.0;
+- grounded semantic status accuracy: 0.875;
+- citation presence, conflict-source, and public-metadata invariant rates: 1.0;
+- required-document citation recall: 0.75;
+- forbidden citation and internal-reference leakage rates: 0.0; and
+- tiny-chunk rate: 0.2292.
+
+The single status mismatch asked whether the Sydney pilot applies to Melbourne. NSW evidence was
+correctly excluded, and accessible Victorian evidence did not state that cross-jurisdiction
+relationship, so the assistant returned `insufficient_evidence` rather than inferring it. The
+holdout label and product were not changed. See `docs/v2-holdout-validation.md`.
+
+No tuning occurred before or after holdout, and holdout results are not a future tuning target.

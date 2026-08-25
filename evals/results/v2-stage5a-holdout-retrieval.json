@@ -1,0 +1,662 @@
+{
+  "report_version": "v2-stage5a-2",
+  "generated_at": "2026-08-25T08:05:10.548362Z",
+  "mode": "retrieval",
+  "split": "holdout",
+  "dataset_fingerprint": "e0cfb5d8bba0109827403d4181d01ce37f67950f617fc1cfcf8fe93d17ba9145",
+  "configuration": {
+    "embedding_model": "gemini-embedding-2",
+    "embedding_dimension": 768,
+    "grounded_generation_model": "gemini-3.6-flash",
+    "retrieval_metric": "exact_pgvector_cosine_distance",
+    "top_k": 6,
+    "minimum_similarity_threshold": null,
+    "chunk_target_tokens": 400,
+    "chunk_overlap_tokens": 50,
+    "trusted_as_of_date": "2026-08-25",
+    "corpus_documents": 12,
+    "corpus_chunks": 42
+  },
+  "summary": {
+    "cases_total": 8,
+    "cases_completed": 8,
+    "cases_blocked_by_provider_rate_limit": 0,
+    "cases_error": 0,
+    "cases_not_run": 0,
+    "cases_carried_forward": 0,
+    "cases_completed_current_invocation": 8,
+    "mean_required_document_recall_at_k": 1.0,
+    "mean_reciprocal_rank": 1.0,
+    "forbidden_document_case_hit_rate": 0.0,
+    "authority_violation_rate": 0.0,
+    "mean_returned_chunks": 6.0,
+    "mean_document_diversity": 2.875,
+    "tiny_chunk_rate": 0.22916666666666666,
+    "semantic_status_accuracy": null,
+    "citation_presence_invariant_rate": null,
+    "mean_required_document_citation_recall": null,
+    "forbidden_citation_case_hit_rate": null,
+    "conflict_distinct_source_invariant_rate": null,
+    "public_citation_metadata_validity_rate": null,
+    "internal_reference_leakage_rate": null
+  },
+  "cases": [
+    {
+      "case_id": "holdout_leave_days_paraphrase",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "entitlement",
+          "token_count": 31,
+          "cosine_distance": 0.1896656494734723
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "annual-leave-policy",
+          "token_count": 4,
+          "cosine_distance": 0.23510019569985197
+        },
+        {
+          "rank": 3,
+          "doc_code": "POL-HR-002",
+          "version": "1.0",
+          "section_anchor": "personal-leave-policy",
+          "token_count": 4,
+          "cosine_distance": 0.29987372755248587
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "planning-leave",
+          "token_count": 46,
+          "cosine_distance": 0.30913628557592987
+        },
+        {
+          "rank": 5,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "carry-over",
+          "token_count": 39,
+          "cosine_distance": 0.3173814358883271
+        },
+        {
+          "rank": 6,
+          "doc_code": "POL-HR-002",
+          "version": "1.0",
+          "section_anchor": "purpose",
+          "token_count": 31,
+          "cosine_distance": 0.32686223316404894
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": 1.0,
+        "first_relevant_rank": 1,
+        "reciprocal_rank": 1.0,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 2,
+        "tiny_chunks": 2,
+        "tiny_chunk_rate": 0.3333333333333333
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_remote_state_boundary",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "standard-arrangement",
+          "token_count": 40,
+          "cosine_distance": 0.1888391150427401
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "victorian-hybrid-work-policy",
+          "token_count": 5,
+          "cosine_distance": 0.20250093974186756
+        },
+        {
+          "rank": 3,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "changes-to-location",
+          "token_count": 35,
+          "cosine_distance": 0.2451448800058338
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "access-window",
+          "token_count": 29,
+          "cosine_distance": 0.27633741811959445
+        },
+        {
+          "rank": 5,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "token_count": 29,
+          "cosine_distance": 0.2860242298855804
+        },
+        {
+          "rank": 6,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "melbourne-facilities-after-hours-guide",
+          "token_count": 5,
+          "cosine_distance": 0.33310401435566084
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": 1.0,
+        "first_relevant_rank": 1,
+        "reciprocal_rank": 1.0,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 3,
+        "tiny_chunks": 2,
+        "tiny_chunk_rate": 0.3333333333333333
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_manager_authority",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "planning-leave",
+          "token_count": 46,
+          "cosine_distance": 0.3117419404060432
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "safety",
+          "token_count": 19,
+          "cosine_distance": 0.32827993023153135
+        },
+        {
+          "rank": 3,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "approval-and-balances",
+          "token_count": 42,
+          "cosine_distance": 0.3383807181685662
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "changes-to-location",
+          "token_count": 35,
+          "cosine_distance": 0.35099262788561514
+        },
+        {
+          "rank": 5,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "equipment-and-safety",
+          "token_count": 34,
+          "cosine_distance": 0.35938835098470856
+        },
+        {
+          "rank": 6,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "annual-leave-policy",
+          "token_count": 4,
+          "cosine_distance": 0.3599260663941217
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": null,
+        "first_relevant_rank": null,
+        "reciprocal_rank": null,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 3,
+        "tiny_chunks": 1,
+        "tiny_chunk_rate": 0.16666666666666666
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_office_animals",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "standard-arrangement",
+          "token_count": 40,
+          "cosine_distance": 0.25145195381283936
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "victorian-hybrid-work-policy",
+          "token_count": 5,
+          "cosine_distance": 0.2630417566584988
+        },
+        {
+          "rank": 3,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "token_count": 29,
+          "cosine_distance": 0.2769887117160902
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "access-window",
+          "token_count": 29,
+          "cosine_distance": 0.2846268841846642
+        },
+        {
+          "rank": 5,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "melbourne-facilities-after-hours-guide",
+          "token_count": 5,
+          "cosine_distance": 0.313951611518855
+        },
+        {
+          "rank": 6,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "changes-to-location",
+          "token_count": 35,
+          "cosine_distance": 0.3261641853598375
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": null,
+        "first_relevant_rank": null,
+        "reciprocal_rank": null,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 3,
+        "tiny_chunks": 2,
+        "tiny_chunk_rate": 0.3333333333333333
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_future_meals",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "changes-to-location",
+          "token_count": 35,
+          "cosine_distance": 0.3754557929525092
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "approval-and-balances",
+          "token_count": 42,
+          "cosine_distance": 0.3848427259545484
+        },
+        {
+          "rank": 3,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "token_count": 29,
+          "cosine_distance": 0.3851671859123651
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "standard-arrangement",
+          "token_count": 40,
+          "cosine_distance": 0.3864632194217589
+        },
+        {
+          "rank": 5,
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "entitlement",
+          "token_count": 31,
+          "cosine_distance": 0.39208390901470624
+        },
+        {
+          "rank": 6,
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "untrusted-migration-note",
+          "token_count": 51,
+          "cosine_distance": 0.39311507117535716
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": null,
+        "first_relevant_rank": null,
+        "reciprocal_rank": null,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 4,
+        "tiny_chunks": 0,
+        "tiny_chunk_rate": 0.0
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_access_disagreement",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "token_count": 29,
+          "cosine_distance": 0.11951837074318006
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "access-window",
+          "token_count": 29,
+          "cosine_distance": 0.1805013691482349
+        },
+        {
+          "rank": 3,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "melbourne-facilities-after-hours-guide",
+          "token_count": 5,
+          "cosine_distance": 0.19612464950980646
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "after-hours-office-access-policy",
+          "token_count": 5,
+          "cosine_distance": 0.27167819896783363
+        },
+        {
+          "rank": 5,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "safety",
+          "token_count": 19,
+          "cosine_distance": 0.27291421455652976
+        },
+        {
+          "rank": 6,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "requests",
+          "token_count": 20,
+          "cosine_distance": 0.28819421285563196
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": 1.0,
+        "first_relevant_rank": 1,
+        "reciprocal_rank": 1.0,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 2,
+        "tiny_chunks": 2,
+        "tiny_chunk_rate": 0.3333333333333333
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_password_secrets",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "self-service-reset",
+          "token_count": 30,
+          "cosine_distance": 0.20534861087798506
+        },
+        {
+          "rank": 2,
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "escalation",
+          "token_count": 33,
+          "cosine_distance": 0.20633423328399092
+        },
+        {
+          "rank": 3,
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "password-reset-support-procedure",
+          "token_count": 5,
+          "cosine_distance": 0.22561101760798452
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "equipment-and-safety",
+          "token_count": 34,
+          "cosine_distance": 0.34529064562247913
+        },
+        {
+          "rank": 5,
+          "doc_code": "POL-HR-002",
+          "version": "1.0",
+          "section_anchor": "evidence",
+          "token_count": 32,
+          "cosine_distance": 0.3490881531887041
+        },
+        {
+          "rank": 6,
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "untrusted-migration-note",
+          "token_count": 51,
+          "cosine_distance": 0.3536173032698555
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": 1.0,
+        "first_relevant_rank": 1,
+        "reciprocal_rank": 1.0,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 3,
+        "tiny_chunks": 1,
+        "tiny_chunk_rate": 0.16666666666666666
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_bicycle_storage",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [
+        {
+          "rank": 1,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "equipment-and-safety",
+          "token_count": 34,
+          "cosine_distance": 0.3091809825919558
+        },
+        {
+          "rank": 2,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "safety",
+          "token_count": 19,
+          "cosine_distance": 0.3177999230265468
+        },
+        {
+          "rank": 3,
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "after-hours-office-access-policy",
+          "token_count": 5,
+          "cosine_distance": 0.33322588605259307
+        },
+        {
+          "rank": 4,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "changes-to-location",
+          "token_count": 35,
+          "cosine_distance": 0.34672342023443736
+        },
+        {
+          "rank": 5,
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "token_count": 29,
+          "cosine_distance": 0.35136365890502463
+        },
+        {
+          "rank": 6,
+          "doc_code": "POL-WRK-001",
+          "version": "3.0",
+          "section_anchor": "standard-arrangement",
+          "token_count": 40,
+          "cosine_distance": 0.3530282342979202
+        }
+      ],
+      "retrieval_metrics": {
+        "required_document_recall_at_k": null,
+        "first_relevant_rank": null,
+        "reciprocal_rank": null,
+        "forbidden_document_hits": 0,
+        "authority_violations": 0,
+        "returned_chunks": 6,
+        "document_diversity": 3,
+        "tiny_chunks": 1,
+        "tiny_chunk_rate": 0.16666666666666666
+      },
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": null
+    }
+  ],
+  "no_tuning_performed": true
+}

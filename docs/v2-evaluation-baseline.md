@@ -107,10 +107,15 @@ because the two required retrieval identities for this case did not change.
 The machine-readable grounded report is
 `evals/results/v2-stage5a-development-grounded.json`.
 
-## Not yet measured: holdout
+## Final holdout validation
 
-The eight-case holdout split was validated and intentionally not executed. It is reserved for final
-post-tuning validation and was not used to choose chunking, top-k, thresholds, prompts, or ranking.
+The eight-case holdout was executed only after the controller froze the configuration and decided
+that Stage 5B tuning was not justified. Retrieval completed 8/8 with 1.0 required-document
+recall/MRR and zero forbidden or authority violations. Grounded evaluation completed 8/8 with
+0.875 status accuracy and perfect citation/safety invariants. One status expectation failed and was
+reported without changing product behavior or the holdout.
+
+Full details are in `docs/v2-holdout-validation.md`.
 
 ## Hypotheses: measured evidence, no action
 
@@ -137,13 +142,14 @@ is made at retrieval level.
 Measured: all unsupported/filtered-trap cases, including the corrected adjacent-leave case, returned
 `insufficient_evidence` with no citations. The conflict case returned two distinct approved sources.
 
-## Baseline weaknesses to review before Stage 5B
+## Remaining observations
 
 - Tiny chunks occupy 35% of measured retrieval slots.
 - Adjacent/unrelated eligible chunks fill top-k when no gold evidence exists.
 - Gold-label quality materially affects status metrics; one incorrect development expectation was
   found and corrected through corpus audit.
-- No holdout result exists by design.
+- One frozen holdout case expected an answer where accessible evidence did not state the requested
+  cross-jurisdiction relationship; the system refused rather than infer it.
 
 No chunking, top-k, threshold, prompt, ranking, corpus, or status-semantic change was made in
 response to these observations.
