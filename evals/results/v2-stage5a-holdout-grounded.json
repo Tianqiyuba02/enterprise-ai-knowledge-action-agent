@@ -1,0 +1,295 @@
+{
+  "report_version": "v2-stage5a-2",
+  "generated_at": "2026-08-25T08:08:08.830798Z",
+  "mode": "grounded",
+  "split": "holdout",
+  "dataset_fingerprint": "e0cfb5d8bba0109827403d4181d01ce37f67950f617fc1cfcf8fe93d17ba9145",
+  "configuration": {
+    "embedding_model": "gemini-embedding-2",
+    "embedding_dimension": 768,
+    "grounded_generation_model": "gemini-3.6-flash",
+    "retrieval_metric": "exact_pgvector_cosine_distance",
+    "top_k": 6,
+    "minimum_similarity_threshold": null,
+    "chunk_target_tokens": 400,
+    "chunk_overlap_tokens": 50,
+    "trusted_as_of_date": "2026-08-25",
+    "corpus_documents": 12,
+    "corpus_chunks": 42
+  },
+  "summary": {
+    "cases_total": 8,
+    "cases_completed": 8,
+    "cases_blocked_by_provider_rate_limit": 0,
+    "cases_error": 0,
+    "cases_not_run": 0,
+    "cases_carried_forward": 0,
+    "cases_completed_current_invocation": 8,
+    "mean_required_document_recall_at_k": null,
+    "mean_reciprocal_rank": null,
+    "forbidden_document_case_hit_rate": null,
+    "authority_violation_rate": null,
+    "mean_returned_chunks": null,
+    "mean_document_diversity": null,
+    "tiny_chunk_rate": null,
+    "semantic_status_accuracy": 0.875,
+    "citation_presence_invariant_rate": 1.0,
+    "mean_required_document_citation_recall": 0.75,
+    "forbidden_citation_case_hit_rate": 0.0,
+    "conflict_distinct_source_invariant_rate": 1.0,
+    "public_citation_metadata_validity_rate": 1.0,
+    "internal_reference_leakage_rate": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "holdout_leave_days_paraphrase",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "Eligible full-time employees receive twenty days of paid annual leave for each completed year of service.",
+      "citations": [
+        {
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "entitlement",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_remote_state_boundary",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "insufficient_evidence",
+      "answer": "I cannot answer this question because the provided evidence does not contain information about the three-day Sydney remote-work pilot. I will not guess; please consult your HR representative or People Operations team for clarification on this policy.",
+      "citations": [],
+      "semantic_metrics": {
+        "status_correct": false,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 0.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_manager_authority",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "insufficient_evidence",
+      "answer": "I am unable to answer this question because the provided evidence does not contain information about line manager checks for signing off a trip. I do not guess or rely on external knowledge. Please consult with your Travel or HR department for assistance.",
+      "citations": [],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": null,
+        "allowed_document_citations_valid": null,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_office_animals",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "insufficient_evidence",
+      "answer": "I am unable to answer this question because the provided evidence does not contain information about companion animals or pets at work in Melbourne. I will not guess; please contact Human Resources or Facilities Management for assistance.",
+      "citations": [],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": null,
+        "allowed_document_citations_valid": null,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_future_meals",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "insufficient_evidence",
+      "answer": "I cannot answer this question because the provided evidence does not contain information about meal allowances for overnight travellers. I will not guess; please contact the HR or Finance department for assistance.",
+      "citations": [],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": null,
+        "allowed_document_citations_valid": null,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_access_disagreement",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "conflicting_evidence",
+      "answer": "The available policy documents contain conflicting information regarding whether a facilities escort is required at 7 pm in the Melbourne office. According to the Melbourne Facilities After-Hours Guide, employees entering the Melbourne office after 6:00 pm must arrange an approved facilities escort even if their building pass is active. However, the After-Hours Office Access Policy states that employees with an active building pass can enter the office between 6:00 am and 10:00 pm without arranging a separate escort. Please consult with Human Resources or the Facilities Management team to confirm the current policy.",
+      "citations": [
+        {
+          "doc_code": "SOP-FAC-007",
+          "version": "1.0",
+          "section_anchor": "escort-requirement",
+          "page": null
+        },
+        {
+          "doc_code": "POL-SEC-004",
+          "version": "1.0",
+          "section_anchor": "access-window",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": true,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_password_secrets",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "No. If a self-service reset fails, you may contact the IT desk with your employee number and the displayed error code, but secret values (including your recovery code) must not be included in the ticket.",
+      "citations": [
+        {
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "self-service-reset",
+          "page": null
+        },
+        {
+          "doc_code": "SOP-IT-002",
+          "version": "2.0",
+          "section_anchor": "escalation",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "holdout_bicycle_storage",
+      "state": "completed",
+      "result_origin": "current_invocation",
+      "attempt_history": [
+        {
+          "state": "completed",
+          "safe_error_category": null
+        }
+      ],
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "insufficient_evidence",
+      "answer": "I cannot answer this question because the provided evidence does not contain information about where employees should store bicycles at the office. I will not guess; please consult with the company's Facilities or Office Management team for guidance.",
+      "citations": [],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": null,
+        "allowed_document_citations_valid": null,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    }
+  ],
+  "no_tuning_performed": true
+}

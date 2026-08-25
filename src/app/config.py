@@ -1,7 +1,16 @@
-"""Environment-based configuration for the V0 application."""
+"""Environment-based configuration for the released app and isolated V2 database paths."""
+
+from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+APPROVED_EMBEDDING_MODEL = "gemini-embedding-2"
+APPROVED_EMBEDDING_DIMENSION = 768
+APPROVED_GROUNDED_MODEL = "gemini-3.6-flash"
+DEFAULT_KNOWLEDGE_DATABASE_URL = (
+    "postgresql+psycopg://knowledge_app:knowledge_app_local_only@127.0.0.1:5433/knowledge_agent"
+)
 
 
 class ConfigurationError(RuntimeError):
@@ -12,6 +21,13 @@ class ConfigurationError(RuntimeError):
             "Configuration is missing or invalid. Set GEMINI_API_KEY in the environment "
             "or in a local .env file."
         )
+
+
+class KnowledgeConfigurationError(RuntimeError):
+    """Raised only when a V2 knowledge path loads invalid database configuration."""
+
+    def __init__(self) -> None:
+        super().__init__("Knowledge database configuration is missing or invalid.")
 
 
 class Settings(BaseSettings):
@@ -48,6 +64,36 @@ class Settings(BaseSettings):
     )
 
 
+class KnowledgeSettings(BaseSettings):
+    """V2 knowledge settings loaded lazily and independently of V1 application startup."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    knowledge_database_url: SecretStr = Field(
+        default=DEFAULT_KNOWLEDGE_DATABASE_URL,
+        validation_alias="KNOWLEDGE_DATABASE_URL",
+        min_length=1,
+    )
+    knowledge_embedding_model: Literal["gemini-embedding-2"] = Field(
+        default=APPROVED_EMBEDDING_MODEL,
+        validation_alias="KNOWLEDGE_EMBEDDING_MODEL",
+    )
+    knowledge_embedding_dimension: Literal[768] = Field(
+        default=APPROVED_EMBEDDING_DIMENSION,
+        validation_alias="KNOWLEDGE_EMBEDDING_DIMENSION",
+    )
+    knowledge_grounded_model: Literal["gemini-3.6-flash"] = Field(
+        default=APPROVED_GROUNDED_MODEL,
+        validation_alias="KNOWLEDGE_GROUNDED_MODEL",
+    )
+
+
 def load_settings() -> Settings:
     """Load settings while replacing validation details with a safe CLI message."""
 
@@ -55,3 +101,12 @@ def load_settings() -> Settings:
         return Settings()
     except ValidationError as exc:
         raise ConfigurationError from exc
+
+
+def load_knowledge_settings() -> KnowledgeSettings:
+    """Load isolated V2 settings only when a knowledge database path requests them."""
+
+    try:
+        return KnowledgeSettings()
+    except ValidationError as exc:
+        raise KnowledgeConfigurationError from exc

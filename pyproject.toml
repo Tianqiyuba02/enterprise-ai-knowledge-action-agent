@@ -4,21 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "enterprise-ai-knowledge-action-agent"
-version = "0.2.0"
+version = "0.3.0"
 description = "Enterprise AI Knowledge & Action Agent backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.19.1,<2",
     "fastapi>=0.141.1,<1",
     "google-genai>=2.19.0,<3",
     "httpx>=0.28.1,<1",
+    "pgvector>=0.5.0,<1",
+    "psycopg[binary]>=3.3.4,<4",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
+    "pyyaml>=6.0.2,<7",
+    "sqlalchemy>=2.0.52,<2.1",
     "uvicorn>=0.52.4,<1",
 ]
 
 [project.scripts]
 enterprise-ai = "app.main:run"
+enterprise-ai-eval = "app.evaluation.cli:run"
+enterprise-ai-ingest = "app.ingestion.cli:run"
 
 [dependency-groups]
 dev = [
@@ -33,6 +40,9 @@ packages = ["src/app"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "postgres: requires the explicitly started local V2 PostgreSQL test database",
+]
 
 [tool.ruff]
 line-length = 100
