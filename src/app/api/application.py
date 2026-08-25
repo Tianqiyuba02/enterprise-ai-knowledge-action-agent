@@ -8,7 +8,8 @@ from fastapi import FastAPI, Request, Response
 
 from app import __version__
 from app.api.errors import register_error_handlers
-from app.api.routes import chat, health, me
+from app.api.routes import chat, health, knowledge, me
+from app.knowledge.query_service import KnowledgeQueryService
 from app.llm.client import GeminiStructuredClient
 from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
@@ -24,18 +25,22 @@ def create_app(
     *,
     repository: DemoRepository | None = None,
     llm_client: GeminiStructuredClient | None = None,
+    knowledge_query_service: KnowledgeQueryService | None = None,
 ) -> FastAPI:
     """Construct an isolated application suitable for runtime and offline tests."""
 
     demo_repository = repository or DemoRepository()
     app = FastAPI(
         title="Enterprise AI Knowledge & Action Agent",
-        description="V1 REST API with trusted synthetic employee identity.",
+        description="V1 REST API plus authenticated V2 grounded knowledge queries.",
         version=__version__,
     )
+    app.state.demo_repository = demo_repository
     app.state.employee_service = EmployeeService(demo_repository)
     app.state.it_service = ITService(demo_repository)
     app.state.chat_service = ChatService(llm_client) if llm_client is not None else None
+    app.state.knowledge_query_service = knowledge_query_service
+    app.state.knowledge_engine = None
 
     register_error_handlers(app)
 
@@ -60,4 +65,5 @@ def create_app(
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(chat.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
+    app.include_router(knowledge.router, prefix=API_PREFIX)
     return app

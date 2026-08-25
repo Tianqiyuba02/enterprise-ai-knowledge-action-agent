@@ -9,12 +9,34 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.models import ErrorResponse
-from app.config import ConfigurationError
+from app.config import ConfigurationError, KnowledgeConfigurationError
+from app.embeddings.client import (
+    EmbeddingAuthenticationError,
+    EmbeddingClientError,
+    EmbeddingRateLimitError,
+    EmbeddingServiceError,
+    EmbeddingTimeoutError,
+    InvalidEmbeddingResponseError,
+)
 from app.errors import (
     ApplicationError,
     EmployeeNotFoundError,
     InvalidDemoSessionError,
     TicketNotFoundError,
+)
+from app.grounding.client import (
+    GroundedAuthenticationError,
+    GroundedGenerationError,
+    GroundedRateLimitError,
+    GroundedServiceError,
+    GroundedTimeoutError,
+    InvalidGroundedResponseError,
+)
+from app.knowledge.errors import (
+    InvalidKnowledgeQuestionError,
+    InvalidQueryVectorError,
+    KnowledgeDatabaseError,
+    KnowledgeRetrievalError,
 )
 from app.llm.client import (
     AuthenticationError,
@@ -122,6 +144,93 @@ async def configuration_error_handler(request: Request, _exc: ConfigurationError
     )
 
 
+async def knowledge_configuration_error_handler(
+    request: Request, _exc: KnowledgeConfigurationError
+) -> JSONResponse:
+    return _error_response(
+        request,
+        status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+        error_code="knowledge_not_configured",
+        message="The knowledge service is not configured.",
+    )
+
+
+async def knowledge_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, InvalidKnowledgeQuestionError):
+        status_code, error_code, message = (
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "invalid_knowledge_question",
+            "The knowledge question is invalid.",
+        )
+    elif isinstance(exc, (InvalidQueryVectorError, InvalidEmbeddingResponseError)):
+        status_code, error_code, message = (
+            HTTPStatus.BAD_GATEWAY,
+            "invalid_query_embedding",
+            "The knowledge embedding service returned an invalid response.",
+        )
+    elif isinstance(exc, KnowledgeDatabaseError):
+        status_code, error_code, message = (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "knowledge_service_unavailable",
+            "The knowledge service is unavailable. Please try again later.",
+        )
+    elif isinstance(exc, EmbeddingTimeoutError):
+        status_code, error_code, message = (
+            HTTPStatus.GATEWAY_TIMEOUT,
+            "knowledge_embedding_timeout",
+            "The knowledge embedding service timed out. Please try again.",
+        )
+    elif isinstance(exc, EmbeddingRateLimitError):
+        status_code, error_code, message = (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "knowledge_embedding_rate_limited",
+            "The knowledge embedding service is busy. Please try again later.",
+        )
+    elif isinstance(exc, (EmbeddingAuthenticationError, EmbeddingServiceError)):
+        status_code, error_code, message = (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "knowledge_embedding_unavailable",
+            "The knowledge embedding service is unavailable.",
+        )
+    elif isinstance(exc, GroundedTimeoutError):
+        status_code, error_code, message = (
+            HTTPStatus.GATEWAY_TIMEOUT,
+            "knowledge_model_timeout",
+            "The grounded knowledge service timed out. Please try again.",
+        )
+    elif isinstance(exc, InvalidGroundedResponseError):
+        status_code, error_code, message = (
+            HTTPStatus.BAD_GATEWAY,
+            "invalid_grounded_response",
+            "The grounded knowledge service returned an invalid response.",
+        )
+    elif isinstance(exc, GroundedRateLimitError):
+        status_code, error_code, message = (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "knowledge_model_rate_limited",
+            "The grounded knowledge service is busy. Please try again later.",
+        )
+    elif isinstance(exc, (GroundedAuthenticationError, GroundedServiceError)):
+        status_code, error_code, message = (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "knowledge_model_unavailable",
+            "The grounded knowledge service is unavailable.",
+        )
+    else:
+        status_code, error_code, message = (
+            HTTPStatus.BAD_GATEWAY,
+            "knowledge_error",
+            "The knowledge request could not be completed.",
+        )
+    logger.info("knowledge_error request_id=%s error_code=%s", _request_id(request), error_code)
+    return _error_response(
+        request,
+        status_code=status_code,
+        error_code=error_code,
+        message=message,
+    )
+
+
 async def validation_error_handler(request: Request, _exc: RequestValidationError) -> JSONResponse:
     return _error_response(
         request,
@@ -166,6 +275,13 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApplicationError, application_error_handler)
     app.add_exception_handler(LLMClientError, llm_error_handler)
     app.add_exception_handler(ConfigurationError, configuration_error_handler)
+    app.add_exception_handler(
+        KnowledgeConfigurationError,
+        knowledge_configuration_error_handler,
+    )
+    app.add_exception_handler(KnowledgeRetrievalError, knowledge_error_handler)
+    app.add_exception_handler(EmbeddingClientError, knowledge_error_handler)
+    app.add_exception_handler(GroundedGenerationError, knowledge_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(Exception, unexpected_error_handler)
