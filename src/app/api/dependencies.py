@@ -5,7 +5,10 @@ from typing import Annotated, Final, cast
 
 from fastapi import Depends, Header, Request
 
-from app.config import load_knowledge_settings, load_settings
+from app.agent.client import GeminiAgentClient
+from app.agent.dispatcher import ToolDispatcher
+from app.agent.service import AgentService
+from app.config import load_agent_settings, load_knowledge_settings, load_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
 from app.errors import InvalidDemoSessionError
@@ -91,4 +94,30 @@ def get_knowledge_query_service(request: Request) -> KnowledgeQueryService:
         )
         request.app.state.knowledge_engine = engine
         request.app.state.knowledge_query_service = service
+    return service
+
+
+def get_agent_service(
+    request: Request,
+) -> AgentService:
+    """Build V3 provider/dispatch dependencies only for the assistant route."""
+
+    service = cast(AgentService | None, request.app.state.agent_service)
+    if service is None:
+        settings = load_settings()
+        repository = get_demo_repository(request)
+        dispatcher = ToolDispatcher(
+            employee_service=get_employee_service(request),
+            it_service=get_it_service(request),
+            knowledge_service=get_knowledge_query_service(request),
+            demo_repository=repository,
+        )
+        service = AgentService(
+            provider=GeminiAgentClient(
+                settings,
+                load_agent_settings(),
+            ),
+            dispatcher=dispatcher,
+        )
+        request.app.state.agent_service = service
     return service

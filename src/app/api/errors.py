@@ -8,8 +8,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.agent.errors import (
+    AssistantModelError,
+    AssistantModelRateLimitedError,
+    AssistantModelUnavailableError,
+)
 from app.api.models import ErrorResponse
-from app.config import ConfigurationError, KnowledgeConfigurationError
+from app.config import (
+    AgentConfigurationError,
+    ConfigurationError,
+    KnowledgeConfigurationError,
+)
 from app.embeddings.client import (
     EmbeddingAuthenticationError,
     EmbeddingClientError,
@@ -155,6 +164,39 @@ async def knowledge_configuration_error_handler(
     )
 
 
+async def agent_configuration_error_handler(
+    request: Request, _exc: AgentConfigurationError
+) -> JSONResponse:
+    return _error_response(
+        request,
+        status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+        error_code="assistant_not_configured",
+        message="The assistant service is not configured.",
+    )
+
+
+async def assistant_model_error_handler(
+    request: Request,
+    exc: AssistantModelError,
+) -> JSONResponse:
+    if isinstance(exc, AssistantModelRateLimitedError):
+        error_code = "assistant_model_rate_limited"
+        message = "The assistant model is busy. Please try again later."
+    elif isinstance(exc, AssistantModelUnavailableError):
+        error_code = "assistant_model_unavailable"
+        message = "The assistant model is temporarily unavailable."
+    else:
+        error_code = "assistant_model_error"
+        message = "The assistant model could not complete the request."
+    logger.info("assistant_error request_id=%s error_code=%s", _request_id(request), error_code)
+    return _error_response(
+        request,
+        status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+        error_code=error_code,
+        message=message,
+    )
+
+
 async def knowledge_error_handler(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, InvalidKnowledgeQuestionError):
         status_code, error_code, message = (
@@ -279,6 +321,8 @@ def register_error_handlers(app: FastAPI) -> None:
         KnowledgeConfigurationError,
         knowledge_configuration_error_handler,
     )
+    app.add_exception_handler(AgentConfigurationError, agent_configuration_error_handler)
+    app.add_exception_handler(AssistantModelError, assistant_model_error_handler)
     app.add_exception_handler(KnowledgeRetrievalError, knowledge_error_handler)
     app.add_exception_handler(EmbeddingClientError, knowledge_error_handler)
     app.add_exception_handler(GroundedGenerationError, knowledge_error_handler)

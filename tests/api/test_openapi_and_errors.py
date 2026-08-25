@@ -7,6 +7,7 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     assert response.status_code == 200
     schema = response.json()
     assert set(schema["paths"]) == {
+        "/api/v1/assistant/query",
         "/api/v1/chat",
         "/api/v1/health",
         "/api/v1/knowledge/query",
@@ -16,6 +17,8 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     }
     component_names = set(schema["components"]["schemas"])
     assert {
+        "AssistantQueryRequest",
+        "AssistantQueryResponse",
         "ChatRequest",
         "ChatResponse",
         "EmployeeProfileResponse",
@@ -34,6 +37,19 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     assert set(knowledge_properties) == {"question"}
     knowledge_parameters = schema["paths"]["/api/v1/knowledge/query"]["post"]["parameters"]
     assert any(parameter["name"] == "X-Demo-Session" for parameter in knowledge_parameters)
+    assistant_properties = schema["components"]["schemas"]["AssistantQueryRequest"]["properties"]
+    assert set(assistant_properties) == {"message"}
+    assistant_parameters = schema["paths"]["/api/v1/assistant/query"]["post"]["parameters"]
+    assert any(parameter["name"] == "X-Demo-Session" for parameter in assistant_parameters)
+    assert not any(
+        path in schema["paths"]
+        for path in (
+            "/api/v1/get_my_profile",
+            "/api/v1/get_my_leave_balances",
+            "/api/v1/get_my_ticket",
+            "/api/v1/knowledge_query",
+        )
+    )
 
 
 def test_swagger_documentation_renders(api_client: TestClient) -> None:

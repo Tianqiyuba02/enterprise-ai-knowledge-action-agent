@@ -210,3 +210,49 @@ framing.
 
 No public assistant route, prepare capability, write path, persistent state, proposal, confirmation,
 LangGraph, HITL, or V4 execution behavior was added.
+
+## Stage 3 authenticated assistant API
+
+`POST /api/v1/assistant/query` is a thin authenticated adapter over `AgentService.run()`. Its strict
+request accepts only one trimmed 1–4,000-character `message`; identity, applicability, tools,
+arguments, model, prompt, budgets, and history cannot be client-controlled.
+
+The explicit public response contains only `status`, `answer`, trusted V2 citations, and a safe
+message. Internal `completed` maps to public `completed`; `unable_to_complete` and
+`tool_budget_exhausted` collapse to public `unable_to_complete` without budget/round terminology.
+Provider unavailable/rate-limited states map to distinct safe HTTP 503 error envelopes. Tool counts,
+model rounds, call IDs, transcripts, employee IDs, UUIDs, vectors, and hidden reasoning are never
+mapped.
+
+Public citations come only from the sealed `AgentRunResult.citations`; answer prose is never parsed
+for citation metadata. The 24-citation cap remains enforced.
+
+V3 dependencies are created lazily only when the assistant route is called. Application startup,
+OpenAPI generation, `/health`, `/chat`, `/me/*`, and `/knowledge/query` do not connect to Gemini or
+PostgreSQL merely because the route is registered. Tools remain in-process service adapters and are
+not exposed as HTTP routes.
+
+Provider-mocked FastAPI integration tests cover real profile/ticket dispatch, knowledge plus leave
+balances with trusted citations, and non-revealing cross-user ticket failure.
+
+### Live HTTP smoke
+
+One bounded authenticated live request reached the public endpoint. The provider returned the
+reviewed safe HTTP 503 envelope: `assistant_model_unavailable`, a temporary public message, and a
+request ID. No retry or business mutation occurred.
+
+Stage 3 remains read-only and single-turn. No prepare capability, conversation persistence,
+streaming, write path, proposal, confirmation, LangGraph, HITL, or V4 execution behavior exists.
+
+## Stage 3 verification
+
+- ordinary provider-free suite: 279 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V1 API regression subset: 19 passed;
+- V2 regression subset: 138 passed;
+- all internal V3 tests: 68 passed;
+- assistant API and provider-mocked real-service integration tests: 31 passed;
+- Ruff lint and format checks: passed; and
+- Alembic head remains `0001_v2_knowledge` with no V3 migration.
+
+No prepare capability, write path, persistent state, proposal, confirmation, LangGraph, HITL, or V4
+execution behavior was added.
