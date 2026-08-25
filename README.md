@@ -105,6 +105,15 @@ Development evidence justified no RAG tuning, so configuration was frozen before
 run. Results are documented in `docs/v2-holdout-validation.md`. Compatible partial reports support
 explicit `--resume`; evaluator-only `--delay-seconds` defaults to zero.
 
+The V3 development agent baseline uses the real bounded agent and a fixed trusted date:
+
+```bash
+uv run enterprise-ai-eval --mode agent --split development --live --delay-seconds 2
+```
+
+The V3 agent holdout is frozen and cannot be run during Stage 5A. See
+`docs/v3-agent-evaluation.md` for the mechanical metrics and resume contract.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;

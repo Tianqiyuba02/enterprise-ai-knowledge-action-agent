@@ -302,3 +302,28 @@ One bounded authenticated request reached the reviewed safe HTTP 503
 
 Stage 4 adds no ticket preparation, submission, approval, conversation memory, persisted proposal,
 confirmation endpoint, LangGraph, HITL, or V4 execution path.
+
+## Stage 5A agent evaluation foundation
+
+V3 evaluation extends `enterprise-ai-eval` with `--mode agent`. It runs the real bounded
+`AgentService` and real dispatcher/service graph while an evaluator-only wrapper records safe tool
+attempt observations. The production `AgentRunResult` and public assistant response remain
+transcript-free.
+
+Both datasets were created before development execution:
+
+- development: 16 cases;
+- frozen holdout: 8 cases;
+- trusted date: `2026-08-26`; and
+- evaluator schema: `v3-agent-eval-1`.
+
+Resume compatibility includes the dataset, model, fixed date, tool/model bounds, tool registry,
+demo fixture version, knowledge settings, and database corpus identity. Completed cases carry
+forward; provider-blocked/error cases may be retried without duplicate result rows.
+
+Metrics are mechanical. They grade tool selection, identity/business-state invariants, structured
+citations, structured prepared actions, bounded execution, narrow false-execution phrases, and
+forbidden prompt-injection calls. No second LLM or generic answer-quality judge is used.
+
+Stage 5A's CLI rejects `--mode agent --split holdout`; the holdout has not been executed or used for
+tuning. Detailed methodology and frozen fingerprints are in `docs/v3-agent-evaluation.md`.
