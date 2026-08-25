@@ -73,6 +73,15 @@ uv run enterprise-ai-ingest corpus
 Corpus ingestion makes real Gemini embedding calls. It prints document identity, chunk count, and
 the embedding profile, never vectors or credentials.
 
+The frozen development retrieval baseline can be measured explicitly with:
+
+```bash
+uv run enterprise-ai-eval --mode retrieval --split development --live
+```
+
+Holdout cases are reserved for final post-tuning validation. Stage 5A records baseline evidence and
+does not tune chunking, ranking, thresholds, prompts, or corpus content.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;

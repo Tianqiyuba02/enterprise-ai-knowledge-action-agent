@@ -1,0 +1,53 @@
+{
+  "report_version": "v2-stage5a-1",
+  "generated_at": "2026-08-25T03:58:32.327270Z",
+  "mode": "grounded",
+  "split": "development",
+  "configuration": {
+    "embedding_model": "gemini-embedding-2",
+    "embedding_dimension": 768,
+    "retrieval_metric": "exact_pgvector_cosine_distance",
+    "top_k": 6,
+    "minimum_similarity_threshold": null,
+    "chunk_target_tokens": 400,
+    "chunk_overlap_tokens": 50,
+    "trusted_as_of_date": "2026-08-25",
+    "corpus_documents": 12,
+    "corpus_chunks": 42
+  },
+  "summary": {
+    "cases_total": 20,
+    "cases_completed": 0,
+    "cases_blocked_by_provider_rate_limit": 1,
+    "cases_error": 0,
+    "cases_not_run": 19,
+    "mean_required_document_recall_at_k": null,
+    "mean_reciprocal_rank": null,
+    "forbidden_document_case_hit_rate": null,
+    "authority_violation_rate": null,
+    "mean_returned_chunks": null,
+    "mean_document_diversity": null,
+    "tiny_chunk_rate": null,
+    "semantic_status_accuracy": null,
+    "citation_presence_invariant_rate": null,
+    "mean_required_document_citation_recall": null,
+    "forbidden_citation_case_hit_rate": null,
+    "conflict_distinct_source_invariant_rate": null,
+    "public_citation_metadata_validity_rate": null,
+    "internal_reference_leakage_rate": null
+  },
+  "cases": [
+    {
+      "case_id": "dev_annual_entitlement",
+      "state": "blocked_by_provider_rate_limit",
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": null,
+      "answer": null,
+      "citations": [],
+      "semantic_metrics": null,
+      "safe_error_category": "GroundedRateLimitError"
+    }
+  ],
+  "no_tuning_performed": true
+}

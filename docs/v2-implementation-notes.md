@@ -260,3 +260,52 @@ rate-limit, timeout, and invalid-response failures while preserving request IDs.
 Stage 4 adds no migration and no agent, provider-native tool calling, tool registry, action
 preparation, business write, LangGraph, persisted proposal, confirmation workflow, frontend, or
 evaluation runner. Product Milestone V2 remains in progress.
+
+## Stage 5A evaluation baseline
+
+Stage 5A adds a narrow, typed evaluation harness without changing the accepted RAG system. The
+version-controlled JSONL data contains 20 development cases and eight disjoint holdout cases using
+stable `doc_code`/version identities rather than UUIDs or generated answers.
+
+The `enterprise-ai-eval` CLI requires explicit `--live`, supports retrieval/grounded modes and
+development/holdout splits, and writes a typed JSON report plus a concise terminal summary. It
+never prints vectors, prompts, provider payloads, credentials, or internal UUIDs. An optional LLM
+judge was not added.
+
+Mechanical retrieval metrics cover required-document recall@k, first rank/MRR, forbidden hits,
+authority/applicability violations, returned chunks, document diversity, and tiny-chunk rate.
+Grounded metrics cover status accuracy, citation invariants/document labels, conflict sources,
+public metadata validity, and internal-reference leakage without exact answer-string matching.
+
+The frozen development retrieval baseline completed 20/20 cases:
+
+- mean required-document recall@6: 1.0;
+- mean reciprocal rank: 1.0;
+- forbidden-document case hit rate: 0.0;
+- authority/applicability violation rate: 0.0;
+- mean returned chunks: 6.0;
+- mean document diversity: 2.9; and
+- tiny-chunk rate (five or fewer lexical units): 0.35.
+
+The development grounded baseline was blocked by provider rate limiting before the first case
+completed. One safe `blocked_by_provider_rate_limit` result was recorded and the remaining 19 cases
+were not attempted. No grounded metric is claimed. The holdout split was validated but not executed
+and is reserved for final post-tuning validation.
+
+The factual measured/not-measured report is `docs/v2-evaluation-baseline.md`; machine-readable
+reports live under `evals/results/`.
+
+No tuning decision was made. Embedding profile, corpus, chunking, exact cosine ranking, top-k 6, no
+threshold, grounded prompt, and semantic status behavior remain unchanged.
+
+Stage 5A verification:
+
+- ordinary provider-free suite: 171 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V0 regression suite: 23 passed;
+- original released V1 API suite: 19 passed;
+- Stage 4 unit/API subset: 51 passed;
+- Stage 5A deterministic evaluation suite: 12 passed;
+- all live PostgreSQL regression suites: 39 passed; and
+- Ruff lint and format checks: passed.
+
+No schema migration or Product Milestone V3/V4 capability was added.
