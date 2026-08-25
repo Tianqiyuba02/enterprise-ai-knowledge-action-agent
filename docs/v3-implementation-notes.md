@@ -125,3 +125,54 @@ Stage 1.1 because that data-minimization decision belongs to Stage 2.
 
 No provider transcript serializer, model loop, public route, preparation capability, write path,
 state, proposal, confirmation, LangGraph, HITL, or V4 execution behavior was added.
+
+## Stage 2 bounded read-agent loop
+
+`AgentService.run(message, AuthenticatedEmployeeContext)` now owns one in-memory provider/tool
+conversation. Gemini SDK content and function-call IDs remain inside `GeminiAgentSession`; the
+service sees only bounded final text, provider-neutral requested calls, and trusted tool responses.
+
+Hard limits are five attempted tool calls and seven model rounds per turn. Multiple calls from one
+model response are dispatched sequentially in provider order. Valid, invalid, and unknown calls all
+consume budget. A sixth call is never dispatched, and round/budget exhaustion terminates without
+another persuasion loop.
+
+Automatic SDK function execution remains disabled. Every request passes through `ToolDispatcher`.
+The single function-response serializer uses `ToolResult.model_dump(mode="json")` inside native
+Gemini function-response parts; result strings are never inserted into the system instruction.
+Tool failures return to the model as bounded untrusted data while budget remains.
+
+The internal `AgentRunResult` exposes only status, optional final text, server-owned V2 citations,
+safe failure text, and round/call counts. Provider call IDs, raw calls/results, employee IDs,
+vectors, and hidden reasoning are absent. Citations are collected only from successful
+`KnowledgeToolData` and deduplicated by trusted stored metadata.
+
+### Profile data minimization
+
+Provider-visible profile data remains limited to the approved `ProfileToolData` fields. Full name
+and work email support direct self-profile questions; location and employment type support workplace
+context; hours/day, work days, and timezone describe the employee's own schedule; active state
+describes the authenticated fixture record. Repository objects and `employee_id` are never
+serialized. Reassess these fields before adding prepare tools.
+
+### Live smoke
+
+One bounded live read-agent smoke requested annual-leave policy plus the authenticated employee's
+balance. The agent requested two tools and collected approved `POL-HR-001` v2.0 citations. Final
+synthesis ended as the safe `provider_unavailable` outcome on round two, so no final answer was
+claimed and no retry was attempted. No business mutation occurred.
+
+Stage 2 remains read-only and single-turn. There is still no public assistant route, conversation
+memory, persistence, prepare capability, execution, confirmation, LangGraph, or V4 behavior.
+
+## Stage 2 verification
+
+- ordinary provider-free suite: 238 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V1 API regression subset: 19 passed;
+- V2 regression subset: 138 passed;
+- all V3 Stage 0–2 tests: 58 passed;
+- Ruff lint and format checks: passed; and
+- Alembic head remains `0001_v2_knowledge` with no V3 migration.
+
+No public assistant route, prepare tool, write path, persisted conversation/agent state, proposal,
+confirmation, LangGraph, HITL, or V4 execution behavior was added.
