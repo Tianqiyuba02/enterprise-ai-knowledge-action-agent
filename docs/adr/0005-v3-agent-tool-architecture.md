@@ -47,10 +47,11 @@ Tool arguments are validated before dispatch. Identity, ownership, applicability
 scope are enforced deterministically. Tool outputs are delimited untrusted data; text inside a
 result cannot become a system instruction.
 
-Safe internal tool failures use narrow codes such as `invalid_arguments`, `not_found`,
-`unavailable`, `timeout`, and `budget_exhausted`. Cross-user and absent tickets remain the same
-non-revealing `not_found` outcome. Raw provider/SQL exceptions, stack traces, credentials, and
-authorization details never enter the model transcript or public response.
+Safe internal tool results use one canonical status vocabulary: `success`, `invalid_arguments`,
+`not_found_or_inaccessible`, `temporarily_unavailable`, `provider_unavailable`,
+`budget_exhausted`, and `internal_error`. Cross-user and absent tickets remain the same
+non-revealing `not_found_or_inaccessible` outcome. Raw provider/SQL exceptions, stack traces,
+credentials, and authorization details never enter the model transcript or public response.
 
 The proposed additive public endpoint is:
 

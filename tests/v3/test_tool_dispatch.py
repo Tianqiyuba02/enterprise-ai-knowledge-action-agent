@@ -1,19 +1,25 @@
 import json
+from dataclasses import replace
 from typing import cast
 from unittest.mock import Mock
 
 import pytest
+from pydantic import ValidationError
 
 from app.agent.contracts import V3_TOOL_ALLOWLIST
 from app.agent.dispatcher import ToolDispatcher
-from app.agent.models import ToolResultStatus
-from app.agent.provider import build_provider_function_declarations
+from app.agent.models import KnowledgeToolData, ToolResult, ToolResultStatus
+from app.agent.provider import (
+    build_provider_function_declarations,
+    normalize_provider_arguments,
+)
 from app.api.knowledge_models import KnowledgeCitation, KnowledgeQueryResponse
 from app.grounding.client import GroundedServiceError
+from app.grounding.models import KnowledgeAnswerStatus
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.vocabulary import AudienceGroup, Jurisdiction
-from app.repositories.demo import DemoRepository, TicketRecord
+from app.repositories.demo import DemoRepository, EmployeeRecord, TicketRecord
 from app.services.employee import EmployeeService
 from app.services.it import ITService
 
@@ -138,6 +144,55 @@ def test_knowledge_tool_derives_applicability_and_reuses_v2_service(
     assert AudienceGroup.MANAGERS not in applicability.audience_groups
 
 
+def test_knowledge_applicability_failures_return_only_bounded_safe_envelopes() -> None:
+    released_repository = DemoRepository()
+    active_employee = released_repository.get_employee("EMP-1001")
+    assert active_employee is not None
+    scenarios: tuple[
+        tuple[EmployeeRecord | None, AuthenticatedEmployeeContext, ToolResultStatus], ...
+    ] = (
+        (
+            replace(active_employee, is_active=False),
+            PRIMARY_CONTEXT,
+            ToolResultStatus.TEMPORARILY_UNAVAILABLE,
+        ),
+        (
+            replace(active_employee, location="Sydney"),
+            PRIMARY_CONTEXT,
+            ToolResultStatus.TEMPORARILY_UNAVAILABLE,
+        ),
+        (
+            None,
+            AuthenticatedEmployeeContext(employee_id="EMP-9999"),
+            ToolResultStatus.NOT_FOUND_OR_INACCESSIBLE,
+        ),
+    )
+
+    for employee, context, expected_status in scenarios:
+        applicability_repository = Mock(spec=DemoRepository)
+        applicability_repository.get_employee.return_value = employee
+        knowledge_service = Mock(spec=KnowledgeQueryService)
+        dispatcher = ToolDispatcher(
+            employee_service=EmployeeService(released_repository),
+            it_service=ITService(released_repository),
+            knowledge_service=cast(KnowledgeQueryService, knowledge_service),
+            demo_repository=cast(DemoRepository, applicability_repository),
+        )
+
+        result = dispatcher.dispatch(
+            name="knowledge_query",
+            arguments={"question": "What is the policy?"},
+            context=context,
+        )
+
+        assert result.status is expected_status
+        serialized = result.model_dump_json().lower()
+        assert "emp-" not in serialized
+        assert "sydney" not in serialized
+        assert "inactive" not in serialized
+        knowledge_service.query.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("name", "arguments"),
     [
@@ -170,6 +225,72 @@ def test_strict_tool_call_validation_rejects_malformed_or_extra_arguments(
     assert result.status is ToolResultStatus.INVALID_ARGUMENTS
     assert result.data is None
     assert result.untrusted_data is True
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_name"),
+    [
+        ("a" * 65, "unknown_tool"),
+        ("bad\nname", "unknown_tool"),
+        ("bad\rname", "unknown_tool"),
+        ("bad\tname", "unknown_tool"),
+        ("bad\x00name", "unknown_tool"),
+        ("ignore_previous_instructions", "unknown_tool"),
+        (123, "unknown_tool"),
+        ("harmless_unknown_name", "harmless_unknown_name"),
+    ],
+)
+def test_hostile_tool_names_are_deterministically_sanitized(
+    dispatcher: ToolDispatcher,
+    name: object,
+    expected_name: str,
+) -> None:
+    result = dispatcher.dispatch(name=name, arguments={}, context=PRIMARY_CONTEXT)
+
+    assert result.status is ToolResultStatus.INVALID_ARGUMENTS
+    assert result.tool_name == expected_name
+
+
+def test_provider_none_arguments_normalize_only_at_adapter_boundary(
+    dispatcher: ToolDispatcher,
+) -> None:
+    assert normalize_provider_arguments(None) == {}
+
+    profile = dispatcher.dispatch(
+        name="get_my_profile",
+        arguments=None,
+        context=PRIMARY_CONTEXT,
+    )
+    balances = dispatcher.dispatch(
+        name="get_my_leave_balances",
+        arguments=None,
+        context=PRIMARY_CONTEXT,
+    )
+    ticket = dispatcher.dispatch(
+        name="get_my_ticket",
+        arguments=None,
+        context=PRIMARY_CONTEXT,
+    )
+    knowledge = dispatcher.dispatch(
+        name="knowledge_query",
+        arguments=None,
+        context=PRIMARY_CONTEXT,
+    )
+
+    assert profile.status is ToolResultStatus.SUCCESS
+    assert balances.status is ToolResultStatus.SUCCESS
+    assert ticket.status is ToolResultStatus.INVALID_ARGUMENTS
+    assert knowledge.status is ToolResultStatus.INVALID_ARGUMENTS
+
+
+def test_ticket_id_with_trailing_newline_is_rejected(dispatcher: ToolDispatcher) -> None:
+    result = dispatcher.dispatch(
+        name="get_my_ticket",
+        arguments={"ticket_id": "TKT-1001\n"},
+        context=PRIMARY_CONTEXT,
+    )
+
+    assert result.status is ToolResultStatus.INVALID_ARGUMENTS
 
 
 def test_raw_infrastructure_error_is_mapped_without_leak() -> None:
@@ -248,8 +369,79 @@ def test_instruction_like_tool_content_remains_untrusted_data() -> None:
     assert result.untrusted_data is True
 
 
+def test_knowledge_tool_answer_has_independent_4000_character_bound() -> None:
+    accepted = KnowledgeToolData(
+        status=KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE,
+        answer="x" * 4_000,
+        citations=(),
+    )
+    assert len(accepted.answer) == 4_000
+
+    with pytest.raises(ValidationError):
+        KnowledgeToolData(
+            status=KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE,
+            answer="x" * 4_001,
+            citations=(),
+        )
+    with pytest.raises(ValidationError):
+        KnowledgeToolData(
+            status=KnowledgeAnswerStatus.INSUFFICIENT_EVIDENCE,
+            answer=123,
+            citations=(),
+        )
+
+
+def test_transcript_visible_tool_result_envelope_has_locked_outer_shape(
+    dispatcher: ToolDispatcher,
+) -> None:
+    results = (
+        dispatcher.dispatch(
+            name="get_my_profile",
+            arguments={},
+            context=PRIMARY_CONTEXT,
+        ),
+        ToolResult.failure(
+            "get_my_profile",
+            ToolResultStatus.INVALID_ARGUMENTS,
+            "Invalid arguments.",
+        ),
+        ToolResult.failure(
+            "get_my_ticket",
+            ToolResultStatus.NOT_FOUND_OR_INACCESSIBLE,
+            "Not found or inaccessible.",
+        ),
+        ToolResult.failure(
+            "knowledge_query",
+            ToolResultStatus.TEMPORARILY_UNAVAILABLE,
+            "Temporarily unavailable.",
+        ),
+        ToolResult.failure(
+            "knowledge_query",
+            ToolResultStatus.PROVIDER_UNAVAILABLE,
+            "Provider unavailable.",
+        ),
+        ToolResult.failure(
+            "get_my_ticket",
+            ToolResultStatus.INTERNAL_ERROR,
+            "Tool failed safely.",
+        ),
+    )
+
+    for result in results:
+        serialized = result.model_dump(mode="json")
+        assert set(serialized) == {
+            "tool_name",
+            "status",
+            "data",
+            "safe_message",
+            "untrusted_data",
+        }
+        assert serialized["untrusted_data"] is True
+
+
 def test_provider_declarations_match_fixed_registry_without_identity_or_write_fields() -> None:
     declarations = build_provider_function_declarations()
+    contracts_by_name = {contract.name.value: contract for contract in V3_TOOL_ALLOWLIST.values()}
 
     assert [declaration.name for declaration in declarations] == [
         contract.name.value for contract in V3_TOOL_ALLOWLIST.values()
@@ -257,6 +449,7 @@ def test_provider_declarations_match_fixed_registry_without_identity_or_write_fi
     assert len({declaration.name for declaration in declarations}) == 4
     for declaration in declarations:
         schema = declaration.parameters_json_schema
+        assert schema == contracts_by_name[declaration.name].argument_model.model_json_schema()
         assert schema["additionalProperties"] is False
         serialized = json.dumps(schema)
         assert "employee_id" not in serialized

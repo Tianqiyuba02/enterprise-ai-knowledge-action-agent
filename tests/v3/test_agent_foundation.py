@@ -5,9 +5,9 @@ from app.agent.contracts import (
     MAX_TOOL_CALLS_PER_TURN,
     V3_TOOL_ALLOWLIST,
     ToolCapability,
-    ToolErrorCode,
     V3ToolName,
 )
+from app.agent.models import ToolResultStatus
 from app.config import AgentSettings, KnowledgeSettings, Settings
 
 
@@ -54,13 +54,14 @@ def test_model_arguments_cannot_control_identity_applicability_or_generic_capabi
 
 def test_tool_budget_and_safe_error_taxonomy_are_explicit() -> None:
     assert MAX_TOOL_CALLS_PER_TURN == 5
-    assert set(ToolErrorCode) == {
-        ToolErrorCode.INVALID_ARGUMENTS,
-        ToolErrorCode.NOT_FOUND,
-        ToolErrorCode.UNAVAILABLE,
-        ToolErrorCode.TIMEOUT,
-        ToolErrorCode.BUDGET_EXHAUSTED,
-        ToolErrorCode.INTERNAL_ERROR,
+    assert set(ToolResultStatus) == {
+        ToolResultStatus.SUCCESS,
+        ToolResultStatus.INVALID_ARGUMENTS,
+        ToolResultStatus.NOT_FOUND_OR_INACCESSIBLE,
+        ToolResultStatus.TEMPORARILY_UNAVAILABLE,
+        ToolResultStatus.PROVIDER_UNAVAILABLE,
+        ToolResultStatus.BUDGET_EXHAUSTED,
+        ToolResultStatus.INTERNAL_ERROR,
     }
 
     with pytest.raises(TypeError):

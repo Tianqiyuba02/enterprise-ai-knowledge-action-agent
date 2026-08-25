@@ -86,3 +86,42 @@ were not modified.
 
 No agent loop, public assistant route, prepare tool, write path, proposal, confirmation, LangGraph,
 or V4 behavior was added.
+
+## Stage 1.1 pre-agent boundary hardening
+
+Before provider-visible transcripts are introduced:
+
+- malformed/hostile requested names are reduced to `unknown_tool`; only canonical names or safe
+  lowercase/underscore unknown names can be echoed;
+- provider `args=None` normalizes to `{}` only at the provider adapter boundary, while strict local
+  models still reject missing required ticket/question fields;
+- `ToolResultStatus` is the single result vocabulary; the unused divergent error enum was removed;
+- knowledge answers have an independent strict 4,000-character bound;
+- registry mutation raises `TypeError`;
+- every provider parameter schema is asserted equal to the local Pydantic schema;
+- applicability failures and ticket newline edge cases return bounded envelopes; and
+- the transcript-visible outer result shape is locked by deterministic tests.
+
+### Stage 2 transcript entry requirements
+
+Tool results are untrusted data. Stage 2 must use one trusted serializer with explicit data framing,
+must never interpolate result fields into system/developer instructions, must keep automatic
+function execution disabled, and must route every requested call through `ToolDispatcher`.
+Instruction-like text inside result fields remains data only; these controls do not claim prompt
+injection is universally solved.
+
+Before provider transcript integration, review whether every currently approved profile field
+(including full name and work email) is necessary for the agent. No profile field was removed in
+Stage 1.1 because that data-minimization decision belongs to Stage 2.
+
+## Stage 1.1 verification
+
+- ordinary provider-free suite: 218 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V1 API regression subset: 19 passed;
+- V2 regression subset: 138 passed;
+- all V3 Stage 0/1/1.1 tests: 38 passed;
+- Ruff lint and format checks: passed; and
+- Alembic head remains `0001_v2_knowledge` with no V3 migration.
+
+No provider transcript serializer, model loop, public route, preparation capability, write path,
+state, proposal, confirmation, LangGraph, HITL, or V4 execution behavior was added.

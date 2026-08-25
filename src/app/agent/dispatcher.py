@@ -1,5 +1,7 @@
 """Deterministic authenticated dispatch for the fixed V3 read-tool allowlist."""
 
+import re
+
 from pydantic import ValidationError
 
 from app.agent.contracts import V3_TOOL_ALLOWLIST, ToolHandlerName, V3ToolName
@@ -15,6 +17,7 @@ from app.agent.models import (
     ToolResult,
     ToolResultStatus,
 )
+from app.agent.provider import normalize_provider_arguments
 from app.embeddings.client import EmbeddingClientError
 from app.errors import ApplicationError, EmployeeNotFoundError, TicketNotFoundError
 from app.grounding.client import GroundedGenerationError
@@ -52,7 +55,12 @@ class ToolDispatcher:
     ) -> ToolResult:
         tool_name = _safe_tool_name(name)
         try:
-            request = ProviderToolRequest.model_validate({"name": name, "arguments": arguments})
+            request = ProviderToolRequest.model_validate(
+                {
+                    "name": name,
+                    "arguments": normalize_provider_arguments(arguments),
+                }
+            )
             canonical_name = V3ToolName(request.name)
             contract = V3_TOOL_ALLOWLIST[canonical_name]
             validated_arguments = contract.argument_model.model_validate(request.arguments)
@@ -196,8 +204,20 @@ class ToolDispatcher:
 
 
 def _safe_tool_name(name: object) -> str:
-    if isinstance(name, str):
-        cleaned = name.strip()
-        if cleaned:
-            return cleaned[:64]
-    return "unknown_tool"
+    if isinstance(name, str) and name in {tool_name.value for tool_name in V3_TOOL_ALLOWLIST}:
+        return name
+    if not isinstance(name, str) or re.fullmatch(r"[a-z0-9_]{1,64}", name) is None:
+        return "unknown_tool"
+    suspicious_tokens = {
+        "call",
+        "developer",
+        "execute",
+        "ignore",
+        "instruction",
+        "instructions",
+        "prompt",
+        "system",
+    }
+    if suspicious_tokens & set(name.split("_")):
+        return "unknown_tool"
+    return name

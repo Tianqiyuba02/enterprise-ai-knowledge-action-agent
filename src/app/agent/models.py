@@ -1,10 +1,18 @@
 """Strict provider-call and untrusted tool-result models for V3 read dispatch."""
 
+import re
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.api.knowledge_models import KnowledgeCitation
 from app.grounding.models import KnowledgeAnswerStatus
@@ -18,6 +26,10 @@ ToolNameString = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=64, strict=True),
 ]
 QuestionString = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=4_000, strict=True),
+]
+KnowledgeAnswerString = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=4_000, strict=True),
 ]
@@ -41,6 +53,13 @@ class KnowledgeQueryArguments(StrictToolModel):
 
 class GetMyTicketArguments(StrictToolModel):
     ticket_id: TicketId
+
+    @field_validator("ticket_id")
+    @classmethod
+    def require_full_ticket_id_match(cls, value: str) -> str:
+        if re.fullmatch(r"TKT-[0-9]{4}", value) is None:
+            raise ValueError("ticket_id must exactly match TKT-####")
+        return value
 
 
 class ProviderToolRequest(StrictToolModel):
@@ -98,7 +117,7 @@ class TicketToolData(StrictToolModel):
 class KnowledgeToolData(StrictToolModel):
     kind: Literal["knowledge"] = "knowledge"
     status: KnowledgeAnswerStatus
-    answer: NonEmptyString
+    answer: KnowledgeAnswerString
     citations: tuple[KnowledgeCitation, ...]
 
 

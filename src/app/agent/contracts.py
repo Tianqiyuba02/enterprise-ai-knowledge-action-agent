@@ -24,15 +24,6 @@ class ToolCapability(StrEnum):
     PREPARE = "prepare"
 
 
-class ToolErrorCode(StrEnum):
-    INVALID_ARGUMENTS = "invalid_arguments"
-    NOT_FOUND = "not_found"
-    UNAVAILABLE = "unavailable"
-    TIMEOUT = "timeout"
-    BUDGET_EXHAUSTED = "budget_exhausted"
-    INTERNAL_ERROR = "internal_error"
-
-
 class ToolHandlerName(StrEnum):
     KNOWLEDGE_QUERY = "knowledge_query"
     GET_MY_PROFILE = "get_my_profile"
