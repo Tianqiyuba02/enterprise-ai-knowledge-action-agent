@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         grounded = KnowledgeQueryService(
             retrieval=retrieval,
-            generator=GeminiGroundedGenerationClient(settings),
+            generator=GeminiGroundedGenerationClient(settings, knowledge_settings),
         )
         applicability = resolve_knowledge_applicability(
             AuthenticatedEmployeeContext(employee_id="EMP-1001"),
@@ -101,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             configuration=EvaluationConfiguration(
                 embedding_model=knowledge_settings.knowledge_embedding_model,
                 embedding_dimension=knowledge_settings.knowledge_embedding_dimension,
+                grounded_generation_model=knowledge_settings.knowledge_grounded_model,
                 retrieval_metric="exact_pgvector_cosine_distance",
                 top_k=DEFAULT_RETRIEVAL_TOP_K,
                 minimum_similarity_threshold=None,

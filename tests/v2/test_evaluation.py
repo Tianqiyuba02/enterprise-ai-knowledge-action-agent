@@ -101,6 +101,7 @@ def _configuration() -> EvaluationConfiguration:
     return EvaluationConfiguration(
         embedding_model="gemini-embedding-2",
         embedding_dimension=768,
+        grounded_generation_model="gemini-3.6-flash",
         retrieval_metric="exact_pgvector_cosine_distance",
         top_k=6,
         minimum_similarity_threshold=None,

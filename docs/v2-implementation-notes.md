@@ -287,10 +287,16 @@ The frozen development retrieval baseline completed 20/20 cases:
 - mean document diversity: 2.9; and
 - tiny-chunk rate (five or fewer lexical units): 0.35.
 
-The development grounded baseline was blocked by provider rate limiting before the first case
-completed. One safe `blocked_by_provider_rate_limit` result was recorded and the remaining 19 cases
-were not attempted. No grounded metric is claimed. The holdout split was validated but not executed
-and is reserved for final post-tuning validation.
+No valid grounded baseline exists for `gemini-3.5-flash`: repeated provider-side HTTP 503
+`UNAVAILABLE` failures completed 0/20 cases. A minimal capability check proved
+`gemini-3.6-flash` available, so V2 grounded generation moved to a separate
+`KNOWLEDGE_GROUNDED_MODEL` setting while V1 retained `GEMINI_MODEL=gemini-3.5-flash`.
+
+The fresh 3.6 run completed four answerable cases with 1.0 status accuracy, required-document
+citation recall, citation-invariant rate, and public-metadata validity; forbidden citation and
+internal-reference leakage rates were 0.0. The fifth case was rate-limited and the remaining 15
+were not attempted. Refusal/conflict metrics therefore remain unmeasured. The holdout split was
+validated but not executed and remains reserved for final post-tuning validation.
 
 The factual measured/not-measured report is `docs/v2-evaluation-baseline.md`; machine-readable
 reports live under `evals/results/`.
@@ -300,7 +306,7 @@ threshold, grounded prompt, and semantic status behavior remain unchanged.
 
 Stage 5A verification:
 
-- ordinary provider-free suite: 171 passed, 39 explicitly gated PostgreSQL tests skipped;
+- ordinary provider-free suite: 172 passed, 39 explicitly gated PostgreSQL tests skipped;
 - original V0 regression suite: 23 passed;
 - original released V1 API suite: 19 passed;
 - Stage 4 unit/API subset: 51 passed;

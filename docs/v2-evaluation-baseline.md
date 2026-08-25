@@ -17,7 +17,7 @@
 | Top-k | 6 |
 | Similarity threshold | None |
 | Chunking | Current Stage 2 heading-aware, target 400 lexical units, overlap 50 |
-| Grounded answer | Current Stage 4 prompt and strict response behavior |
+| Grounded answer | Stage 4 prompt/schema, availability-migrated to `gemini-3.6-flash` |
 | Trusted date | 2026-08-25, Melbourne semantics |
 
 ## Measured: development retrieval
@@ -68,24 +68,35 @@ fabricated relevant-document label and therefore do not contribute to recall/MRR
 The machine-readable source is
 `evals/results/v2-stage5a-development-retrieval.json`.
 
-## Not yet measured: development grounded responses
+## Partially measured: development grounded responses
 
-The grounded run made one attempt and was immediately:
+No valid grounded baseline exists for `gemini-3.5-flash`: repeated HTTP 503 `UNAVAILABLE` failures
+produced **0 / 20** completed cases. A minimal isolated capability check established that
+`gemini-3.6-flash` was available, so V2 grounded generation migrated for provider availability—not
+RAG tuning. V1 remained on its existing 3.5 setting.
 
-```text
-blocked_by_provider_rate_limit
-```
+The fresh 3.6 development run completed four cases before rate limiting:
 
-Measured grounded cases: **0 / 20**. The first case recorded the safe category
-`GroundedRateLimitError`; the remaining 19 were not run to avoid repeatedly hammering the
-provider. Therefore Stage 5A does **not** report status accuracy, citation metrics, factual checks,
-or internal-reference leakage metrics from this run.
+| Mechanical metric over completed cases | Result |
+|---|---:|
+| Cases completed | 4 / 20 |
+| Cases blocked by provider rate limit | 1 |
+| Cases not run after the block | 15 |
+| Semantic status accuracy | 1.000 |
+| Citation presence invariant rate | 1.000 |
+| Required-document citation recall | 1.000 |
+| Forbidden-citation case hit rate | 0.000 |
+| Public citation metadata validity | 1.000 |
+| Internal evidence-reference leakage rate | 0.000 |
+| Conflict distinct-source invariant | Not measured |
 
-The partial machine-readable report is
-`evals/results/v2-stage5a-development-grounded.json`.
+All four completed cases were answerable HR questions and returned the expected status/document.
+No unsupported or conflict case completed, so this partial run does not measure refusal or conflict
+behavior. The fifth case recorded `GroundedRateLimitError`, and the runner stopped without retrying.
 
-Earlier Stage 4 deterministic tests and manual/live smokes remain valid evidence, but they are not
-misrepresented as this 20-case development baseline.
+The machine-readable partial report is
+`evals/results/v2-stage5a-development-grounded.json`. The completed retrieval baseline remains
+unchanged because it does not depend on the grounded generation model.
 
 ## Not yet measured: holdout
 
@@ -114,15 +125,16 @@ is made at retrieval level.
 
 ### H4 — Grounded classification may refuse despite weak retrieval
 
-Not measured in the development baseline because grounded generation was provider-rate-limited
-before the first case completed. Earlier smoke evidence supports the hypothesis but is not a
-substitute for the blocked baseline.
+Partially measured: four answerable HR cases were classified correctly, but rate limiting occurred
+before any unsupported case. The hypothesis that weak retrieval is reliably refused remains
+unmeasured in this baseline.
 
 ## Baseline weaknesses to review before Stage 5B
 
 - Tiny chunks occupy 35% of measured retrieval slots.
 - Adjacent/unrelated eligible chunks fill top-k when no gold evidence exists.
-- The grounded 20-case baseline is unavailable due to provider rate limiting.
+- The grounded baseline is partial: four answerable cases completed, then provider rate limiting
+  prevented the remaining 16 cases, including every unsupported/conflict case.
 - No holdout result exists by design.
 
 No chunking, top-k, threshold, prompt, ranking, corpus, or status-semantic change was made in

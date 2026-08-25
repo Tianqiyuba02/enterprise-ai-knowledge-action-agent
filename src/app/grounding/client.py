@@ -7,7 +7,7 @@ from google import genai
 from google.genai import errors, types
 from pydantic import ValidationError
 
-from app.config import Settings
+from app.config import KnowledgeSettings, Settings
 from app.grounding.models import GroundedAnswerDraft
 from app.grounding.prompt import build_grounded_prompt
 from app.grounding.references import ReferencedEvidence
@@ -40,8 +40,14 @@ class InvalidGroundedResponseError(GroundedGenerationError):
 class GeminiGroundedGenerationClient:
     """Generate one strict draft from a bounded referenced evidence set."""
 
-    def __init__(self, settings: Settings, sdk_client: Any | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        knowledge_settings: KnowledgeSettings,
+        sdk_client: Any | None = None,
+    ) -> None:
         self._settings = settings
+        self._model = knowledge_settings.knowledge_grounded_model
         self._client = sdk_client or genai.Client(
             api_key=settings.gemini_api_key.get_secret_value(),
             http_options=types.HttpOptions(
@@ -64,7 +70,7 @@ class GeminiGroundedGenerationClient:
         prompt = build_grounded_prompt(question, referenced_evidence)
         try:
             response = self._client.models.generate_content(
-                model=self._settings.gemini_model,
+                model=self._model,
                 contents=prompt.user_content,
                 config=types.GenerateContentConfig(
                     system_instruction=prompt.system_instruction,

@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APPROVED_EMBEDDING_MODEL = "gemini-embedding-2"
 APPROVED_EMBEDDING_DIMENSION = 768
+APPROVED_GROUNDED_MODEL = "gemini-3.6-flash"
 DEFAULT_KNOWLEDGE_DATABASE_URL = (
     "postgresql+psycopg://knowledge_app:knowledge_app_local_only@127.0.0.1:5433/knowledge_agent"
 )
@@ -86,6 +87,10 @@ class KnowledgeSettings(BaseSettings):
     knowledge_embedding_dimension: Literal[768] = Field(
         default=APPROVED_EMBEDDING_DIMENSION,
         validation_alias="KNOWLEDGE_EMBEDDING_DIMENSION",
+    )
+    knowledge_grounded_model: Literal["gemini-3.6-flash"] = Field(
+        default=APPROVED_GROUNDED_MODEL,
+        validation_alias="KNOWLEDGE_GROUNDED_MODEL",
     )
 
 

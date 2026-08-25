@@ -87,7 +87,7 @@ def get_knowledge_query_service(request: Request) -> KnowledgeQueryService:
         )
         service = KnowledgeQueryService(
             retrieval=retrieval,
-            generator=GeminiGroundedGenerationClient(settings),
+            generator=GeminiGroundedGenerationClient(settings, knowledge_settings),
         )
         request.app.state.knowledge_engine = engine
         request.app.state.knowledge_query_service = service

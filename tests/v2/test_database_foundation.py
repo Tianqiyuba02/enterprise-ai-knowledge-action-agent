@@ -8,8 +8,10 @@ from sqlalchemy import Engine
 from app.config import (
     APPROVED_EMBEDDING_DIMENSION,
     APPROVED_EMBEDDING_MODEL,
+    APPROVED_GROUNDED_MODEL,
     DEFAULT_KNOWLEDGE_DATABASE_URL,
     KnowledgeSettings,
+    Settings,
 )
 from app.db import Base
 from app.db.models import Document, DocumentChunk
@@ -22,6 +24,10 @@ def test_knowledge_settings_have_isolated_safe_local_defaults() -> None:
     assert settings.knowledge_database_url.get_secret_value() == DEFAULT_KNOWLEDGE_DATABASE_URL
     assert settings.knowledge_embedding_model == APPROVED_EMBEDDING_MODEL
     assert settings.knowledge_embedding_dimension == APPROVED_EMBEDDING_DIMENSION
+    assert settings.knowledge_grounded_model == APPROVED_GROUNDED_MODEL
+    assert Settings(gemini_api_key="test-only-key", _env_file=None).gemini_model == (
+        "gemini-3.5-flash"
+    )
 
 
 @pytest.mark.parametrize(
@@ -29,9 +35,10 @@ def test_knowledge_settings_have_isolated_safe_local_defaults() -> None:
     [
         ("knowledge_embedding_model", "gemini-embedding-2-preview"),
         ("knowledge_embedding_dimension", 3072),
+        ("knowledge_grounded_model", "gemini-3.5-flash"),
     ],
 )
-def test_knowledge_settings_reject_unapproved_embedding_profile(field: str, value: object) -> None:
+def test_knowledge_settings_reject_unapproved_provider_profiles(field: str, value: object) -> None:
     values = {field: value, "_env_file": None}
 
     with pytest.raises(ValidationError):

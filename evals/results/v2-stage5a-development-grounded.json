@@ -1,11 +1,12 @@
 {
   "report_version": "v2-stage5a-1",
-  "generated_at": "2026-08-25T03:58:32.327270Z",
+  "generated_at": "2026-08-25T06:46:51.020402Z",
   "mode": "grounded",
   "split": "development",
   "configuration": {
     "embedding_model": "gemini-embedding-2",
     "embedding_dimension": 768,
+    "grounded_generation_model": "gemini-3.6-flash",
     "retrieval_metric": "exact_pgvector_cosine_distance",
     "top_k": 6,
     "minimum_similarity_threshold": null,
@@ -17,10 +18,10 @@
   },
   "summary": {
     "cases_total": 20,
-    "cases_completed": 0,
+    "cases_completed": 4,
     "cases_blocked_by_provider_rate_limit": 1,
     "cases_error": 0,
-    "cases_not_run": 19,
+    "cases_not_run": 15,
     "mean_required_document_recall_at_k": null,
     "mean_reciprocal_rank": null,
     "forbidden_document_case_hit_rate": null,
@@ -28,17 +29,125 @@
     "mean_returned_chunks": null,
     "mean_document_diversity": null,
     "tiny_chunk_rate": null,
-    "semantic_status_accuracy": null,
-    "citation_presence_invariant_rate": null,
-    "mean_required_document_citation_recall": null,
-    "forbidden_citation_case_hit_rate": null,
+    "semantic_status_accuracy": 1.0,
+    "citation_presence_invariant_rate": 1.0,
+    "mean_required_document_citation_recall": 1.0,
+    "forbidden_citation_case_hit_rate": 0.0,
     "conflict_distinct_source_invariant_rate": null,
-    "public_citation_metadata_validity_rate": null,
-    "internal_reference_leakage_rate": null
+    "public_citation_metadata_validity_rate": 1.0,
+    "internal_reference_leakage_rate": 0.0
   },
   "cases": [
     {
       "case_id": "dev_annual_entitlement",
+      "state": "completed",
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "Eligible full-time employees receive twenty days of paid annual leave for each completed year of service.",
+      "citations": [
+        {
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "entitlement",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "dev_annual_planning",
+      "state": "completed",
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "For a request covering five or more consecutive working days (such as a full working week), you should normally submit your request at least fourteen calendar days before your first day away. Before submitting the request, you should also discuss foreseeable absences with your team.",
+      "citations": [
+        {
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "planning-leave",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "dev_annual_carryover",
+      "state": "completed",
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "Yes, unused annual leave may carry into the next calendar year. While a manager can ask an employee with a high balance to create a reasonable leave plan, the manager cannot remove accrued leave through an informal conversation.",
+      "citations": [
+        {
+          "doc_code": "POL-HR-001",
+          "version": "2.0",
+          "section_anchor": "carry-over",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "dev_personal_leave_purpose",
+      "state": "completed",
+      "retrieval": [],
+      "retrieval_metrics": null,
+      "semantic_status": "answered",
+      "answer": "An employee may use personal leave to care for someone when they must provide care or support to a member of their immediate family or household.",
+      "citations": [
+        {
+          "doc_code": "POL-HR-002",
+          "version": "1.0",
+          "section_anchor": "purpose",
+          "page": null
+        }
+      ],
+      "semantic_metrics": {
+        "status_correct": true,
+        "citation_presence_valid": true,
+        "required_document_citation_recall": 1.0,
+        "allowed_document_citations_valid": true,
+        "forbidden_citation_hits": 0,
+        "conflict_distinct_sources_valid": null,
+        "public_citation_metadata_valid": true,
+        "internal_reference_leaked": false
+      },
+      "safe_error_category": null
+    },
+    {
+      "case_id": "dev_personal_leave_evidence",
       "state": "blocked_by_provider_rate_limit",
       "retrieval": [],
       "retrieval_metrics": null,

@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from app.config import Settings
+from app.config import KnowledgeSettings, Settings
 from app.grounding.client import (
     GeminiGroundedGenerationClient,
     GroundedServiceError,
@@ -46,8 +46,14 @@ def settings() -> Settings:
     return Settings(gemini_api_key="test-only-key", _env_file=None)
 
 
+@pytest.fixture
+def knowledge_settings() -> KnowledgeSettings:
+    return KnowledgeSettings(_env_file=None)
+
+
 def test_grounded_client_uses_schema_and_returns_locally_validated_draft(
     settings: Settings,
+    knowledge_settings: KnowledgeSettings,
 ) -> None:
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(
@@ -59,7 +65,11 @@ def test_grounded_client_uses_schema_and_returns_locally_validated_draft(
             }
         )
     )
-    client = GeminiGroundedGenerationClient(settings, sdk_client=sdk_client)
+    client = GeminiGroundedGenerationClient(
+        settings,
+        knowledge_settings,
+        sdk_client=sdk_client,
+    )
     referenced = assign_evidence_references((_evidence(),))
 
     draft = client.generate("How much annual leave?", referenced)
@@ -67,7 +77,8 @@ def test_grounded_client_uses_schema_and_returns_locally_validated_draft(
     assert draft.status is KnowledgeAnswerStatus.ANSWERED
     assert draft.evidence_refs == ("E1",)
     call = sdk_client.models.generate_content.call_args
-    assert call.kwargs["model"] == settings.gemini_model
+    assert call.kwargs["model"] == "gemini-3.6-flash"
+    assert settings.gemini_model == "gemini-3.5-flash"
     assert call.kwargs["config"].response_mime_type == "application/json"
     assert call.kwargs["config"].response_json_schema is not None
     assert call.kwargs["config"].automatic_function_calling.disable is True
@@ -93,11 +104,16 @@ def test_grounded_client_uses_schema_and_returns_locally_validated_draft(
 )
 def test_grounded_client_rejects_malformed_or_schema_invalid_output(
     settings: Settings,
+    knowledge_settings: KnowledgeSettings,
     response_text: str,
 ) -> None:
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(text=response_text)
-    client = GeminiGroundedGenerationClient(settings, sdk_client=sdk_client)
+    client = GeminiGroundedGenerationClient(
+        settings,
+        knowledge_settings,
+        sdk_client=sdk_client,
+    )
 
     with pytest.raises(InvalidGroundedResponseError):
         client.generate(
@@ -115,12 +131,17 @@ def test_grounded_client_rejects_malformed_or_schema_invalid_output(
 )
 def test_grounded_transport_failures_are_safe(
     settings: Settings,
+    knowledge_settings: KnowledgeSettings,
     provider_error: Exception,
     expected_error: type[Exception],
 ) -> None:
     sdk_client = Mock()
     sdk_client.models.generate_content.side_effect = provider_error
-    client = GeminiGroundedGenerationClient(settings, sdk_client=sdk_client)
+    client = GeminiGroundedGenerationClient(
+        settings,
+        knowledge_settings,
+        sdk_client=sdk_client,
+    )
 
     with pytest.raises(expected_error) as captured:
         client.generate(

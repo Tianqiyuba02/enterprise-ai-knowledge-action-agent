@@ -156,6 +156,7 @@ class EvaluationSummary(EvaluationModel):
 class EvaluationConfiguration(EvaluationModel):
     embedding_model: NonEmptyString
     embedding_dimension: Annotated[int, Field(gt=0)]
+    grounded_generation_model: NonEmptyString
     retrieval_metric: NonEmptyString
     top_k: Annotated[int, Field(gt=0)]
     minimum_similarity_threshold: float | None
