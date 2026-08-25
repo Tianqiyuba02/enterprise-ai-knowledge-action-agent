@@ -38,7 +38,7 @@ class InvalidEmbeddingResponseError(EmbeddingClientError):
 
 
 class GeminiDocumentEmbeddingClient:
-    """Embed document chunks with the approved Gemini V2 profile."""
+    """Embed V2 document chunks and retrieval queries with one approved profile."""
 
     def __init__(
         self,
@@ -63,6 +63,37 @@ class GeminiDocumentEmbeddingClient:
                 ),
             ),
         )
+
+    def embed_query(self, query: str) -> tuple[float, ...]:
+        """Return one validated RETRIEVAL_QUERY vector."""
+
+        cleaned_query = query.strip()
+        if not cleaned_query:
+            raise InvalidEmbeddingResponseError("Query embedding input must not be empty.")
+        try:
+            response = self._client.models.embed_content(
+                model=self.profile.model_id,
+                contents=types.Content(parts=[types.Part(text=cleaned_query)]),
+                config=types.EmbedContentConfig(
+                    task_type="RETRIEVAL_QUERY",
+                    output_dimensionality=self.profile.dimension,
+                ),
+            )
+        except errors.APIError as exc:
+            raise _safe_embedding_provider_error(exc) from exc
+        except httpx.TimeoutException as exc:
+            raise EmbeddingTimeoutError(
+                "The embedding request timed out. Please try again."
+            ) from exc
+        except httpx.TransportError as exc:
+            raise EmbeddingServiceError(
+                "The embedding service is temporarily unavailable. Please try again later."
+            ) from exc
+        return _validated_vectors(
+            response,
+            expected_count=1,
+            dimension=self.profile.dimension,
+        )[0]
 
     def embed_documents(
         self,
@@ -101,30 +132,43 @@ class GeminiDocumentEmbeddingClient:
                 "The embedding service is temporarily unavailable. Please try again later."
             ) from exc
 
-        embeddings = getattr(response, "embeddings", None)
-        if not isinstance(embeddings, list) or len(embeddings) != len(contents):
-            raise InvalidEmbeddingResponseError(
-                "The embedding service returned an unexpected number of vectors."
-            )
+        return _validated_vectors(
+            response,
+            expected_count=len(contents),
+            dimension=self.profile.dimension,
+        )
 
-        validated: list[tuple[float, ...]] = []
-        for embedding in embeddings:
-            values = getattr(embedding, "values", None)
-            if not isinstance(values, list) or len(values) != self.profile.dimension:
-                raise InvalidEmbeddingResponseError(
-                    "The embedding service returned a vector with an invalid dimension."
-                )
-            if any(
-                isinstance(value, bool)
-                or not isinstance(value, Real)
-                or not math.isfinite(float(value))
-                for value in values
-            ):
-                raise InvalidEmbeddingResponseError(
-                    "The embedding service returned nonnumeric vector data."
-                )
-            validated.append(tuple(float(value) for value in values))
-        return tuple(validated)
+
+def _validated_vectors(
+    response: Any,
+    *,
+    expected_count: int,
+    dimension: int,
+) -> tuple[tuple[float, ...], ...]:
+    embeddings = getattr(response, "embeddings", None)
+    if not isinstance(embeddings, list) or len(embeddings) != expected_count:
+        raise InvalidEmbeddingResponseError(
+            "The embedding service returned an unexpected number of vectors."
+        )
+
+    validated: list[tuple[float, ...]] = []
+    for embedding in embeddings:
+        values = getattr(embedding, "values", None)
+        if not isinstance(values, list) or len(values) != dimension:
+            raise InvalidEmbeddingResponseError(
+                "The embedding service returned a vector with an invalid dimension."
+            )
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, Real)
+            or not math.isfinite(float(value))
+            for value in values
+        ):
+            raise InvalidEmbeddingResponseError(
+                "The embedding service returned nonnumeric vector data."
+            )
+        validated.append(tuple(float(value) for value in values))
+    return tuple(validated)
 
 
 def _safe_embedding_provider_error(exc: errors.APIError) -> EmbeddingClientError:

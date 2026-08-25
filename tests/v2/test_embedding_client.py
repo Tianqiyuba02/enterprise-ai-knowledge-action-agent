@@ -54,6 +54,65 @@ def test_document_embedding_uses_approved_profile_and_semantics(
     assert call.kwargs["config"].output_dimensionality == 768
 
 
+def test_query_embedding_uses_retrieval_query_and_one_vector(
+    settings: Settings,
+    knowledge_settings: KnowledgeSettings,
+) -> None:
+    sdk_client = Mock()
+    sdk_client.models.embed_content.return_value = SimpleNamespace(
+        embeddings=[SimpleNamespace(values=[0.25] * 768)]
+    )
+    client = GeminiDocumentEmbeddingClient(settings, knowledge_settings, sdk_client=sdk_client)
+
+    vector = client.embed_query("  annual leave entitlement  ")
+
+    assert len(vector) == 768
+    call = sdk_client.models.embed_content.call_args
+    assert call.kwargs["model"] == "gemini-embedding-2"
+    assert call.kwargs["contents"].parts[0].text == "annual leave entitlement"
+    assert call.kwargs["config"].task_type == "RETRIEVAL_QUERY"
+    assert call.kwargs["config"].title is None
+    assert call.kwargs["config"].output_dimensionality == 768
+
+
+@pytest.mark.parametrize(
+    "embeddings",
+    [
+        [],
+        [
+            SimpleNamespace(values=[0.1] * 768),
+            SimpleNamespace(values=[0.2] * 768),
+        ],
+        [SimpleNamespace(values=[0.1] * 767)],
+        [SimpleNamespace(values=[0.1] * 767 + [float("nan")])],
+    ],
+)
+def test_query_embedding_rejects_invalid_cardinality_dimension_and_values(
+    settings: Settings,
+    knowledge_settings: KnowledgeSettings,
+    embeddings: object,
+) -> None:
+    sdk_client = Mock()
+    sdk_client.models.embed_content.return_value = SimpleNamespace(embeddings=embeddings)
+    client = GeminiDocumentEmbeddingClient(settings, knowledge_settings, sdk_client=sdk_client)
+
+    with pytest.raises(InvalidEmbeddingResponseError):
+        client.embed_query("annual leave")
+
+
+def test_blank_query_embedding_does_not_call_provider(
+    settings: Settings,
+    knowledge_settings: KnowledgeSettings,
+) -> None:
+    sdk_client = Mock()
+    client = GeminiDocumentEmbeddingClient(settings, knowledge_settings, sdk_client=sdk_client)
+
+    with pytest.raises(InvalidEmbeddingResponseError):
+        client.embed_query("  \n  ")
+
+    sdk_client.models.embed_content.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "embeddings",
     [

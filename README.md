@@ -58,8 +58,9 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 ## V2 work in progress
 
 V2 currently provides the PostgreSQL/pgvector schema and a synthetic Markdown policy-ingestion
-pipeline. It can validate, checksum, chunk, embed, and atomically persist the corpus, including
-explicit policy supersession. Retrieval and knowledge-query API behavior are not implemented yet.
+pipeline. It can validate, checksum, chunk, embed, atomically persist, and internally retrieve
+authority-filtered corpus evidence. Public knowledge-query API behavior and grounded answers are
+not implemented yet.
 
 With local `.env` configuration:
 

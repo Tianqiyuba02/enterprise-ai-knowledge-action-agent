@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.config import APPROVED_EMBEDDING_DIMENSION, APPROVED_EMBEDDING_MODEL
+from app.knowledge.vocabulary import AudienceGroup, Jurisdiction
 
 NonEmptyString = Annotated[
     str,
@@ -19,18 +20,6 @@ class DocumentSourceStatus(StrEnum):
     DRAFT = "draft"
     APPROVED = "approved"
     SUPERSEDED = "superseded"
-
-
-class Jurisdiction(StrEnum):
-    GLOBAL = "GLOBAL"
-    AU_VIC = "AU-VIC"
-    AU_NSW = "AU-NSW"
-
-
-class AudienceGroup(StrEnum):
-    ALL_EMPLOYEES = "all_employees"
-    MELBOURNE_EMPLOYEES = "melbourne_employees"
-    MANAGERS = "managers"
 
 
 class StrictModel(BaseModel):
