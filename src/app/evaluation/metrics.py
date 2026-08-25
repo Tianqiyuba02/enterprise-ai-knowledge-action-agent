@@ -12,6 +12,7 @@ from app.evaluation.models import (
     EvaluationCaseResult,
     EvaluationMode,
     EvaluationSummary,
+    ResultOrigin,
     RetrievalCaseMetrics,
     SemanticCaseMetrics,
 )
@@ -127,6 +128,12 @@ def build_summary(
         "cases_blocked_by_provider_rate_limit": blocked,
         "cases_error": errors,
         "cases_not_run": cases_total - len(results),
+        "cases_carried_forward": sum(
+            result.result_origin is ResultOrigin.CARRIED_FORWARD for result in completed
+        ),
+        "cases_completed_current_invocation": sum(
+            result.result_origin is ResultOrigin.CURRENT_INVOCATION for result in completed
+        ),
     }
     if mode is EvaluationMode.RETRIEVAL:
         metrics = [

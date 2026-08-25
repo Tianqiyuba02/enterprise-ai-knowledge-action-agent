@@ -1,8 +1,9 @@
 {
-  "report_version": "v2-stage5a-1",
+  "report_version": "v2-stage5a-2",
   "generated_at": "2026-08-25T03:58:15.697507Z",
   "mode": "retrieval",
   "split": "development",
+  "dataset_fingerprint": "52764923dba13e306aea9517a0c288276615b3b5e694e4ae7709b81738d2525d",
   "configuration": {
     "embedding_model": "gemini-embedding-2",
     "embedding_dimension": 768,

@@ -304,13 +304,23 @@ reports live under `evals/results/`.
 No tuning decision was made. Embedding profile, corpus, chunking, exact cosine ranking, top-k 6, no
 threshold, grounded prompt, and semantic status behavior remain unchanged.
 
+Partially completed reports can be resumed explicitly with `--resume`. Resume validates mode,
+split, the complete frozen configuration, and a SHA-256 fingerprint of the ordered evaluation
+cases. Completed results are carried forward without provider calls; blocked, errored, and
+unattempted cases remain eligible for a later attempt. Attempt history and current-vs-carried
+completion counts are preserved without duplicate case records.
+
+`--delay-seconds` optionally paces only current live case attempts and defaults to zero. A rate limit
+still records one blocked attempt and immediately stops; there is no automatic retry. The accepted
+4/20 grounded report was made resume-compatible, but no real resume was run in this enhancement.
+
 Stage 5A verification:
 
-- ordinary provider-free suite: 172 passed, 39 explicitly gated PostgreSQL tests skipped;
+- ordinary provider-free suite: 180 passed, 39 explicitly gated PostgreSQL tests skipped;
 - original V0 regression suite: 23 passed;
 - original released V1 API suite: 19 passed;
 - Stage 4 unit/API subset: 51 passed;
-- Stage 5A deterministic evaluation suite: 12 passed;
+- Stage 5A deterministic evaluation suite: 20 passed;
 - all live PostgreSQL regression suites: 39 passed; and
 - Ruff lint and format checks: passed.
 

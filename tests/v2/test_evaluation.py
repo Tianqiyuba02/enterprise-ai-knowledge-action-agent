@@ -11,6 +11,7 @@ from app.embeddings.client import EmbeddingRateLimitError
 from app.evaluation.cli import main as evaluation_main
 from app.evaluation.loader import (
     EvaluationDataError,
+    evaluation_dataset_fingerprint,
     load_evaluation_cases,
     validate_all_splits,
 )
@@ -20,6 +21,7 @@ from app.evaluation.metrics import (
     evaluate_semantic_case,
 )
 from app.evaluation.models import (
+    CaseAttempt,
     CaseExecutionState,
     DocumentIdentity,
     EvaluationCase,
@@ -28,8 +30,10 @@ from app.evaluation.models import (
     EvaluationMode,
     EvaluationReport,
     EvaluationSplit,
+    ResultOrigin,
 )
-from app.evaluation.runner import EvaluationRunner
+from app.evaluation.runner import EvaluationRunner, ResumeCompatibilityError
+from app.grounding.client import GroundedRateLimitError
 from app.knowledge.context import KnowledgeApplicabilityContext
 from app.knowledge.models import RetrievedEvidence
 from app.knowledge.vocabulary import AudienceGroup, Jurisdiction
@@ -292,6 +296,7 @@ def test_runner_stops_and_reports_provider_rate_limit_safely() -> None:
         mode=EvaluationMode.RETRIEVAL,
         split=EvaluationSplit.DEVELOPMENT,
         cases=cases,
+        dataset_fingerprint=evaluation_dataset_fingerprint(cases),
     )
 
     assert report.summary.cases_completed == 0
@@ -310,6 +315,7 @@ def test_report_serialization_contains_frozen_configuration_and_no_internal_ids(
         generated_at=datetime.now(UTC),
         mode="retrieval",
         split="development",
+        dataset_fingerprint="a" * 64,
         configuration=_configuration(),
         summary=build_summary(
             cases_total=1,
@@ -333,3 +339,265 @@ def test_cli_requires_explicit_live_mode(capsys) -> None:
 
     assert exit_code == 2
     assert "explicit --live" in capsys.readouterr().err
+
+
+class UnusedRetrieval:
+    def retrieve(self, _question, _applicability):
+        raise AssertionError("retrieval-only path must not run")
+
+
+class SequenceGrounded:
+    def __init__(self, outcomes):
+        self.outcomes = iter(outcomes)
+        self.calls: list[str] = []
+
+    def query(self, question, _applicability):
+        self.calls.append(question)
+        outcome = next(self.outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _answered_response() -> KnowledgeQueryResponse:
+    return KnowledgeQueryResponse(
+        status="answered",
+        answer="Eligible employees receive twenty days.",
+        citations=(
+            KnowledgeCitation(
+                doc_code="POL-HR-001",
+                title="Annual Leave Policy",
+                version="2.0",
+                section_anchor="entitlement",
+            ),
+        ),
+    )
+
+
+def _completed_result(case: EvaluationCase) -> EvaluationCaseResult:
+    response = _answered_response()
+    return EvaluationCaseResult(
+        case_id=case.id,
+        state=CaseExecutionState.COMPLETED,
+        semantic_status=response.status,
+        answer=response.answer,
+        citations=tuple(
+            {
+                "doc_code": citation.doc_code,
+                "version": citation.version,
+                "section_anchor": citation.section_anchor,
+                "page": citation.page,
+            }
+            for citation in response.citations
+        ),
+        semantic_metrics=evaluate_semantic_case(case, response),
+    )
+
+
+def _previous_report(
+    cases: tuple[EvaluationCase, ...],
+    results: tuple[EvaluationCaseResult, ...],
+    *,
+    configuration: EvaluationConfiguration | None = None,
+    fingerprint: str | None = None,
+) -> EvaluationReport:
+    resolved_fingerprint = fingerprint or evaluation_dataset_fingerprint(cases)
+    return EvaluationReport(
+        generated_at=datetime.now(UTC),
+        mode=EvaluationMode.GROUNDED,
+        split=EvaluationSplit.DEVELOPMENT,
+        dataset_fingerprint=resolved_fingerprint,
+        configuration=configuration or _configuration(),
+        summary=build_summary(
+            cases_total=len(cases),
+            mode=EvaluationMode.GROUNDED,
+            results=results,
+        ),
+        cases=results,
+    )
+
+
+def test_resume_carries_completed_retries_blocked_and_continues_unattempted() -> None:
+    cases = (
+        _case(id="dev_resume_one", question="Question one"),
+        _case(id="dev_resume_two", question="Question two"),
+        _case(id="dev_resume_three", question="Question three"),
+    )
+    previous = _previous_report(
+        cases,
+        (
+            _completed_result(cases[0]),
+            EvaluationCaseResult(
+                case_id=cases[1].id,
+                state=CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+                safe_error_category="GroundedRateLimitError",
+            ),
+        ),
+    )
+    grounded = SequenceGrounded([_answered_response(), _answered_response()])
+    runner = EvaluationRunner(
+        retrieval=UnusedRetrieval(),
+        grounded=grounded,
+        applicability=_context(),
+        trusted_today=TODAY,
+        configuration=_configuration(),
+    )
+
+    report = runner.run(
+        mode=EvaluationMode.GROUNDED,
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=evaluation_dataset_fingerprint(cases),
+        previous_report=previous,
+    )
+
+    assert grounded.calls == ["Question two", "Question three"]
+    assert [result.case_id for result in report.cases] == [case.id for case in cases]
+    assert len({result.case_id for result in report.cases}) == 3
+    assert report.cases[0].result_origin is ResultOrigin.CARRIED_FORWARD
+    assert report.cases[1].result_origin is ResultOrigin.CURRENT_INVOCATION
+    assert [attempt.state for attempt in report.cases[1].attempt_history] == [
+        CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+        CaseExecutionState.COMPLETED,
+    ]
+    assert report.summary.cases_completed == 3
+    assert report.summary.cases_carried_forward == 1
+    assert report.summary.cases_completed_current_invocation == 2
+    assert report.summary.semantic_status_accuracy == 1.0
+
+
+def test_resume_rate_limit_retries_once_then_stops_without_next_case() -> None:
+    cases = (
+        _case(id="dev_rate_one", question="Question one"),
+        _case(id="dev_rate_two", question="Question two"),
+        _case(id="dev_rate_three", question="Question three"),
+    )
+    previous = _previous_report(
+        cases,
+        (
+            _completed_result(cases[0]),
+            EvaluationCaseResult(
+                case_id=cases[1].id,
+                state=CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+                attempt_history=(
+                    CaseAttempt(
+                        state=CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+                        safe_error_category="GroundedRateLimitError",
+                    ),
+                ),
+                safe_error_category="GroundedRateLimitError",
+            ),
+        ),
+    )
+    grounded = SequenceGrounded([GroundedRateLimitError("safe rate limit")])
+    runner = EvaluationRunner(
+        retrieval=UnusedRetrieval(),
+        grounded=grounded,
+        applicability=_context(),
+        trusted_today=TODAY,
+        configuration=_configuration(),
+    )
+
+    report = runner.run(
+        mode=EvaluationMode.GROUNDED,
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=evaluation_dataset_fingerprint(cases),
+        previous_report=previous,
+    )
+
+    assert grounded.calls == ["Question two"]
+    assert [result.case_id for result in report.cases] == [
+        "dev_rate_one",
+        "dev_rate_two",
+    ]
+    assert [attempt.state for attempt in report.cases[1].attempt_history] == [
+        CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+        CaseExecutionState.BLOCKED_BY_PROVIDER_RATE_LIMIT,
+    ]
+    assert report.summary.cases_completed == 1
+    assert report.summary.cases_not_run == 1
+
+
+@pytest.mark.parametrize("mismatch", ["configuration", "fingerprint", "split", "mode"])
+def test_resume_rejects_incompatible_reports(mismatch: str) -> None:
+    cases = (_case(id="dev_compatibility"),)
+    previous = _previous_report(cases, (_completed_result(cases[0]),))
+    mode = EvaluationMode.GROUNDED
+    split = EvaluationSplit.DEVELOPMENT
+    fingerprint = evaluation_dataset_fingerprint(cases)
+    if mismatch == "configuration":
+        changed = _configuration().model_copy(update={"top_k": 5})
+        previous = previous.model_copy(update={"configuration": changed})
+    elif mismatch == "fingerprint":
+        fingerprint = "f" * 64
+    elif mismatch == "split":
+        split = EvaluationSplit.HOLDOUT
+    else:
+        mode = EvaluationMode.RETRIEVAL
+    runner = EvaluationRunner(
+        retrieval=UnusedRetrieval(),
+        grounded=SequenceGrounded([]),
+        applicability=_context(),
+        trusted_today=TODAY,
+        configuration=_configuration(),
+    )
+
+    with pytest.raises(ResumeCompatibilityError):
+        runner.run(
+            mode=mode,
+            split=split,
+            cases=cases,
+            dataset_fingerprint=fingerprint,
+            previous_report=previous,
+        )
+
+
+def test_evaluator_delay_applies_only_between_current_attempts() -> None:
+    cases = (
+        _case(id="dev_delay_one", question="Question one"),
+        _case(id="dev_delay_two", question="Question two"),
+        _case(id="dev_delay_three", question="Question three"),
+    )
+    delays: list[float] = []
+    runner = EvaluationRunner(
+        retrieval=UnusedRetrieval(),
+        grounded=SequenceGrounded(
+            [_answered_response(), _answered_response(), _answered_response()]
+        ),
+        applicability=_context(),
+        trusted_today=TODAY,
+        configuration=_configuration(),
+        sleep=delays.append,
+    )
+
+    report = runner.run(
+        mode=EvaluationMode.GROUNDED,
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=evaluation_dataset_fingerprint(cases),
+        delay_seconds=2.5,
+    )
+
+    assert report.summary.cases_completed == 3
+    assert delays == [2.5, 2.5]
+
+
+def test_cli_resume_requires_existing_report_without_live_calls(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "missing.json"
+
+    exit_code = evaluation_main(
+        [
+            "--mode",
+            "grounded",
+            "--split",
+            "development",
+            "--live",
+            "--resume",
+            "--output",
+            str(missing),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "--resume requires an existing report" in capsys.readouterr().err

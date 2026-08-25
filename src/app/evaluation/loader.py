@@ -1,5 +1,6 @@
 """Version-controlled JSONL evaluation dataset loading and validation."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -65,3 +66,15 @@ def validate_all_splits(*, root: Path = DEFAULT_EVALUATION_ROOT) -> None:
     holdout_ids = {case.id for case in holdout}
     if development_ids & holdout_ids:
         raise EvaluationDataError("Development and holdout case IDs must be disjoint.")
+
+
+def evaluation_dataset_fingerprint(cases: tuple[EvaluationCase, ...]) -> str:
+    """Hash ordered, canonical case content for safe checkpoint compatibility."""
+
+    canonical = json.dumps(
+        [case.model_dump(mode="json") for case in cases],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()

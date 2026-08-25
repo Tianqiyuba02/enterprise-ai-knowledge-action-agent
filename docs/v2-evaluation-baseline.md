@@ -98,6 +98,11 @@ The machine-readable partial report is
 `evals/results/v2-stage5a-development-grounded.json`. The completed retrieval baseline remains
 unchanged because it does not depend on the grounded generation model.
 
+The partial report now carries a frozen dataset fingerprint and supports explicit evaluator
+`--resume`. Its four completed cases will be carried forward; the blocked fifth case is eligible
+for one later controller-authorized attempt, followed by the 15 unattempted cases if provider
+capacity permits. No real resume was executed as part of the checkpoint enhancement.
+
 ## Not yet measured: holdout
 
 The eight-case holdout split was validated and intentionally not executed. It is reserved for final

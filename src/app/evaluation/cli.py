@@ -11,11 +11,12 @@ from app.config import load_knowledge_settings, load_settings
 from app.db.models import Document, DocumentChunk
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
-from app.evaluation.loader import load_evaluation_cases
+from app.evaluation.loader import evaluation_dataset_fingerprint, load_evaluation_cases
 from app.evaluation.models import (
     CaseExecutionState,
     EvaluationConfiguration,
     EvaluationMode,
+    EvaluationReport,
     EvaluationSplit,
 )
 from app.evaluation.runner import EvaluationRunner
@@ -36,6 +37,13 @@ class FixedEvaluationClock:
         return BASELINE_AS_OF_DATE
 
 
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be nonnegative")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="enterprise-ai-eval",
@@ -52,6 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly allow Gemini and PostgreSQL calls",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume compatible incomplete results without rerunning completed cases",
+    )
+    parser.add_argument(
+        "--delay-seconds",
+        type=_nonnegative_float,
+        default=0.0,
+        help="evaluator-only delay between live case attempts (default: 0)",
+    )
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -67,8 +86,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     output = args.output or Path(f"evals/results/v2-stage5a-{split.value}-{mode.value}.json")
+    if args.resume and not output.is_file():
+        print("Error: --resume requires an existing report file.", file=sys.stderr)
+        return 2
     engine = None
     try:
+        cases = load_evaluation_cases(split)
+        dataset_fingerprint = evaluation_dataset_fingerprint(cases)
+        previous_report = (
+            EvaluationReport.model_validate_json(output.read_text(encoding="utf-8"))
+            if args.resume
+            else None
+        )
         settings = load_settings()
         knowledge_settings = load_knowledge_settings()
         engine = create_knowledge_engine(knowledge_settings)
@@ -115,7 +144,10 @@ def main(argv: list[str] | None = None) -> int:
         report = runner.run(
             mode=mode,
             split=split,
-            cases=load_evaluation_cases(split),
+            cases=cases,
+            dataset_fingerprint=dataset_fingerprint,
+            previous_report=previous_report,
+            delay_seconds=args.delay_seconds,
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -129,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"mode={report.mode.value} split={report.split.value}")
     print(
         f"completed={report.summary.cases_completed}/{report.summary.cases_total} "
+        f"carried={report.summary.cases_carried_forward} "
+        f"completed_now={report.summary.cases_completed_current_invocation} "
         f"blocked={report.summary.cases_blocked_by_provider_rate_limit} "
         f"errors={report.summary.cases_error}"
     )

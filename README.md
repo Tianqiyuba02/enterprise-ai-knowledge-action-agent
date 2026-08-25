@@ -80,7 +80,8 @@ uv run enterprise-ai-eval --mode retrieval --split development --live
 ```
 
 Holdout cases are reserved for final post-tuning validation. Stage 5A records baseline evidence and
-does not tune chunking, ranking, thresholds, prompts, or corpus content.
+does not tune chunking, ranking, thresholds, prompts, or corpus content. A compatible partial report
+can be continued explicitly with `--resume`; evaluator-only `--delay-seconds` defaults to zero.
 
 ## Prerequisites
 

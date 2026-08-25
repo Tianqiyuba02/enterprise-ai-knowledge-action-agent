@@ -16,6 +16,10 @@ CaseId = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$", strict=True),
 ]
+DatasetFingerprint = Annotated[
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{64}$", strict=True),
+]
 
 
 class EvaluationSplit(StrEnum):
@@ -32,6 +36,11 @@ class CaseExecutionState(StrEnum):
     COMPLETED = "completed"
     BLOCKED_BY_PROVIDER_RATE_LIMIT = "blocked_by_provider_rate_limit"
     ERROR = "error"
+
+
+class ResultOrigin(StrEnum):
+    CURRENT_INVOCATION = "current_invocation"
+    CARRIED_FORWARD = "carried_forward"
 
 
 class EvaluationModel(BaseModel):
@@ -119,9 +128,16 @@ class SemanticCaseMetrics(EvaluationModel):
     internal_reference_leaked: bool
 
 
+class CaseAttempt(EvaluationModel):
+    state: CaseExecutionState
+    safe_error_category: str | None = None
+
+
 class EvaluationCaseResult(EvaluationModel):
     case_id: CaseId
     state: CaseExecutionState
+    result_origin: ResultOrigin = ResultOrigin.CURRENT_INVOCATION
+    attempt_history: tuple[CaseAttempt, ...] = ()
     retrieval: tuple[RetrievalObservation, ...] = ()
     retrieval_metrics: RetrievalCaseMetrics | None = None
     semantic_status: KnowledgeAnswerStatus | None = None
@@ -137,6 +153,8 @@ class EvaluationSummary(EvaluationModel):
     cases_blocked_by_provider_rate_limit: Annotated[int, Field(ge=0)]
     cases_error: Annotated[int, Field(ge=0)]
     cases_not_run: Annotated[int, Field(ge=0)]
+    cases_carried_forward: Annotated[int, Field(ge=0)] = 0
+    cases_completed_current_invocation: Annotated[int, Field(ge=0)] = 0
     mean_required_document_recall_at_k: float | None = None
     mean_reciprocal_rank: float | None = None
     forbidden_document_case_hit_rate: float | None = None
@@ -168,10 +186,11 @@ class EvaluationConfiguration(EvaluationModel):
 
 
 class EvaluationReport(EvaluationModel):
-    report_version: str = "v2-stage5a-1"
+    report_version: str = "v2-stage5a-2"
     generated_at: datetime
     mode: EvaluationMode
     split: EvaluationSplit
+    dataset_fingerprint: DatasetFingerprint
     configuration: EvaluationConfiguration
     summary: EvaluationSummary
     cases: tuple[EvaluationCaseResult, ...]
