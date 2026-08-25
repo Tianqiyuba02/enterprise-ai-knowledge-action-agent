@@ -1,8 +1,8 @@
 # Enterprise AI Knowledge & Action Agent
 
-This repository contains the released **Product Milestone V0** LLM foundation and **Product
-Milestone V1**: a small FastAPI backend with typed REST contracts and a trusted synthetic
-employee-identity boundary.
+This repository contains the completed **Product Milestone V0** LLM foundation, **Product
+Milestone V1** FastAPI and trusted-identity backend, and **Product Milestone V2** authority-aware
+RAG implementation prepared for release as `v0.3.0`.
 
 This is not yet the finished enterprise assistant. The approved product plan is in
 [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -13,7 +13,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 |---|---|
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
-| V2 — RAG | In progress — database foundation |
+| V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
 | V3 — Agent + Tools | Not started |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
@@ -31,6 +31,19 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 - Ruff lint: **passed**
 - Ruff format check: **passed**
 - API, OpenAPI, and manual validation: **passed**
+
+### V2 Release Verification
+
+- Ordinary tests: **180 passed**
+- Live PostgreSQL migration/ingestion/retrieval tests: **39 passed**
+- Development retrieval recall@6 / MRR: **1.0 / 1.0**
+- Corrected development grounded status accuracy: **1.0** over 20 cases
+- Frozen holdout retrieval recall@6 / MRR: **1.0 / 1.0**
+- Frozen holdout grounded status accuracy: **0.875** over 8 cases
+- Holdout citation, conflict, public-metadata, authority, and leakage invariants: **passed**
+- Ruff lint and format checks: **passed**
+
+These synthetic evaluation sets are small and do not establish statistical significance.
 
 ## What V0 demonstrates
 
@@ -55,12 +68,21 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 - OpenAPI and Swagger documentation; and
 - offline API, identity, ownership, validation, and regression tests.
 
-## V2 work in progress
+## What V2 adds (`v0.3.0`)
 
-V2 currently provides the PostgreSQL/pgvector schema and a synthetic Markdown policy-ingestion
-pipeline. It can validate, checksum, chunk, embed, atomically persist, and internally retrieve
-authority-filtered corpus evidence. The authenticated knowledge endpoint returns grounded answers,
-semantic outcome states, and citations constructed from trusted stored metadata.
+V2 adds:
+
+- a PostgreSQL + pgvector knowledge store with Alembic schema history;
+- versioned, checksum-validated, idempotent Markdown/YAML ingestion with atomic supersession;
+- `gemini-embedding-2` document/query embeddings using 768 dimensions;
+- server-derived jurisdiction and audience applicability;
+- approved/effective/applicable filtering in SQL before exact cosine ranking;
+- grounded Gemini answers over explicitly untrusted evidence blocks;
+- server-validated citations built only from retrieved stored metadata;
+- `answered`, `insufficient_evidence`, and `conflicting_evidence` outcomes;
+- authenticated `POST /api/v1/knowledge/query`;
+- version-controlled development and frozen holdout evaluation; and
+- safe database, embedding, generation, timeout, rate-limit, and malformed-output errors.
 
 With local `.env` configuration:
 
@@ -209,53 +231,31 @@ GitHub Release
 - Pull Requests may be used as review checkpoints in this solo project, but are not mandatory for
   every small documentation change.
 
-Planned release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, V3 → `v0.4.0`,
-V4 → `v0.5.0`, and portfolio-ready V5 → `v1.0.0`. Future tags are created only when their
-milestones pass review.
+Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, and V2 → `v0.3.0`. Planned future mapping is
+V3 → `v0.4.0`, V4 → `v0.5.0`, and portfolio-ready V5 → `v1.0.0`. Tags are created only after
+milestone review and merge to `main`.
 
 ## Project structure
 
 ```text
 enterprise-ai-knowledge-action-agent/
-├── docs/
-│   ├── adr/
-│   │   ├── 0001-primary-llm-provider.md
-│   │   └── 0002-trusted-demo-identity.md
-│   ├── project-kickoff-approved-1.0.md
-│   └── v1-implementation-notes.md
-├── src/
-│   └── app/
-│       ├── api/
-│       │   ├── routes/
-│       │   │   ├── chat.py
-│       │   │   ├── health.py
-│       │   │   └── me.py
-│       │   ├── application.py
-│       │   ├── dependencies.py
-│       │   ├── errors.py
-│       │   └── models.py
-│       ├── __init__.py
-│       ├── config.py
-│       ├── errors.py
-│       ├── identity.py
-│       ├── main.py
-│       ├── llm/
-│       │   ├── __init__.py
-│       │   ├── client.py
-│       │   └── models.py
-│       ├── repositories/
-│       │   └── demo.py
-│       └── services/
-│           ├── chat.py
-│           ├── employee.py
-│           └── it.py
-├── tests/
-│   ├── api/
-│   │   ├── test_health_and_chat.py
-│   │   ├── test_identity_and_me.py
-│   │   └── test_openapi_and_errors.py
-│   ├── test_llm_client.py
-│   └── test_models.py
+├── corpus/v2/              # 12 fictitious authority-labelled Markdown documents
+├── docs/                   # approved kickoff, ADRs, implementation/evaluation evidence
+├── evals/                  # development/holdout JSONL and machine-readable reports
+├── infra/compose.yaml      # database-only PostgreSQL + pgvector
+├── migrations/             # Alembic knowledge-schema history
+├── src/app/
+│   ├── api/                # V1 routes plus authenticated knowledge query
+│   ├── db/                 # synchronous SQLAlchemy knowledge models/sessions
+│   ├── embeddings/         # narrow Gemini embedding boundary
+│   ├── evaluation/         # typed metrics, reports, runner, and resumable CLI
+│   ├── grounding/          # untrusted-evidence prompt and structured generation
+│   ├── ingestion/          # parser, checksum, chunking, transaction, and CLI
+│   ├── knowledge/          # applicability, retrieval, citations, and query service
+│   ├── llm/                # preserved V0/V1 Gemini analysis boundary
+│   ├── repositories/       # seeded V1 employee data
+│   └── services/           # V1 application services
+├── tests/                  # V0/V1, V2 unit/API, and gated PostgreSQL integration tests
 ├── .env.example
 ├── .gitignore
 ├── .python-version
@@ -264,16 +264,18 @@ enterprise-ai-knowledge-action-agent/
 └── README.md
 ```
 
-ADRs record only the consequential provider and trusted-identity decisions. No directories have been
-created for future milestone functionality.
-
 ## Current limitations
 
-V1 remains a local portfolio backend. Identity uses fixed synthetic sessions rather than OAuth,
-OIDC, SSO, or production RBAC. Employee data is fictitious and in memory; it resets with the process.
-The chat endpoint remains a single structured LLM request with no conversation persistence or
-company-knowledge grounding.
+V2 remains a local portfolio system over a small fictitious corpus. Identity uses fixed synthetic
+sessions rather than OAuth/OIDC/SSO/RBAC, and V1 employee data remains process-local. The
+application has no conversation persistence, calibrated similarity threshold, statistical-quality
+claim, or production document connector.
 
-V1 explicitly does **not** contain RAG, embeddings, agents, tool calling, LangGraph, LangChain,
-PostgreSQL, pgvector, vector databases, business writes, MCP, Docker application images, multi-agent
-systems, enterprise integrations, or a frontend. Those capabilities remain outside this milestone.
+Tiny title chunks can consume retrieval positions, although development/holdout required-document
+recall and MRR remained 1.0. One frozen holdout case produced a conservative refusal where its gold
+label expected an answer; the label and product were intentionally not changed after holdout.
+Prompt-injection controls are layered mitigations, not universal protection.
+
+V2 explicitly does **not** include agents, provider-native tool calling, LangGraph, business writes,
+action preparation/confirmation, MCP, multi-agent systems, application containerization, enterprise
+integrations, or a frontend. Those capabilities remain outside Product Milestone V2.

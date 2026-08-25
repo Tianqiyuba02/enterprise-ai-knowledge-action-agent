@@ -2,10 +2,9 @@
 
 ## Current stage
 
-Product Milestone V2 is in progress. Stage 1 completes only the knowledge-database foundation; it
-does not mean V2 is complete. Stage 2 adds synthetic corpus ingestion but still does not implement
-retrieval, knowledge-query HTTP behavior, grounded generation, public citations, or evaluation
-runners.
+Product Milestone V2 — Authority-Aware RAG is complete and prepared for release as `v0.3.0`.
+The sections below retain the factual incremental implementation and verification record. Product
+Milestone V3 has not started.
 
 ## Stage 0 embedding verification
 
@@ -350,3 +349,39 @@ relationship, so the assistant returned `insufficient_evidence` rather than infe
 holdout label and product were not changed. See `docs/v2-holdout-validation.md`.
 
 No tuning occurred before or after holdout, and holdout results are not a future tuning target.
+
+## V2 `v0.3.0` release state
+
+Completed capabilities:
+
+- PostgreSQL + pgvector knowledge persistence with Alembic revision `0001_v2_knowledge`;
+- immutable-version, checksum/profile-aware, idempotent ingestion and transactional supersession;
+- `gemini-embedding-2` document/query embeddings at 768 dimensions;
+- trusted server-derived jurisdiction/audience applicability;
+- authority/applicability SQL filtering before exact cosine ranking;
+- grounded answers with `answered`, `insufficient_evidence`, and `conflicting_evidence`;
+- public citations validated and built from stored retrieved metadata;
+- authenticated `POST /api/v1/knowledge/query`;
+- safe provider/database error envelopes; and
+- version-controlled development/holdout evaluation with mechanical metrics.
+
+Release model boundaries remain:
+
+- V1 analysis: `GEMINI_MODEL=gemini-3.5-flash`;
+- V2 grounding: `KNOWLEDGE_GROUNDED_MODEL=gemini-3.6-flash`; and
+- V2 embeddings: `gemini-embedding-2/768`.
+
+Final evidence:
+
+- development retrieval recall@6/MRR `1.0/1.0`, forbidden/authority rates `0.0/0.0`;
+- corrected development grounded 20/20, status accuracy `1.0`, all citation/safety invariants
+  passed;
+- frozen holdout retrieval 8/8, recall@6/MRR `1.0/1.0`, forbidden/authority rates `0.0/0.0`; and
+- frozen holdout grounded 8/8, status accuracy `0.875`, with citation presence, conflict,
+  public-metadata, and leakage invariants all passing.
+
+Stage 5B tuning was intentionally not performed because corrected development evidence did not
+justify a system change. Limitations remain the small synthetic corpus, no calibrated similarity
+threshold, observed tiny title chunks, one documented conservative holdout refusal, and
+prompt-injection controls that are mitigations rather than universal protection. No statistical
+significance or perfect-accuracy claim is made.
