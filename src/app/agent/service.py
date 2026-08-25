@@ -10,6 +10,7 @@ from app.agent.client import (
 from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
 from app.agent.dispatcher import ToolDispatcher
 from app.agent.loop_models import (
+    MAX_AGENT_CITATIONS,
     AgentModelTurn,
     AgentRunResult,
     AgentRunStatus,
@@ -62,6 +63,12 @@ class AgentService:
             return _provider_rate_limited(tool_calls=0, rounds=0)
         except AgentProviderError:
             return _provider_unavailable(tool_calls=0, rounds=0)
+        except Exception:
+            return _unable(
+                "The assistant provider could not start safely.",
+                tool_calls=0,
+                rounds=0,
+            )
 
         pending_responses: tuple[AgentToolResponse, ...] = ()
         citations: list[KnowledgeCitation] = []
@@ -86,6 +93,13 @@ class AgentService:
                 )
             except AgentProviderError:
                 return _provider_unavailable(
+                    tool_calls=tool_calls_attempted,
+                    rounds=model_round,
+                    citations=tuple(citations),
+                )
+            except Exception:
+                return _unable(
+                    "The assistant provider returned an unexpected response.",
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
@@ -130,7 +144,10 @@ class AgentService:
                 _collect_citations(result, citations, citation_identities)
                 responses.append(
                     AgentToolResponse(
-                        name=result.tool_name,
+                        name=_function_response_name(
+                            requested_call.name,
+                            result.tool_name,
+                        ),
                         result=result,
                         provider_call_id=requested_call.provider_call_id,
                     )
@@ -164,8 +181,16 @@ def _collect_citations(
         )
         if identity in identities:
             continue
+        if len(citations) >= MAX_AGENT_CITATIONS:
+            continue
         identities.add(identity)
         citations.append(citation)
+
+
+def _function_response_name(requested_name: object, result_tool_name: str) -> str:
+    """Preserve only a provider name that passed the exact dispatcher sanitizer."""
+
+    return requested_name if requested_name == result_tool_name else result_tool_name
 
 
 def _unable(

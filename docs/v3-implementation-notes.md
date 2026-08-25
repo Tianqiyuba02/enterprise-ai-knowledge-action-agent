@@ -176,3 +176,37 @@ memory, persistence, prepare capability, execution, confirmation, LangGraph, or 
 
 No public assistant route, prepare tool, write path, persisted conversation/agent state, proposal,
 confirmation, LangGraph, HITL, or V4 execution behavior was added.
+
+## Stage 2.1 result sealing before API exposure
+
+`MAX_AGENT_CITATIONS=24` now bounds every terminal `AgentRunResult`. Citation collection still
+accepts only successful `KnowledgeToolData`, deduplicates by trusted stored metadata, preserves
+first-seen order, and stops adding new unique citations after 24. The cap bounds provider/public
+payload size; it does not alter V2 retrieval authority or imply that every retrieved citation must
+be surfaced.
+
+Unexpected provider-session/parsing `Exception` values are sealed immediately around provider
+interaction and become fixed `unable_to_complete` results. Typed timeout, rate-limit, unavailable,
+and malformed-response mappings retain their existing behavior. Exception text, SDK payloads, and
+credentials are never copied into the result.
+
+Native function responses preserve the original requested function name only when it exactly
+matches the dispatcher's safe result name. Hostile/malformed names use the bounded sanitized result
+name; provider call IDs remain internal. No unknown tool is dispatched.
+
+Tests cover citation overflow for completed, tool-budget, model-round, and provider-failure terminal
+states; three-plus-three calls across rounds; unexpected provider secrets; and fixed identity after
+instruction-like tool output. Malformed calls may fail closed rather than weakening provider
+framing.
+
+## Stage 2.1 verification
+
+- ordinary provider-free suite: 248 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V1 API regression subset: 19 passed;
+- V2 regression subset: 138 passed;
+- all V3 Stage 0–2.1 tests: 68 passed;
+- Ruff lint and format checks: passed; and
+- Alembic head remains `0001_v2_knowledge` with no V3 migration.
+
+No public assistant route, prepare capability, write path, persistent state, proposal, confirmation,
+LangGraph, HITL, or V4 execution behavior was added.
