@@ -3,12 +3,21 @@
 from types import MappingProxyType
 from typing import Annotated, Final, cast
 
-from fastapi import Header, Request
+from fastapi import Depends, Header, Request
 
-from app.config import load_settings
+from app.config import load_knowledge_settings, load_settings
+from app.db.session import create_knowledge_engine, create_knowledge_session_factory
+from app.embeddings.client import GeminiDocumentEmbeddingClient
 from app.errors import InvalidDemoSessionError
+from app.grounding.client import GeminiGroundedGenerationClient
 from app.identity import AuthenticatedEmployeeContext
+from app.knowledge.applicability import resolve_knowledge_applicability
+from app.knowledge.context import KnowledgeApplicabilityContext
+from app.knowledge.query_service import KnowledgeQueryService
+from app.knowledge.repository import KnowledgeRetrievalRepository
+from app.knowledge.service import KnowledgeRetrievalService
 from app.llm.client import GeminiStructuredClient
+from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
@@ -33,6 +42,17 @@ def get_authenticated_employee(
     return AuthenticatedEmployeeContext(employee_id=employee_id)
 
 
+def get_demo_repository(request: Request) -> DemoRepository:
+    return cast(DemoRepository, request.app.state.demo_repository)
+
+
+def get_knowledge_applicability_context(
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    repository: Annotated[DemoRepository, Depends(get_demo_repository)],
+) -> KnowledgeApplicabilityContext:
+    return resolve_knowledge_applicability(context, repository)
+
+
 def get_employee_service(request: Request) -> EmployeeService:
     return cast(EmployeeService, request.app.state.employee_service)
 
@@ -49,4 +69,26 @@ def get_chat_service(request: Request) -> ChatService:
         settings = load_settings()
         service = ChatService(GeminiStructuredClient(settings))
         request.app.state.chat_service = service
+    return service
+
+
+def get_knowledge_query_service(request: Request) -> KnowledgeQueryService:
+    """Build V2 database/provider dependencies only when the knowledge route needs them."""
+
+    service = cast(KnowledgeQueryService | None, request.app.state.knowledge_query_service)
+    if service is None:
+        settings = load_settings()
+        knowledge_settings = load_knowledge_settings()
+        engine = create_knowledge_engine(knowledge_settings)
+        embedder = GeminiDocumentEmbeddingClient(settings, knowledge_settings)
+        retrieval = KnowledgeRetrievalService(
+            embedder=embedder,
+            repository=KnowledgeRetrievalRepository(create_knowledge_session_factory(engine)),
+        )
+        service = KnowledgeQueryService(
+            retrieval=retrieval,
+            generator=GeminiGroundedGenerationClient(settings),
+        )
+        request.app.state.knowledge_engine = engine
+        request.app.state.knowledge_query_service = service
     return service

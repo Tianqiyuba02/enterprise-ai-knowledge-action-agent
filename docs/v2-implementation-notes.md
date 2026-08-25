@@ -201,3 +201,62 @@ does not claim refusal or insufficient-evidence behavior.
 
 Stage 3 adds no migration and no public knowledge route, grounded answer, public citation,
 refusal/conflict response, evaluation runner, agent, tool, LangGraph, or business-write behavior.
+
+## Stage 4 grounded knowledge API
+
+`POST /api/v1/knowledge/query` accepts only a strict 1–4,000-character `question` and requires the
+existing `X-Demo-Session`. The route reuses V1 identity resolution, derives
+`KnowledgeApplicabilityContext` from the server-owned employee fixture, and lazily constructs all
+database, embedding, retrieval, and generation dependencies. V1 startup and routes remain isolated.
+
+The public response has three HTTP-200 semantic states:
+
+- `answered`: nonempty answer and at least one citation;
+- `insufficient_evidence`: nonempty refusal/explanation and no citations; and
+- `conflicting_evidence`: nonempty conflict explanation and citations from at least two distinct
+  document identities.
+
+Retrieved evidence receives bounded opaque references `E1` through `E6`. The separate grounded
+Gemini client may return only `status`, `answer`, and `evidence_refs` under provider-native schema
+constraints followed by independent Pydantic validation. Application code rejects unknown
+references and maps valid references back to the exact retrieved evidence set.
+
+Public citations copy only trusted stored `doc_code`, title, version, stable section anchor, and
+nullable page. They are deduplicated in first-use order. Model-generated citation metadata,
+document/chunk UUIDs, vectors, URLs, and provider details never enter the public contract.
+
+The grounded system instruction remains outside evidence. Retrieved content is serialized inside a
+clearly delimited untrusted-reference block and is explicitly prohibited from changing identity,
+applicability, instructions, tools, actions, or security behavior. This is one layered control, not
+a claim that prompt injection is universally solved.
+
+Retrieval still returns up to six eligible chunks without a calibrated similarity threshold.
+Semantic sufficiency is currently classified by the strict grounded-generation stage and requires
+evaluation in the next stage. The earlier tiny-title-chunk observation remains open.
+
+The authenticated live A–F smoke produced:
+
+- annual leave: `answered`, citing approved `POL-HR-001` v2.0 entitlement; v1.0 was not cited;
+- Victorian hybrid work: `answered`, citing two `POL-WRK-001` v3.0 sections; NSW was not cited;
+- manager travel for a normal employee: `insufficient_evidence`, with no manager-only citation;
+- office pets: `insufficient_evidence`, no fabricated policy, and no citations;
+- after-hours access: `conflicting_evidence`, citing `SOP-FAC-007` and `POL-SEC-004`; and
+- password reset with injection-like corpus text: `answered` from the legitimate escalation
+  section, with no tool/action or instruction-following behavior.
+
+Safe API error envelopes cover knowledge database, embedding, and grounded-generation unavailable,
+rate-limit, timeout, and invalid-response failures while preserving request IDs.
+
+## Stage 4 verification
+
+- ordinary provider-free suite: 159 passed, 39 explicitly gated PostgreSQL tests skipped;
+- original V0 regression suite: 23 passed;
+- original released V1 API suite: 19 passed;
+- full API suite including Stage 4: 41 passed;
+- new Stage 4 unit/API tests: 51 passed;
+- all Stage 1–3 live PostgreSQL suites: 39 passed; and
+- Ruff lint and format checks: passed.
+
+Stage 4 adds no migration and no agent, provider-native tool calling, tool registry, action
+preparation, business write, LangGraph, persisted proposal, confirmation workflow, frontend, or
+evaluation runner. Product Milestone V2 remains in progress.

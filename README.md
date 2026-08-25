@@ -59,8 +59,8 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 
 V2 currently provides the PostgreSQL/pgvector schema and a synthetic Markdown policy-ingestion
 pipeline. It can validate, checksum, chunk, embed, atomically persist, and internally retrieve
-authority-filtered corpus evidence. Public knowledge-query API behavior and grounded answers are
-not implemented yet.
+authority-filtered corpus evidence. The authenticated knowledge endpoint returns grounded answers,
+semantic outcome states, and citations constructed from trusted stored metadata.
 
 With local `.env` configuration:
 
@@ -137,12 +137,13 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 |---|---|---|
 | `GET` | `/api/v1/health` | Typed liveness response |
 | `POST` | `/api/v1/chat` | Existing schema-validated Gemini capability |
+| `POST` | `/api/v1/knowledge/query` | Authenticated grounded policy answer with citations |
 | `GET` | `/api/v1/me/profile` | Authenticated synthetic employee's profile |
 | `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
 | `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
 
-Only the chat endpoint requires `GEMINI_API_KEY`. Health and seeded `/me/*` reads start and work
-without provider credentials.
+Chat and knowledge queries require `GEMINI_API_KEY`; knowledge queries also require PostgreSQL.
+Health and seeded `/me/*` reads start and work without those V2 dependencies.
 
 ## Run the V0 CLI
 
