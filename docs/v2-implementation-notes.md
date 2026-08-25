@@ -3,8 +3,9 @@
 ## Current stage
 
 Product Milestone V2 is in progress. Stage 1 completes only the knowledge-database foundation; it
-does not implement ingestion, chunking, retrieval, knowledge-query HTTP behavior, grounded
-generation, citations, or evaluation runners. Stage 1 completion does not mean V2 is complete.
+does not mean V2 is complete. Stage 2 adds synthetic corpus ingestion but still does not implement
+retrieval, knowledge-query HTTP behavior, grounded generation, public citations, or evaluation
+runners.
 
 ## Stage 0 embedding verification
 
@@ -36,6 +37,51 @@ loaded only by V2-specific paths, so a missing or unavailable PostgreSQL service
 the released V1 health, chat, or `/me/*` behavior.
 
 Alembic owns schema history. Stage 1 does not use `create_all()` as a migration mechanism.
+
+## Stage 2 corpus and ingestion
+
+The 12-document fictitious Markdown/YAML corpus includes:
+
+- an approved annual-leave version pair with explicit supersession;
+- approved personal-leave and Victorian remote-work policies;
+- an approved New South Wales wrong-jurisdiction trap;
+- a managers-only audience trap;
+- a draft office-animals proposal;
+- a future-effective expense policy;
+- an expired travel policy;
+- two separate approved sources with intentionally conflicting after-hours guidance; and
+- an approved IT procedure containing prompt-injection-like prose as untrusted content.
+
+The strict metadata contract forbids unknown fields and controls source status, jurisdiction, and
+audience vocabulary. Drafts cannot declare supersession. Source-authored `superseded` status is
+parsed but cannot be inserted directly; an approved successor drives the stored predecessor
+transition.
+
+The SHA-256 source checksum covers canonical identity, title, declared status, dates, jurisdiction,
+sorted audiences, explicit predecessor identity, and normalized Markdown body. It excludes file
+location, database IDs/timestamps, stored supersession linkage, and embedding/index data. Newlines
+are normalized to LF, trailing line spaces are removed, and the body has one final newline.
+
+Heading-aware chunking uses deterministic non-whitespace lexical units rather than adding a model
+tokenizer dependency. The defaults are a 400-unit target and 50-unit overlap. Headings, stable
+slug anchors, section labels, global chunk indexes, and token counts are preserved.
+
+Document embeddings use `gemini-embedding-2`, `RETRIEVAL_DOCUMENT`, the policy title, and 768-value
+vectors through a V2-only client. Existing identity is a no-op before provider work only when source
+checksum and embedding profile both match. Source changes and profile mismatches are explicit
+failures; neither silently mutates stored rows.
+
+For a new identity, all chunks and embeddings are prepared before the transaction. A PostgreSQL
+transaction-level advisory lock serializes one `doc_code`, identity and predecessor state are
+rechecked, documents/chunks are inserted, and any explicit approved predecessor transition commits
+atomically. No Stage 2 schema migration was required.
+
+The ingestion CLI supports:
+
+```bash
+uv run enterprise-ai-ingest file corpus/v2/03-personal-leave.md
+uv run enterprise-ai-ingest corpus
+```
 
 ## Local database commands
 
@@ -80,3 +126,21 @@ Live PostgreSQL verification completed with Docker 29.7.2 and Docker Compose v5.
 - the vector extension was installed at version 0.8.6;
 - `document_chunks.embedding` was confirmed as `vector(768)`; and
 - all 19 PostgreSQL migration and constraint tests passed without skips.
+
+Stage 2 live embedding-backed smoke verification inserted `POL-HR-002` v1.0 with four chunks using
+`gemini-embedding-2/768`; PostgreSQL reported all stored vectors as dimension 768. No credential or
+full vector was printed.
+
+## Stage 2 verification
+
+- ordinary provider-free suite: 91 passed, 33 explicitly gated PostgreSQL tests skipped;
+- V2 offline foundation, corpus, parsing, chunking, embedding, CLI, and isolation suite: 49 passed;
+- V0 regression suite: 23 passed;
+- released V1 API suite: 19 passed;
+- Stage 1 PostgreSQL migration/constraint regression suite: 19 passed;
+- Stage 2 live ingestion/idempotency/supersession suite: 14 passed;
+- deterministic corpus output: 12 documents and 42 chunks; and
+- Ruff lint and format checks: passed.
+
+Stage 2 adds no migration and no retrieval, semantic-search endpoint, grounded-answer generation,
+public citation rendering, evaluation runner, agent, tool, LangGraph, or business-write behavior.

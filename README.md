@@ -55,6 +55,23 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 - OpenAPI and Swagger documentation; and
 - offline API, identity, ownership, validation, and regression tests.
 
+## V2 work in progress
+
+V2 currently provides the PostgreSQL/pgvector schema and a synthetic Markdown policy-ingestion
+pipeline. It can validate, checksum, chunk, embed, and atomically persist the corpus, including
+explicit policy supersession. Retrieval and knowledge-query API behavior are not implemented yet.
+
+With local `.env` configuration:
+
+```bash
+docker compose -f infra/compose.yaml up -d
+uv run alembic upgrade head
+uv run enterprise-ai-ingest corpus
+```
+
+Corpus ingestion makes real Gemini embedding calls. It prints document identity, chunk count, and
+the embedding profile, never vectors or credentials.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;
