@@ -1,6 +1,6 @@
 {
   "report_version": "v3-stage5a-1",
-  "generated_at": "2026-08-26T10:50:58.657671Z",
+  "generated_at": "2026-08-26T12:46:19.427077Z",
   "mode": "agent",
   "split": "development",
   "dataset_fingerprint": "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a",
@@ -409,6 +409,16 @@
             "exception_class": "ServerError",
             "http_status_code": 504,
             "symbolic_status": "DEADLINE_EXCEEDED"
+          }
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "provider_unavailable",
+          "provider_failure": {
+            "kind": "provider_unavailable",
+            "exception_class": "ServerError",
+            "http_status_code": 503,
+            "symbolic_status": "UNAVAILABLE"
           }
         },
         {
