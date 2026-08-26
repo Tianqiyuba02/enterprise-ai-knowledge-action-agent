@@ -128,6 +128,7 @@ class AgentEvaluationRunner:
                         AgentCaseAttempt(
                             state=result.state,
                             safe_error_category=result.safe_error_category,
+                            provider_failure=result.provider_failure,
                         ),
                     ),
                     "result_origin": ResultOrigin.CURRENT_INVOCATION,
@@ -182,6 +183,7 @@ class AgentEvaluationRunner:
                 tool_calls_attempted=run_result.tool_calls_attempted,
                 model_rounds=run_result.model_rounds,
                 safe_error_category=run_result.status.value,
+                provider_failure=run_result.provider_failure,
             )
 
         public = map_agent_result(run_result)
@@ -258,5 +260,6 @@ def _attempt_history(
         AgentCaseAttempt(
             state=previous.state,
             safe_error_category=previous.safe_error_category,
+            provider_failure=previous.provider_failure,
         ),
     )

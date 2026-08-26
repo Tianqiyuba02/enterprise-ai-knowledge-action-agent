@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from app.agent.contracts import V3ToolName
 from app.agent.leave_models import LeavePreparationStatus
 from app.agent.models import ToolResultStatus
+from app.agent.provider_failures import AgentProviderFailureDetail
 from app.evaluation.models import (
     CaseId,
     DatasetFingerprint,
@@ -198,6 +199,7 @@ class AgentInvariantMetrics(AgentEvaluationModel):
 class AgentCaseAttempt(AgentEvaluationModel):
     state: AgentCaseExecutionState
     safe_error_category: str | None = None
+    provider_failure: AgentProviderFailureDetail | None = None
 
 
 class AgentEvaluationCaseResult(AgentEvaluationModel):
@@ -215,6 +217,7 @@ class AgentEvaluationCaseResult(AgentEvaluationModel):
     tool_calls_attempted: Annotated[int | None, Field(ge=0)] = None
     model_rounds: Annotated[int | None, Field(ge=0)] = None
     safe_error_category: str | None = None
+    provider_failure: AgentProviderFailureDetail | None = None
 
 
 class AgentEvaluationConfiguration(AgentEvaluationModel):

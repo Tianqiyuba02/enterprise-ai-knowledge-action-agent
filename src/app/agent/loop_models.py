@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.agent.leave_models import LeaveRequestDraft
 from app.agent.models import ToolResult
+from app.agent.provider_failures import AgentProviderFailureDetail
 from app.api.knowledge_models import KnowledgeCitation
 
 MAX_AGENT_CITATIONS = 24
@@ -64,6 +65,7 @@ class AgentRunResult(BaseModel):
     safe_message: str | None = None
     tool_calls_attempted: Annotated[int, Field(ge=0, le=5)]
     model_rounds: Annotated[int, Field(ge=0, le=7)]
+    provider_failure: AgentProviderFailureDetail | None = None
 
     @model_validator(mode="after")
     def validate_status_shape(self) -> Self:
@@ -71,4 +73,9 @@ class AgentRunResult(BaseModel):
             raise ValueError("completed result requires final answer text")
         if self.status is not AgentRunStatus.COMPLETED and self.safe_message is None:
             raise ValueError("non-completed result requires a safe message")
+        if self.provider_failure is not None and self.status not in {
+            AgentRunStatus.PROVIDER_UNAVAILABLE,
+            AgentRunStatus.PROVIDER_RATE_LIMITED,
+        }:
+            raise ValueError("provider failure detail is only valid on provider outcomes")
         return self

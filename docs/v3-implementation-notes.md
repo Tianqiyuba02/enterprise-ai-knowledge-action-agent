@@ -372,8 +372,7 @@ seconds and one attempt, so resume compatibility rejects either mismatch. The
 corrected-continuation 5/16 development checkpoint remains preserved as historical 30-second,
 two-attempt evidence and must not be resumed into a final baseline.
 
-Later V3 release hardening may separately review richer internal provider error taxonomy and safe
-request-ID observability. They are intentionally outside this retry-policy patch.
+Safe request-ID observability remains outside this retry-policy patch.
 
 ## Provider schema hygiene
 
@@ -381,3 +380,24 @@ request-ID observability. They are intentionally outside this retry-policy patch
 provider-visible JSON Schema now emits `enum: ["annual"]` instead of `const: "annual"` so
 google-genai function declarations stay portable. Local validation, the other four tool
 declarations, and all application semantics are unchanged.
+
+## Safe internal provider failure taxonomy
+
+Outer-agent provider failures now carry a bounded internal diagnostic:
+
+- `kind`
+- `exception_class`
+- optional `http_status_code`
+- optional sanitized `symbolic_status`
+
+HTTP 400 is `invalid_request`, 401/403 are `authentication_or_permission`, 408/504 and HTTPX
+timeouts are `timeout`, 429 is `rate_limited`, 499/`CANCELLED` is `cancelled`, 500/502/503 are
+`provider_unavailable`, HTTPX transport failures are `transport_error`, and other supported API
+errors are `unknown_provider_error`. Exception messages, HTTP bodies, headers, request IDs,
+prompts, and tool payloads are never stored.
+
+High-level `AgentRunStatus` and the public assistant contract are unchanged: rate limits remain
+`provider_rate_limited`, and all other provider failures remain the existing safe unavailable path.
+Evaluation reports may persist the optional diagnostic on provider-blocked cases. Historical
+reports without the field remain readable and resume-compatible. Timeout/attempt mismatches remain
+incompatible.

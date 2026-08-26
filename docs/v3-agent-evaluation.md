@@ -81,7 +81,11 @@ never supplies citation or prepared-action truth.
 Provider rate limits and unavailability are `provider_blocked`, separate from semantic failures.
 The runner stops after the first provider-blocked case to avoid repeated calls and writes a partial
 report. `--resume` carries completed cases forward, retries blocked/error cases, and continues
-unattempted cases without duplicate results.
+unattempted cases without duplicate results. Provider-blocked rows may include an optional safe
+`provider_failure` diagnostic (`kind`, sanitized exception class, optional HTTP code, optional
+symbolic status) so timeout, cancellation, invalid request, and outage can be distinguished without
+storing messages, bodies, headers, or request IDs. Historical reports that omit the field remain
+readable. The field is not a resume-compatibility parameter.
 
 Resume rejects mismatched dataset fingerprint, split, agent model, trusted date, bounds, tool
 registry fingerprint, evaluator schema, demo fixture version, knowledge configuration, or corpus

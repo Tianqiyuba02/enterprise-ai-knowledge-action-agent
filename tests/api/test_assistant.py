@@ -9,6 +9,12 @@ from fastapi.testclient import TestClient
 
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
+from app.agent.provider_failures import (
+    AgentProviderExceptionClass,
+    AgentProviderFailureDetail,
+    AgentProviderFailureKind,
+    AgentProviderSymbolicStatus,
+)
 from app.agent.service import AgentService
 from app.api.application import create_app
 from app.api.knowledge_models import KnowledgeCitation
@@ -299,6 +305,12 @@ def test_provider_failures_map_to_safe_503_envelopes(
         safe_message="Sensitive internal provider detail.",
         tool_calls_attempted=1,
         model_rounds=2,
+        provider_failure=AgentProviderFailureDetail(
+            kind=AgentProviderFailureKind.INVALID_REQUEST,
+            exception_class=AgentProviderExceptionClass.CLIENT_ERROR,
+            http_status_code=400,
+            symbolic_status=AgentProviderSymbolicStatus.INVALID_ARGUMENT,
+        ),
     )
 
     response = client.post(
@@ -310,9 +322,18 @@ def test_provider_failures_map_to_safe_503_envelopes(
     assert response.status_code == 503
     assert response.json()["error_code"] == error_code
     assert response.json()["request_id"] == response.headers["x-request-id"]
+    assert set(response.json()) == {"error_code", "message", "request_id"}
     assert "Sensitive" not in response.text
     assert "gemini" not in response.text.lower()
     assert "tool_calls" not in response.text
+    assert "invalid_request" not in response.text
+    assert "INVALID_ARGUMENT" not in response.text
+    assert "ClientError" not in response.text
+    assert "provider_failure" not in response.text
+    assert "http_status" not in response.text
+    assert "exception_class" not in response.text
+    assert "symbolic_status" not in response.text
+    assert response.json()["message"] != 400
 
 
 def test_unexpected_agent_exception_uses_existing_safe_internal_error(

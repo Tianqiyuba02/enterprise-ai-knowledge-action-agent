@@ -24,6 +24,7 @@ from app.agent.models import (
     ToolResult,
     ToolResultStatus,
 )
+from app.agent.provider_failures import AgentProviderFailureDetail
 from app.api.knowledge_models import KnowledgeCitation
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.clock import MelbourneClock, TrustedClock
@@ -73,10 +74,18 @@ class AgentService:
 
         try:
             session = self._provider.start(cleaned_message, self._clock.today())
-        except AgentProviderRateLimitError:
-            return _provider_rate_limited(tool_calls=0, rounds=0)
-        except AgentProviderError:
-            return _provider_unavailable(tool_calls=0, rounds=0)
+        except AgentProviderRateLimitError as exc:
+            return _provider_rate_limited(
+                tool_calls=0,
+                rounds=0,
+                provider_failure=exc.failure,
+            )
+        except AgentProviderError as exc:
+            return _provider_unavailable(
+                tool_calls=0,
+                rounds=0,
+                provider_failure=exc.failure,
+            )
         except Exception:
             return _unable(
                 "The assistant provider could not start safely.",
@@ -93,12 +102,13 @@ class AgentService:
         for model_round in range(1, MAX_MODEL_ROUNDS_PER_TURN + 1):
             try:
                 turn = session.next(pending_responses)
-            except AgentProviderRateLimitError:
+            except AgentProviderRateLimitError as exc:
                 return _provider_rate_limited(
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    provider_failure=exc.failure,
                 )
             except InvalidAgentProviderResponseError:
                 return _unable(
@@ -108,12 +118,13 @@ class AgentService:
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
                 )
-            except AgentProviderError:
+            except AgentProviderError as exc:
                 return _provider_unavailable(
                     tool_calls=tool_calls_attempted,
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    provider_failure=exc.failure,
                 )
             except Exception:
                 return _unable(
@@ -243,6 +254,7 @@ def _provider_unavailable(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    provider_failure: AgentProviderFailureDetail | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_UNAVAILABLE,
@@ -251,6 +263,7 @@ def _provider_unavailable(
         safe_message="The assistant provider is temporarily unavailable.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
+        provider_failure=provider_failure,
     )
 
 
@@ -260,6 +273,7 @@ def _provider_rate_limited(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    provider_failure: AgentProviderFailureDetail | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_RATE_LIMITED,
@@ -268,4 +282,5 @@ def _provider_rate_limited(
         safe_message="The assistant provider is busy. Please try again later.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
+        provider_failure=provider_failure,
     )

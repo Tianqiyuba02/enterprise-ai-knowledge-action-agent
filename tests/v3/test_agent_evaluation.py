@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.agent.client import AgentProviderRateLimitError
+from app.agent.client import AgentProviderRateLimitError, AgentProviderTimeoutError
 from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
 from app.agent.leave_models import LeavePreparationStatus
 from app.agent.loop_models import (
@@ -17,6 +17,12 @@ from app.agent.models import (
     ProfileToolData,
     ToolResult,
     ToolResultStatus,
+)
+from app.agent.provider_failures import (
+    AgentProviderExceptionClass,
+    AgentProviderFailureDetail,
+    AgentProviderFailureKind,
+    AgentProviderSymbolicStatus,
 )
 from app.agent.service import MAX_MODEL_ROUNDS_PER_TURN
 from app.api.assistant_models import (
@@ -416,7 +422,39 @@ def test_provider_blocked_is_separate_and_stops_without_semantic_failure() -> No
     assert report.summary.cases_not_run == 1
     assert report.summary.semantic_status_accuracy is None
     assert report.cases[0].safe_error_category == "provider_rate_limited"
+    assert report.cases[0].provider_failure is None
     assert "secret provider payload" not in report.model_dump_json()
+
+
+def test_provider_blocked_persists_safe_failure_diagnostics() -> None:
+    failure = AgentProviderFailureDetail(
+        kind=AgentProviderFailureKind.TIMEOUT,
+        exception_class=AgentProviderExceptionClass.SERVER_ERROR,
+        http_status_code=504,
+        symbolic_status=AgentProviderSymbolicStatus.DEADLINE_EXCEEDED,
+    )
+    cases = (_case(id="dev_provider_timeout"), _case(id="dev_provider_next"))
+    provider = SequenceProvider(
+        [AgentProviderTimeoutError("secret timeout payload", failure=failure)]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=agent_dataset_fingerprint(cases),
+    )
+    serialized = report.model_dump_json()
+
+    assert report.summary.cases_provider_blocked == 1
+    assert report.summary.semantic_status_accuracy is None
+    assert report.cases[0].safe_error_category == "provider_unavailable"
+    assert report.cases[0].provider_failure == failure
+    assert report.cases[0].attempt_history[0].provider_failure == failure
+    assert report.cases[0].provider_failure is not None
+    assert report.cases[0].provider_failure.kind is AgentProviderFailureKind.TIMEOUT
+    assert report.cases[0].provider_failure.http_status_code == 504
+    assert "secret" not in serialized
+    assert "message" not in report.cases[0].provider_failure.model_dump()
 
 
 def test_resume_carries_completed_retries_blocked_and_never_duplicates() -> None:

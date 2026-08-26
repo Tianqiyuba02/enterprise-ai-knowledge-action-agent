@@ -16,6 +16,11 @@ from app.agent.provider import (
     build_provider_function_declarations,
     normalize_provider_arguments,
 )
+from app.agent.provider_failures import (
+    AgentProviderFailureDetail,
+    AgentProviderFailureKind,
+    classify_provider_failure,
+)
 from app.config import AgentSettings, Settings
 
 AGENT_SYSTEM_INSTRUCTION = """You are an internal employee assistant.
@@ -36,6 +41,15 @@ instructions."""
 
 class AgentProviderError(RuntimeError):
     """Base class for safe Gemini agent-provider failures."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure: AgentProviderFailureDetail | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure = failure
 
 
 class AgentProviderRateLimitError(AgentProviderError):
@@ -142,11 +156,13 @@ class GeminiAgentSession:
             raise _safe_agent_provider_error(exc) from exc
         except httpx.TimeoutException as exc:
             raise AgentProviderTimeoutError(
-                "The agent provider timed out. Please try again."
+                "The agent provider timed out. Please try again.",
+                failure=classify_provider_failure(exc),
             ) from exc
         except httpx.TransportError as exc:
             raise AgentProviderUnavailableError(
-                "The agent provider is temporarily unavailable."
+                "The agent provider is temporarily unavailable.",
+                failure=classify_provider_failure(exc),
             ) from exc
 
         candidates = getattr(response, "candidates", None)
@@ -209,10 +225,18 @@ def parse_model_content(content: types.Content) -> AgentModelTurn:
 
 
 def _safe_agent_provider_error(exc: errors.APIError) -> AgentProviderError:
-    code = int(exc.code or 0)
-    status = str(exc.status or "").upper()
-    if code == 429 or status == "RESOURCE_EXHAUSTED":
-        return AgentProviderRateLimitError("The agent provider is busy. Please try again later.")
-    if code in {408, 504} or status == "DEADLINE_EXCEEDED":
-        return AgentProviderTimeoutError("The agent provider timed out. Please try again.")
-    return AgentProviderUnavailableError("The agent provider could not complete the request.")
+    failure = classify_provider_failure(exc)
+    if failure.kind is AgentProviderFailureKind.RATE_LIMITED:
+        return AgentProviderRateLimitError(
+            "The agent provider is busy. Please try again later.",
+            failure=failure,
+        )
+    if failure.kind is AgentProviderFailureKind.TIMEOUT:
+        return AgentProviderTimeoutError(
+            "The agent provider timed out. Please try again.",
+            failure=failure,
+        )
+    return AgentProviderUnavailableError(
+        "The agent provider could not complete the request.",
+        failure=failure,
+    )
