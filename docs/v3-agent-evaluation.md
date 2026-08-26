@@ -8,7 +8,7 @@ and orchestration.
 
 - trusted date: `2026-08-26`, injected through the application-owned clock;
 - agent model: `gemini-3.6-flash`;
-- outer-agent timeout: 60 seconds for new runs;
+- outer-agent timeout: 60 seconds per outer model round / provider attempt for new runs;
 - outer-agent attempts: one total SDK attempt per model round for new runs;
 - bounds: 5 tool attempts and 7 model rounds;
 - development: 16 cases, fingerprint
@@ -78,23 +78,47 @@ never supplies citation or prepared-action truth.
 
 ## Provider blocking and resume
 
-Provider rate limits and unavailability are `provider_blocked`, separate from semantic failures.
-The runner stops after the first provider-blocked case to avoid repeated calls and writes a partial
-report. `--resume` carries completed cases forward, retries blocked/error cases, and continues
-unattempted cases without duplicate results. Provider-blocked rows may include an optional safe
-`provider_failure` diagnostic (`kind`, sanitized exception class, optional HTTP code, optional
-symbolic status) so timeout, cancellation, invalid request, and outage can be distinguished without
-storing messages, bodies, headers, or request IDs. Historical reports that omit the field remain
+Provider-blocked cases are distinct from completed semantic/model failures. The runner stops after
+the first provider-blocked case, writes a partial report, and records `no_tuning_performed`.
+`--resume` carries completed cases forward, retries blocked/error cases, and continues unattempted
+cases without duplicate result rows.
+
+Provider-blocked rows may include an optional safe `provider_failure` diagnostic (`kind`,
+allowlisted exception class, optional HTTP code, optional sanitized symbolic status). Messages,
+bodies, headers, and request IDs are not stored. Historical reports that omit the field remain
 readable. The field is not a resume-compatibility parameter.
 
-Resume rejects mismatched dataset fingerprint, split, agent model, trusted date, bounds, tool
-registry fingerprint, evaluator schema, demo fixture version, knowledge configuration, or corpus
-identity. It also rejects a different effective outer-agent timeout or attempt policy.
+Resume compatibility includes the frozen configuration compared by the runner: agent model, outer
+timeout, max attempts, trusted date, tool/model bounds, tool-registry fingerprint, demo fixture
+version, knowledge settings, corpus identity/counts, evaluator schema, split, and dataset
+fingerprint.
 
-Historical reports created before reliability isolation omit those fields and resolve to the inherited
-30-second agent timeout and two-attempt retry policy. The separately named corrected-continuation
-5/16 checkpoint remains historical evidence only; it cannot be resumed under the 60-second,
-one-attempt configuration.
+Historical reports created before reliability isolation omit timeout/attempt fields and resolve to
+the inherited 30-second agent timeout and two-attempt retry policy. Those reports cannot be resumed
+into the frozen 60-second, one-attempt configuration.
+
+## Current development checkpoint
+
+The freeze-HEAD development report is
+`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`.
+
+Recorded frozen runtime: `gemini-3.6-flash`, `AGENT_TIMEOUT_SECONDS=60`, `AGENT_MAX_ATTEMPTS=1`.
+
+Current factual status:
+
+- 16 development cases;
+- 5 completed;
+- 1 provider-blocked (`dev_agent_ticket_and_it_policy`);
+- 10 not run;
+- semantic status accuracy `1.0` on completed/evaluable cases;
+- no observed semantic/mechanical failures among those five;
+- no gold-label correction;
+- no tuning performed.
+
+Case 6 has demonstrated successful round-1 selection of `get_my_ticket` and `knowledge_query`, and
+both tools have executed in some attempts. Other attempts were blocked before dispatch. Observed
+provider failures include HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. These remain
+provider-blocked, not completed semantic failures.
 
 ## Development command
 
@@ -106,7 +130,11 @@ uv run enterprise-ai-eval \
   --delay-seconds 2
 ```
 
-Compatible partial runs use the same command with `--resume`. The default report is
-`evals/results/v3-stage5a-development-agent.json`.
+Compatible partial runs use the same command with `--resume` against the freeze-HEAD report path.
 
-The holdout remains frozen until a separately authorized Stage 5B.
+## Holdout status
+
+Frozen holdout: 8 cases, fingerprint
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** Stage 5A's CLI
+rejects `--mode agent --split holdout`. The holdout remains untouched until a development review is
+accepted.

@@ -14,7 +14,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
-| V3 — Agent + Tools | In progress — read + leave-prepare assistant |
+| V3 — Agent + Tools | Code freeze — read + leave-prepare; live evaluation in progress |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
 
@@ -111,8 +111,10 @@ The V3 development agent baseline uses the real bounded agent and a fixed truste
 uv run enterprise-ai-eval --mode agent --split development --live --delay-seconds 2
 ```
 
-The V3 agent holdout is frozen and cannot be run during Stage 5A. See
-`docs/v3-agent-evaluation.md` for the mechanical metrics and resume contract.
+The V3 agent holdout is frozen and has not been executed. See
+`docs/v3-agent-evaluation.md` for the mechanical metrics and resume contract, and
+`docs/v3-release-readiness.md` for the current `v0.4.0` gate. V3 product code is frozen;
+V3 is not released.
 
 ## Prerequisites
 

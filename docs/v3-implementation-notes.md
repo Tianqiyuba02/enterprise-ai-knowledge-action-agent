@@ -2,12 +2,156 @@
 
 ## Current stage
 
-Product Milestone V3 — Agent + Tools has completed Stage 1 deterministic read-tool dispatch on
-`feature/v3-agent-tools`, based on released V2 develop commit
-`0121bbab58b7c0e7b47b09f8c3cbaf029abd6182`.
+Product Milestone V3 — Agent + Tools is under **code freeze** on `feature/v3-agent-tools`.
+Deterministic product code is frozen at `e93b5c1a476a4ed6983f60897839c016652971ba`. Later commits
+may add evaluation evidence or documentation only.
 
-No agent loop, public assistant endpoint, preparation handler, persistence, or execution path
-exists yet.
+V3 is **not released**. Live development evaluation is **incomplete**. The frozen holdout has
+**not** been run. Target release remains `v0.4.0` after development review, holdout, and release
+review. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
+
+## Frozen V3 design
+
+The LLM proposes and selects tools. Deterministic application code validates arguments, injects
+trusted identity, and performs only allowed READ and PREPARE operations.
+
+### Scope
+
+READ tools:
+
+- `knowledge_query`
+- `get_my_profile`
+- `get_my_leave_balances`
+- `get_my_ticket`
+
+PREPARE tool:
+
+- `prepare_leave_request`
+
+V3 does not support execution, persisted prepared actions, chat-message confirmation as
+authorization, LangGraph, or a HITL execution workflow. Those belong to V4.
+
+### Bounded agent loop
+
+- Provider-native Gemini function calling on `gemini-3.6-flash`.
+- Automatic function execution is disabled.
+- `ToolRegistry` / `ToolDispatcher` is the business boundary.
+- Maximum 5 tool calls and 7 model rounds per user turn.
+- Single-turn, in-memory interaction; no conversation persistence.
+- Identity and applicability come only from server-trusted context.
+- Tool results are treated as untrusted data and cannot become instructions.
+
+Public surface: authenticated `POST /api/v1/assistant/query`.
+
+### Gemini continuation protocol
+
+Native continuation uses this history shape:
+
+1. original user content;
+2. the exact original model candidate `Content`;
+3. user-role `Content` containing typed `FunctionResponse` parts.
+
+The original model candidate is retained, including part order. Function-call IDs are preserved when
+the provider supplies them. Thought signatures stay inside the original model parts. Multiple
+function responses for one model turn are returned together in one user `Content`. An earlier
+`role="tool"` continuation was a protocol defect and was corrected.
+
+### Frozen outer-agent reliability policy
+
+V3 outer-agent settings:
+
+- `AGENT_TIMEOUT_SECONDS = 60`
+- `AGENT_MAX_ATTEMPTS = 1`
+- `ThinkingLevel.MINIMAL`
+
+The 60-second timeout applies to **one outer model round / provider attempt**. It is not a total
+Agent-turn deadline. A complete interaction may include several model rounds. V3 uses one SDK
+attempt per model round.
+
+V1 generation, V2 grounded generation, and V2 embeddings remain:
+
+- `GEMINI_TIMEOUT_SECONDS = 30`
+- `GEMINI_MAX_ATTEMPTS = 2`
+
+The policies differ because V3 is an interactive multi-round agent. Automatic retry amplification
+can produce unacceptable user-facing latency.
+
+### Provider failure diagnostics
+
+Internal classification kinds:
+
+- `invalid_request`
+- `authentication_or_permission`
+- `timeout`
+- `cancelled`
+- `rate_limited`
+- `provider_unavailable`
+- `transport_error`
+- `unknown_provider_error`
+
+Safe diagnostic fields: `kind`, allowlisted `exception_class`, optional HTTP status, optional
+sanitized symbolic status. Exception messages, HTTP bodies, headers, request IDs, prompts, tool
+payloads, and thought signatures are not persisted or exposed.
+
+The public assistant API remains coarse: rate limits map to `assistant_model_rate_limited`, and
+other provider failures map to `assistant_model_unavailable`. Internal diagnostics do not appear in
+the public response.
+
+### Leave preparation schema hygiene
+
+Local validation still accepts only `annual`. The provider-visible FunctionDeclaration schema emits
+`enum: ["annual"]` instead of `const: "annual"`. Application semantics did not change.
+
+### Evaluation methodology
+
+Development and holdout are separate. Development may be iterated and reviewed. Holdout stays
+frozen until a development review is accepted. Provider-blocked cases are distinct from completed
+semantic/model failures. Reports record `no_tuning_performed`.
+
+Resume compatibility includes the frozen configuration currently compared by the runner: agent
+model, outer timeout, max attempts, trusted date, tool/model bounds, tool-registry fingerprint,
+demo fixture version, knowledge settings, corpus identity/counts, evaluator schema, split, and
+dataset fingerprint. Optional `provider_failure` diagnostics are not a compatibility parameter.
+
+### Current development status
+
+Development dataset: 16 cases, fingerprint
+`c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`.
+
+Current frozen checkpoint
+`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`:
+
+- 5 completed
+- 1 provider-blocked
+- 10 not run
+
+Completed/evaluable cases:
+
+- semantic status accuracy `1.0`
+- no observed semantic/mechanical failures among those five
+- forbidden-tool rate `0`
+- identity violations `0`
+- business mutations `0`
+- required citation recall `1.0` on applicable completed cases
+- no gold-label correction proposed
+- no tuning performed
+
+`dev_agent_ticket_and_it_policy` (Case 6) remains provider-blocked. Prior attempts have shown
+successful round-1 selection of both `get_my_ticket` and `knowledge_query`, and both tools have
+executed successfully. Other attempts were blocked before dispatch. Observed provider failures
+include HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. These are classified as
+provider-blocked, not deterministic semantic or product failures. The root cause is not claimed to
+be localized inside the provider.
+
+### Holdout status
+
+Frozen holdout: 8 cases, fingerprint
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** The holdout
+has remained untouched.
+
+## Historical stage notes
+
+The sections below record how V3 was built. They are not the current freeze status.
 
 ## Provider capability
 
@@ -317,9 +461,10 @@ Both datasets were created before development execution:
 - trusted date: `2026-08-26`; and
 - evaluator schema: `v3-agent-eval-1`.
 
-Resume compatibility includes the dataset, model, fixed date, tool/model bounds, tool registry,
-demo fixture version, knowledge settings, and database corpus identity. Completed cases carry
-forward; provider-blocked/error cases may be retried without duplicate result rows.
+Resume compatibility includes the dataset, model, outer timeout, max attempts, fixed date,
+tool/model bounds, tool registry, demo fixture version, knowledge settings, and database corpus
+identity. Completed cases carry forward; provider-blocked/error cases may be retried without
+duplicate result rows.
 
 Metrics are mechanical. They grade tool selection, identity/business-state invariants, structured
 citations, structured prepared actions, bounded execution, narrow false-execution phrases, and
@@ -352,7 +497,8 @@ budget, model, evaluation dataset, checkpoint, or holdout artifact.
 ## Isolated outer-agent timeout
 
 The V3 outer provider now has a separate `AGENT_TIMEOUT_SECONDS` setting with a bounded default of
-60 seconds. `GeminiAgentClient` converts it to `HttpOptions(timeout=60_000)`. The existing
+60 seconds per outer model round / provider attempt. `GeminiAgentClient` converts it to
+`HttpOptions(timeout=60_000)`. This is not a total Agent-turn deadline. The existing
 `GEMINI_TIMEOUT_SECONDS=30` remains unchanged for V1 generation, V2 grounded generation, and V2
 embeddings.
 
