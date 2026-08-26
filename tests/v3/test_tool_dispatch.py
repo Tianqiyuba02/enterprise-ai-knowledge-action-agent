@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from app.agent.contracts import V3_TOOL_ALLOWLIST
+from app.agent.contracts import V3_TOOL_ALLOWLIST, V3ToolName
 from app.agent.dispatcher import ToolDispatcher
 from app.agent.models import KnowledgeToolData, ToolResult, ToolResultStatus
 from app.agent.provider import (
@@ -531,3 +531,74 @@ def test_provider_declarations_match_fixed_registry_without_identity_or_write_fi
         description = declaration.description.lower()
         assert "execute" not in description
         assert "write" not in description
+
+
+_UNCHANGED_READ_TOOL_SCHEMAS = {
+    "knowledge_query": {
+        "additionalProperties": False,
+        "properties": {
+            "question": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "title": "Question",
+                "type": "string",
+            }
+        },
+        "required": ["question"],
+        "title": "KnowledgeQueryArguments",
+        "type": "object",
+    },
+    "get_my_profile": {
+        "additionalProperties": False,
+        "properties": {},
+        "title": "NoToolArguments",
+        "type": "object",
+    },
+    "get_my_leave_balances": {
+        "additionalProperties": False,
+        "properties": {},
+        "title": "NoToolArguments",
+        "type": "object",
+    },
+    "get_my_ticket": {
+        "additionalProperties": False,
+        "properties": {
+            "ticket_id": {
+                "pattern": "^TKT-[0-9]{4}$",
+                "title": "Ticket Id",
+                "type": "string",
+            }
+        },
+        "required": ["ticket_id"],
+        "title": "GetMyTicketArguments",
+        "type": "object",
+    },
+}
+
+
+def test_prepare_leave_request_provider_schema_uses_single_value_enum() -> None:
+    declarations = {
+        declaration.name: declaration for declaration in build_provider_function_declarations()
+    }
+    leave_declaration = declarations["prepare_leave_request"]
+    leave_schema = leave_declaration.parameters_json_schema
+    leave_type_schema = leave_schema["properties"]["leave_type"]
+
+    assert leave_type_schema == {
+        "enum": ["annual"],
+        "title": "Leave Type",
+        "type": "string",
+    }
+    assert "const" not in leave_type_schema
+    assert "const" not in json.dumps(leave_schema)
+    assert (
+        leave_schema
+        == V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].argument_model.model_json_schema()
+    )
+
+    for name, expected_schema in _UNCHANGED_READ_TOOL_SCHEMAS.items():
+        assert declarations[name].parameters_json_schema == expected_schema
+        assert (
+            declarations[name].parameters_json_schema
+            == V3_TOOL_ALLOWLIST[V3ToolName(name)].argument_model.model_json_schema()
+        )

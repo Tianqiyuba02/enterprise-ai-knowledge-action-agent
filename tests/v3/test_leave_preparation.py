@@ -158,6 +158,28 @@ def test_prepare_arguments_are_strict_and_reject_model_controlled_trust_fields(
         PrepareLeaveRequestArguments.model_validate(payload)
 
 
+def test_prepare_arguments_accept_annual_and_reject_non_annual_leave_types() -> None:
+    accepted = PrepareLeaveRequestArguments.model_validate(
+        {
+            "leave_type": "annual",
+            "start_date": "2026-08-28",
+            "end_date": "2026-08-28",
+        }
+    )
+
+    assert accepted.leave_type == "annual"
+
+    for leave_type in ("personal", "sick", "ANNUAL", "Annual"):
+        with pytest.raises(ValidationError):
+            PrepareLeaveRequestArguments.model_validate(
+                {
+                    "leave_type": leave_type,
+                    "start_date": "2026-08-28",
+                    "end_date": "2026-08-28",
+                }
+            )
+
+
 def test_preparation_is_repeatable_and_does_not_mutate_employee_data() -> None:
     repository = DemoRepository()
     employee_service = EmployeeService(repository)

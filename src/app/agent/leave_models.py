@@ -22,12 +22,19 @@ ReasonText = Annotated[
 ]
 
 
+def _annual_leave_type_schema(schema: dict[str, object]) -> None:
+    """Emit a single-value enum instead of JSON Schema const for provider portability."""
+
+    schema.pop("const", None)
+    schema["enum"] = ["annual"]
+
+
 class PrepareLeaveRequestArguments(BaseModel):
     """Provider-facing annual-only ISO date contract."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    leave_type: Literal["annual"]
+    leave_type: Literal["annual"] = Field(json_schema_extra=_annual_leave_type_schema)
     start_date: date
     end_date: date
     reason: ReasonText | None = None

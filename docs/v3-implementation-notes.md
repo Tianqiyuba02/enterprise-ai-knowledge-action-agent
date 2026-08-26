@@ -372,6 +372,12 @@ seconds and one attempt, so resume compatibility rejects either mismatch. The
 corrected-continuation 5/16 development checkpoint remains preserved as historical 30-second,
 two-attempt evidence and must not be resumed into a final baseline.
 
-Later V3 release hardening may separately review prepare-tool JSON-schema `const` hygiene, richer
-internal provider error taxonomy, and safe request-ID observability. They are intentionally outside
-this retry-policy patch.
+Later V3 release hardening may separately review richer internal provider error taxonomy and safe
+request-ID observability. They are intentionally outside this retry-policy patch.
+
+## Provider schema hygiene
+
+`prepare_leave_request.leave_type` still validates as the single literal `annual`. The
+provider-visible JSON Schema now emits `enum: ["annual"]` instead of `const: "annual"` so
+google-genai function declarations stay portable. Local validation, the other four tool
+declarations, and all application semantics are unchanged.
