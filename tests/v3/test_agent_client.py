@@ -1,6 +1,6 @@
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
@@ -15,7 +15,10 @@ from app.agent.client import (
 )
 from app.agent.loop_models import AgentToolResponse
 from app.agent.models import ProfileToolData, ToolResult, ToolResultStatus
-from app.config import AgentSettings, Settings
+from app.config import AgentSettings, KnowledgeSettings, Settings
+from app.embeddings.client import GeminiDocumentEmbeddingClient
+from app.grounding.client import GeminiGroundedGenerationClient
+from app.llm.client import GeminiStructuredClient
 
 
 def _response(content: types.Content):
@@ -28,6 +31,52 @@ def _settings() -> Settings:
 
 def _agent_settings() -> AgentSettings:
     return AgentSettings(_env_file=None)
+
+
+def test_agent_client_uses_isolated_timeout_and_keeps_retry_policy() -> None:
+    sdk_client = Mock()
+    with patch("app.agent.client.genai.Client", return_value=sdk_client) as client_factory:
+        client = GeminiAgentClient(
+            _settings(),
+            AgentSettings(agent_timeout_seconds=60, _env_file=None),
+        )
+
+    http_options = client_factory.call_args.kwargs["http_options"]
+    assert http_options.timeout == 60_000
+    assert http_options.retry_options.attempts == 2
+    assert http_options.retry_options.initial_delay == 0.5
+    assert http_options.retry_options.max_delay == 2.0
+    assert http_options.retry_options.jitter == 0.25
+    assert http_options.retry_options.http_status_codes == [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+    ]
+
+    client.start("Hello", date(2026, 8, 26))
+    sdk_client.models.generate_content.assert_not_called()
+
+
+def test_v1_grounding_and_embeddings_keep_shared_30_second_timeout() -> None:
+    settings = Settings(
+        gemini_api_key="test-only-key",
+        gemini_timeout_seconds=30,
+        _env_file=None,
+    )
+    knowledge = KnowledgeSettings(_env_file=None)
+    with patch("app.llm.client.genai.Client") as v1_factory:
+        GeminiStructuredClient(settings)
+    with patch("app.grounding.client.genai.Client") as grounded_factory:
+        GeminiGroundedGenerationClient(settings, knowledge)
+    with patch("app.embeddings.client.genai.Client") as embedding_factory:
+        GeminiDocumentEmbeddingClient(settings, knowledge)
+
+    assert v1_factory.call_args.kwargs["http_options"].timeout == 30_000
+    assert grounded_factory.call_args.kwargs["http_options"].timeout == 30_000
+    assert embedding_factory.call_args.kwargs["http_options"].timeout == 30_000
 
 
 def _profile_result() -> ToolResult:

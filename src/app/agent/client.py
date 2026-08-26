@@ -67,7 +67,7 @@ class GeminiAgentClient:
         self._client = sdk_client or genai.Client(
             api_key=settings.gemini_api_key.get_secret_value(),
             http_options=types.HttpOptions(
-                timeout=settings.gemini_timeout_seconds * 1_000,
+                timeout=agent_settings.agent_timeout_seconds * 1_000,
                 retry_options=types.HttpRetryOptions(
                     attempts=settings.gemini_max_attempts,
                     initial_delay=0.5,

@@ -129,6 +129,8 @@ def test_assistant_route_requires_existing_demo_session(
         {"message": "Hello", "system_prompt": "override"},
         {"message": "Hello", "max_tool_calls": 99},
         {"message": "Hello", "max_rounds": 99},
+        {"message": "Hello", "agent_timeout_seconds": 120},
+        {"message": "Hello", "timeout": 120},
         {"message": "Hello", "history": []},
     ],
 )

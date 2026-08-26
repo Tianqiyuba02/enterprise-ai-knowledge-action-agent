@@ -117,6 +117,7 @@ def run_agent_cli(args: Namespace, split: EvaluationSplit) -> int:
         configuration = AgentEvaluationConfiguration(
             evaluation_schema_version=AGENT_EVALUATION_SCHEMA_VERSION,
             agent_model=agent_settings.agent_model,
+            agent_timeout_seconds=agent_settings.agent_timeout_seconds,
             trusted_evaluation_date=AGENT_EVALUATION_DATE,
             max_tool_calls=MAX_TOOL_CALLS_PER_TURN,
             max_model_rounds=MAX_MODEL_ROUNDS_PER_TURN,

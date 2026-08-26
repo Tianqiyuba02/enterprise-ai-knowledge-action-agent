@@ -348,3 +348,20 @@ because `google-genai==2.19.0`'s helper does not accept the required function-ca
 
 This patch does not broaden the provider error taxonomy. It changes no prompt, tool contract,
 budget, model, evaluation dataset, checkpoint, or holdout artifact.
+
+## Isolated outer-agent timeout
+
+The V3 outer provider now has a separate `AGENT_TIMEOUT_SECONDS` setting with a bounded default of
+60 seconds. `GeminiAgentClient` converts it to `HttpOptions(timeout=60_000)`. The existing
+`GEMINI_TIMEOUT_SECONDS=30` remains unchanged for V1 generation, V2 grounded generation, and V2
+embeddings. Retry attempts, retryable statuses, backoff, model, prompt, tools, and loop budgets are
+unchanged.
+
+This is a reliability configuration correction, not semantic/model tuning. The inherited shared
+30-second deadline produced real outer-agent `499 CANCELLED` and `504 DEADLINE_EXCEEDED` failures
+before Case 6 could dispatch a tool.
+
+Agent evaluation compatibility now records the effective outer-agent timeout. Historical reports
+that predate this field resolve to 30 seconds and therefore fail resume compatibility against new
+60-second runs. The corrected-continuation 5/16 development checkpoint remains preserved as
+historical 30-second evidence and must not be resumed into a final 60-second baseline.

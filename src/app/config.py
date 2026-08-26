@@ -117,6 +117,12 @@ class AgentSettings(BaseSettings):
         default=APPROVED_AGENT_MODEL,
         validation_alias="AGENT_MODEL",
     )
+    agent_timeout_seconds: int = Field(
+        default=60,
+        validation_alias="AGENT_TIMEOUT_SECONDS",
+        ge=1,
+        le=120,
+    )
 
 
 def load_settings() -> Settings:

@@ -26,6 +26,21 @@ def test_agent_model_is_isolated_from_released_v1_v2_models() -> None:
         AgentSettings(agent_model="gemini-3.5-flash", _env_file=None)
 
 
+def test_agent_timeout_is_isolated_validated_and_environment_controlled(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "45")
+
+    assert AgentSettings(_env_file=None).agent_timeout_seconds == 60
+    assert Settings(gemini_api_key="test-only-key", _env_file=None).gemini_timeout_seconds == 45
+
+    monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "75")
+    assert AgentSettings(_env_file=None).agent_timeout_seconds == 75
+
+    for invalid in (0, 121):
+        with pytest.raises(ValidationError):
+            AgentSettings(agent_timeout_seconds=invalid, _env_file=None)
+
+
 def test_allowlist_contains_four_read_tools_and_one_prepare_tool() -> None:
     assert set(V3_TOOL_ALLOWLIST) == {
         V3ToolName.KNOWLEDGE_QUERY,
