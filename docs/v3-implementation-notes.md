@@ -327,3 +327,24 @@ forbidden prompt-injection calls. No second LLM or generic answer-quality judge 
 
 Stage 5A's CLI rejects `--mode agent --split holdout`; the holdout has not been executed or used for
 tuning. Detailed methodology and frozen fingerprints are in `docs/v3-agent-evaluation.md`.
+
+## Gemini GenerateContent continuation correction
+
+A one-shot live profile-tool diagnostic isolated the second provider round as
+`ClientError` / HTTP 400 / `INVALID_ARGUMENT`. The broad internal
+`provider_unavailable` result had hidden that non-availability API category.
+
+The GenerateContent continuation now places native `FunctionResponse` parts in
+`Content(role="user")`. History remains:
+
+1. original user content;
+2. the exact original model candidate `Content`, including function-call IDs, part order, and
+   provider thought signatures; and
+3. user-role content containing the corresponding typed function responses.
+
+Function-call IDs and canonical names are unchanged. Parallel calls retain one original model
+content object and ordered response parts. The narrow direct `FunctionResponse` construction remains
+because `google-genai==2.19.0`'s helper does not accept the required function-call ID.
+
+This patch does not broaden the provider error taxonomy. It changes no prompt, tool contract,
+budget, model, evaluation dataset, checkpoint, or holdout artifact.

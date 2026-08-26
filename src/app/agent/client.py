@@ -176,7 +176,7 @@ def build_function_response_content(
         )
         for response in tool_responses
     ]
-    return types.Content(role="tool", parts=parts)
+    return types.Content(role="user", parts=parts)
 
 
 def parse_model_content(content: types.Content) -> AgentModelTurn:

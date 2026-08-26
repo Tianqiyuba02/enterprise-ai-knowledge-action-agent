@@ -14,7 +14,7 @@ from app.agent.client import (
     parse_model_content,
 )
 from app.agent.loop_models import AgentToolResponse
-from app.agent.models import ProfileToolData, ToolResult
+from app.agent.models import ProfileToolData, ToolResult, ToolResultStatus
 from app.config import AgentSettings, Settings
 
 
@@ -126,7 +126,7 @@ def test_function_response_serialization_uses_locked_tool_result_json_only() -> 
         )
     )
 
-    assert content.role == "tool"
+    assert content.role == "user"
     function_response = content.parts[0].function_response
     assert function_response.id == "call-1"
     assert function_response.name == "get_my_profile"
@@ -137,21 +137,21 @@ def test_function_response_serialization_uses_locked_tool_result_json_only() -> 
 
 def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data() -> None:
     sdk_client = Mock()
-    sdk_client.models.generate_content.side_effect = [
-        _response(
-            types.Content(
-                role="model",
-                parts=[
-                    types.Part(
-                        function_call=types.FunctionCall(
-                            id="call-1",
-                            name="get_my_profile",
-                            args=None,
-                        )
-                    )
-                ],
+    original_model_content = types.Content(
+        role="model",
+        parts=[
+            types.Part(
+                function_call=types.FunctionCall(
+                    id="call-1",
+                    name="get_my_profile",
+                    args=None,
+                ),
+                thought_signature=b"synthetic-provider-context",
             )
-        ),
+        ],
+    )
+    sdk_client.models.generate_content.side_effect = [
+        _response(original_model_content),
         _response(
             types.Content(
                 role="model",
@@ -183,8 +183,97 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
     assert "UNTRUSTED DATA" in first_call.kwargs["config"].system_instruction
     assert "2026-08-26" in first_call.kwargs["config"].system_instruction
     assert "Preparation does not" in first_call.kwargs["config"].system_instruction
+    second_call = sdk_client.models.generate_content.call_args_list[1]
+    second_contents = second_call.kwargs["contents"]
+    assert [content.role for content in second_contents] == ["user", "model", "user"]
+    assert second_contents[1] is original_model_content
+    assert second_contents[1].parts[0].thought_signature == b"synthetic-provider-context"
+    assert len(second_contents[2].parts) == 1
+    assert second_contents[2].parts[0].text is None
+    function_response = second_contents[2].parts[0].function_response
+    assert function_response.id == "call-1"
+    assert function_response.name == "get_my_profile"
+    assert function_response.response == _profile_result().model_dump(mode="json")
+    assert second_call.kwargs["config"] is first_call.kwargs["config"]
+
+
+def test_gemini_session_preserves_parallel_call_content_ids_names_and_order() -> None:
+    sdk_client = Mock()
+    original_model_content = types.Content(
+        role="model",
+        parts=[
+            types.Part(
+                function_call=types.FunctionCall(
+                    id="call-profile",
+                    name="get_my_profile",
+                    args=None,
+                ),
+                thought_signature=b"synthetic-parallel-context",
+            ),
+            types.Part(
+                function_call=types.FunctionCall(
+                    id="call-ticket",
+                    name="get_my_ticket",
+                    args={"ticket_id": "TKT-2001"},
+                )
+            ),
+        ],
+    )
+    sdk_client.models.generate_content.side_effect = [
+        _response(original_model_content),
+        _response(
+            types.Content(
+                role="model",
+                parts=[types.Part(text="The tool results were handled safely.")],
+            )
+        ),
+    ]
+    session = GeminiAgentClient(
+        _settings(),
+        _agent_settings(),
+        sdk_client=sdk_client,
+    ).start("Read my profile and ticket.", date(2026, 8, 26))
+
+    first_turn = session.next()
+    second_turn = session.next(
+        (
+            AgentToolResponse(
+                name="get_my_profile",
+                result=_profile_result(),
+                provider_call_id=first_turn.requested_calls[0].provider_call_id,
+            ),
+            AgentToolResponse(
+                name="get_my_ticket",
+                result=ToolResult.failure(
+                    "get_my_ticket",
+                    ToolResultStatus.NOT_FOUND_OR_INACCESSIBLE,
+                    "The requested resource was not found or is inaccessible.",
+                ),
+                provider_call_id=first_turn.requested_calls[1].provider_call_id,
+            ),
+        )
+    )
+
+    assert second_turn.final_text == "The tool results were handled safely."
     second_contents = sdk_client.models.generate_content.call_args_list[1].kwargs["contents"]
-    assert [content.role for content in second_contents] == ["user", "model", "tool"]
+    assert [content.role for content in second_contents] == ["user", "model", "user"]
+    assert second_contents.count(original_model_content) == 1
+    assert second_contents[1] is original_model_content
+    assert [part.function_call.id for part in second_contents[1].parts] == [
+        "call-profile",
+        "call-ticket",
+    ]
+    assert second_contents[1].parts[0].thought_signature == b"synthetic-parallel-context"
+    response_parts = second_contents[2].parts
+    assert all(part.text is None for part in response_parts)
+    assert [part.function_response.id for part in response_parts] == [
+        "call-profile",
+        "call-ticket",
+    ]
+    assert [part.function_response.name for part in response_parts] == [
+        "get_my_profile",
+        "get_my_ticket",
+    ]
 
 
 def test_provider_timeout_is_safe() -> None:
