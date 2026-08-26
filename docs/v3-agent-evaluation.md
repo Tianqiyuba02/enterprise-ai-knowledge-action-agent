@@ -9,6 +9,7 @@ and orchestration.
 - trusted date: `2026-08-26`, injected through the application-owned clock;
 - agent model: `gemini-3.6-flash`;
 - outer-agent timeout: 60 seconds for new runs;
+- outer-agent attempts: one total SDK attempt per model round for new runs;
 - bounds: 5 tool attempts and 7 model rounds;
 - development: 16 cases, fingerprint
   `c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`;
@@ -84,11 +85,12 @@ unattempted cases without duplicate results.
 
 Resume rejects mismatched dataset fingerprint, split, agent model, trusted date, bounds, tool
 registry fingerprint, evaluator schema, demo fixture version, knowledge configuration, or corpus
-identity. It also rejects a different effective outer-agent timeout.
+identity. It also rejects a different effective outer-agent timeout or attempt policy.
 
-Historical reports created before timeout isolation omit that field and resolve to the inherited
-30-second agent timeout. The separately named corrected-continuation 5/16 checkpoint remains
-historical evidence only; it cannot be resumed under the 60-second configuration.
+Historical reports created before reliability isolation omit those fields and resolve to the inherited
+30-second agent timeout and two-attempt retry policy. The separately named corrected-continuation
+5/16 checkpoint remains historical evidence only; it cannot be resumed under the 60-second,
+one-attempt configuration.
 
 ## Development command
 

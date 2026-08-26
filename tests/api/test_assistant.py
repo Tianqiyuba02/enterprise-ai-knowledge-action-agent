@@ -131,6 +131,8 @@ def test_assistant_route_requires_existing_demo_session(
         {"message": "Hello", "max_rounds": 99},
         {"message": "Hello", "agent_timeout_seconds": 120},
         {"message": "Hello", "timeout": 120},
+        {"message": "Hello", "agent_max_attempts": 3},
+        {"message": "Hello", "max_attempts": 3},
         {"message": "Hello", "history": []},
     ],
 )

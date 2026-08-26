@@ -221,6 +221,7 @@ class AgentEvaluationConfiguration(AgentEvaluationModel):
     evaluation_schema_version: Literal["v3-agent-eval-1"] = "v3-agent-eval-1"
     agent_model: NonEmptyString
     agent_timeout_seconds: Annotated[int, Field(ge=1, le=120)] = 30
+    agent_max_attempts: Annotated[int, Field(ge=1, le=3)] = 2
     trusted_evaluation_date: date
     max_tool_calls: Annotated[int, Field(gt=0)]
     max_model_rounds: Annotated[int, Field(gt=0)]

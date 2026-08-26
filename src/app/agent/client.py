@@ -69,7 +69,7 @@ class GeminiAgentClient:
             http_options=types.HttpOptions(
                 timeout=agent_settings.agent_timeout_seconds * 1_000,
                 retry_options=types.HttpRetryOptions(
-                    attempts=settings.gemini_max_attempts,
+                    attempts=agent_settings.agent_max_attempts,
                     initial_delay=0.5,
                     max_delay=2.0,
                     jitter=0.25,

@@ -33,17 +33,21 @@ def _agent_settings() -> AgentSettings:
     return AgentSettings(_env_file=None)
 
 
-def test_agent_client_uses_isolated_timeout_and_keeps_retry_policy() -> None:
+def test_agent_client_uses_isolated_timeout_and_single_attempt_policy() -> None:
     sdk_client = Mock()
     with patch("app.agent.client.genai.Client", return_value=sdk_client) as client_factory:
         client = GeminiAgentClient(
             _settings(),
-            AgentSettings(agent_timeout_seconds=60, _env_file=None),
+            AgentSettings(
+                agent_timeout_seconds=60,
+                agent_max_attempts=1,
+                _env_file=None,
+            ),
         )
 
     http_options = client_factory.call_args.kwargs["http_options"]
     assert http_options.timeout == 60_000
-    assert http_options.retry_options.attempts == 2
+    assert http_options.retry_options.attempts == 1
     assert http_options.retry_options.initial_delay == 0.5
     assert http_options.retry_options.max_delay == 2.0
     assert http_options.retry_options.jitter == 0.25
@@ -64,6 +68,7 @@ def test_v1_grounding_and_embeddings_keep_shared_30_second_timeout() -> None:
     settings = Settings(
         gemini_api_key="test-only-key",
         gemini_timeout_seconds=30,
+        gemini_max_attempts=2,
         _env_file=None,
     )
     knowledge = KnowledgeSettings(_env_file=None)
@@ -77,6 +82,9 @@ def test_v1_grounding_and_embeddings_keep_shared_30_second_timeout() -> None:
     assert v1_factory.call_args.kwargs["http_options"].timeout == 30_000
     assert grounded_factory.call_args.kwargs["http_options"].timeout == 30_000
     assert embedding_factory.call_args.kwargs["http_options"].timeout == 30_000
+    assert v1_factory.call_args.kwargs["http_options"].retry_options.attempts == 2
+    assert grounded_factory.call_args.kwargs["http_options"].retry_options.attempts == 2
+    assert embedding_factory.call_args.kwargs["http_options"].retry_options.attempts == 2
 
 
 def _profile_result() -> ToolResult:

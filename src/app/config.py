@@ -123,6 +123,12 @@ class AgentSettings(BaseSettings):
         ge=1,
         le=120,
     )
+    agent_max_attempts: int = Field(
+        default=1,
+        validation_alias="AGENT_MAX_ATTEMPTS",
+        ge=1,
+        le=3,
+    )
 
 
 def load_settings() -> Settings:

@@ -41,6 +41,23 @@ def test_agent_timeout_is_isolated_validated_and_environment_controlled(monkeypa
             AgentSettings(agent_timeout_seconds=invalid, _env_file=None)
 
 
+def test_agent_retry_policy_is_isolated_validated_and_environment_controlled(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AGENT_MAX_ATTEMPTS", raising=False)
+    monkeypatch.setenv("GEMINI_MAX_ATTEMPTS", "3")
+
+    assert AgentSettings(_env_file=None).agent_max_attempts == 1
+    assert Settings(gemini_api_key="test-only-key", _env_file=None).gemini_max_attempts == 3
+
+    monkeypatch.setenv("AGENT_MAX_ATTEMPTS", "2")
+    assert AgentSettings(_env_file=None).agent_max_attempts == 2
+
+    for invalid in (0, 4):
+        with pytest.raises(ValidationError):
+            AgentSettings(agent_max_attempts=invalid, _env_file=None)
+
+
 def test_allowlist_contains_four_read_tools_and_one_prepare_tool() -> None:
     assert set(V3_TOOL_ALLOWLIST) == {
         V3ToolName.KNOWLEDGE_QUERY,

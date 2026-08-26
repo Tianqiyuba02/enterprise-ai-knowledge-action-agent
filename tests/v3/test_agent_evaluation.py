@@ -90,6 +90,7 @@ def _configuration(**overrides: object) -> AgentEvaluationConfiguration:
     values: dict[str, object] = {
         "agent_model": "gemini-3.6-flash",
         "agent_timeout_seconds": 60,
+        "agent_max_attempts": 1,
         "trusted_evaluation_date": AGENT_EVALUATION_DATE,
         "max_tool_calls": MAX_TOOL_CALLS_PER_TURN,
         "max_model_rounds": MAX_MODEL_ROUNDS_PER_TURN,
@@ -178,13 +179,15 @@ def test_agent_datasets_are_strict_disjoint_frozen_and_expected_size() -> None:
     assert {case.category for case in development} == set(AgentCaseCategory)
 
 
-def test_historical_agent_reports_without_timeout_metadata_resolve_to_30_seconds() -> None:
+def test_historical_reports_resolve_to_30_seconds_and_two_attempts() -> None:
     payload = _configuration().model_dump(mode="json")
     payload.pop("agent_timeout_seconds")
+    payload.pop("agent_max_attempts")
 
     configuration = AgentEvaluationConfiguration.model_validate(payload)
 
     assert configuration.agent_timeout_seconds == 30
+    assert configuration.agent_max_attempts == 2
     assert configuration != _configuration()
 
 
@@ -452,6 +455,7 @@ def test_resume_carries_completed_retries_blocked_and_never_duplicates() -> None
     [
         "configuration",
         "agent_timeout",
+        "agent_attempts",
         "schema",
         "fingerprint",
         "split",
@@ -472,6 +476,9 @@ def test_resume_rejects_incompatible_or_duplicate_reports(mismatch: str) -> None
         runner_configuration = _configuration(corpus_chunks=43)
     elif mismatch == "agent_timeout":
         changed = previous.configuration.model_copy(update={"agent_timeout_seconds": 30})
+        previous = previous.model_copy(update={"configuration": changed})
+    elif mismatch == "agent_attempts":
+        changed = previous.configuration.model_copy(update={"agent_max_attempts": 2})
         previous = previous.model_copy(update={"configuration": changed})
     elif mismatch == "schema":
         changed = previous.configuration.model_copy(
