@@ -1,6 +1,6 @@
 {
   "report_version": "v3-stage5a-1",
-  "generated_at": "2026-08-26T06:29:17.956452Z",
+  "generated_at": "2026-08-26T10:12:34.639708Z",
   "mode": "agent",
   "split": "development",
   "dataset_fingerprint": "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a",
@@ -29,8 +29,8 @@
     "cases_provider_blocked": 1,
     "cases_error": 0,
     "cases_not_run": 10,
-    "cases_carried_forward": 0,
-    "cases_completed_current_invocation": 5,
+    "cases_carried_forward": 5,
+    "cases_completed_current_invocation": 0,
     "semantic_status_accuracy": 1.0,
     "required_tool_recall": 1.0,
     "tool_selection_success_rate": 1.0,
@@ -59,7 +59,7 @@
     {
       "case_id": "dev_agent_profile_alex",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -115,7 +115,7 @@
     {
       "case_id": "dev_agent_balance_sam",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -171,7 +171,7 @@
     {
       "case_id": "dev_agent_ticket_alex",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -229,7 +229,7 @@
     {
       "case_id": "dev_agent_annual_policy",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -295,7 +295,7 @@
     {
       "case_id": "dev_agent_policy_and_balance",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -380,32 +380,21 @@
             "http_status_code": 504,
             "symbolic_status": "DEADLINE_EXCEEDED"
           }
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "provider_unavailable",
+          "provider_failure": {
+            "kind": "timeout",
+            "exception_class": "ServerError",
+            "http_status_code": 504,
+            "symbolic_status": "DEADLINE_EXCEEDED"
+          }
         }
       ],
       "observed_public_status": null,
       "answer": null,
-      "trace": [
-        {
-          "tool_name": "get_my_ticket",
-          "arguments": {
-            "ticket_id": "TKT-1001"
-          },
-          "result_status": "success",
-          "trusted_context_valid": true,
-          "employee_id_argument_present": false,
-          "data_kind": "ticket"
-        },
-        {
-          "tool_name": "knowledge_query",
-          "arguments": {
-            "question": "password reset support procedure sign-in fails"
-          },
-          "result_status": "success",
-          "trusted_context_valid": true,
-          "employee_id_argument_present": false,
-          "data_kind": "knowledge"
-        }
-      ],
+      "trace": [],
       "citations": [],
       "prepared_action": null,
       "metrics": null,
@@ -417,8 +406,8 @@
         "tool_call_bound_violation": false,
         "model_round_bound_violation": false
       },
-      "tool_calls_attempted": 2,
-      "model_rounds": 2,
+      "tool_calls_attempted": 0,
+      "model_rounds": 1,
       "safe_error_category": "provider_unavailable",
       "provider_failure": {
         "kind": "timeout",
