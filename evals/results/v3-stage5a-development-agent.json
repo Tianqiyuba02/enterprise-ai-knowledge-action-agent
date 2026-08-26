@@ -1,6 +1,6 @@
 {
   "report_version": "v3-stage5a-1",
-  "generated_at": "2026-08-25T14:58:16.074786Z",
+  "generated_at": "2026-08-26T01:01:26.274819Z",
   "mode": "agent",
   "split": "development",
   "dataset_fingerprint": "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a",
@@ -62,11 +62,24 @@
         {
           "state": "provider_blocked",
           "safe_error_category": "provider_rate_limited"
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "provider_rate_limited"
         }
       ],
       "observed_public_status": null,
       "answer": null,
-      "trace": [],
+      "trace": [
+        {
+          "tool_name": "get_my_profile",
+          "arguments": {},
+          "result_status": "success",
+          "trusted_context_valid": true,
+          "employee_id_argument_present": false,
+          "data_kind": "profile"
+        }
+      ],
       "citations": [],
       "prepared_action": null,
       "metrics": null,
@@ -78,8 +91,8 @@
         "tool_call_bound_violation": false,
         "model_round_bound_violation": false
       },
-      "tool_calls_attempted": 0,
-      "model_rounds": 1,
+      "tool_calls_attempted": 1,
+      "model_rounds": 2,
       "safe_error_category": "provider_rate_limited"
     }
   ],
