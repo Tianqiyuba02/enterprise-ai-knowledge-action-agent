@@ -1,6 +1,6 @@
 {
   "report_version": "v3-stage5a-1",
-  "generated_at": "2026-08-26T03:25:03.183395Z",
+  "generated_at": "2026-08-26T03:36:47.139971Z",
   "mode": "agent",
   "split": "development",
   "dataset_fingerprint": "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a",
@@ -27,8 +27,8 @@
     "cases_provider_blocked": 1,
     "cases_error": 0,
     "cases_not_run": 10,
-    "cases_carried_forward": 0,
-    "cases_completed_current_invocation": 5,
+    "cases_carried_forward": 5,
+    "cases_completed_current_invocation": 0,
     "semantic_status_accuracy": 1.0,
     "required_tool_recall": 1.0,
     "tool_selection_success_rate": 1.0,
@@ -57,7 +57,7 @@
     {
       "case_id": "dev_agent_profile_alex",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -111,7 +111,7 @@
     {
       "case_id": "dev_agent_balance_sam",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -165,7 +165,7 @@
     {
       "case_id": "dev_agent_ticket_alex",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -221,7 +221,7 @@
     {
       "case_id": "dev_agent_annual_policy",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -285,7 +285,7 @@
     {
       "case_id": "dev_agent_policy_and_balance",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "completed",
@@ -359,6 +359,10 @@
       "state": "provider_blocked",
       "result_origin": "current_invocation",
       "attempt_history": [
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "provider_unavailable"
+        },
         {
           "state": "provider_blocked",
           "safe_error_category": "provider_unavailable"
