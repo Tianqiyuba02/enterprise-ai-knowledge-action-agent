@@ -2,7 +2,6 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
@@ -16,13 +15,11 @@ from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.config import KnowledgeSettings, load_knowledge_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.db.workflow_models import WorkflowOutbox
-from app.workflow.authority import AuthoritySnapshot, CanonicalDraft
-from app.workflow.calendar import V4_CALENDAR_VERSION
-from app.workflow.canonical import business_request_key
 from app.workflow.checkpointing import open_postgres_checkpointer
 from app.workflow.confirmation import ConfirmationService
-from app.workflow.domain import ActionType, LeaveType, OutboxEventType, WorkflowState
+from app.workflow.domain import ActionType, OutboxEventType, WorkflowState
 from app.workflow.errors import OrchestrationAuthorityError, WorkflowInvariantError
+from app.workflow.executable_preparation import V4ExecutablePreparationService
 from app.workflow.orchestration import WorkflowOrchestrationService
 from app.workflow.outbox_repository import NewOutboxEvent, OutboxRepository
 from app.workflow.worker import WorkflowWorker
@@ -90,30 +87,12 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def _create_action(session: Session, start: date) -> uuid.UUID:
-    snapshot = AuthoritySnapshot(
-        employee_id="EMP-1001",
-        jurisdiction="AU-VIC",
-        work_days=("monday", "tuesday", "wednesday", "thursday", "friday"),
-        hours_per_day=Decimal("7.60"),
-        timezone="Australia/Melbourne",
-        trusted_base_balance_hours=Decimal("76.00"),
-        committed_submitted_hours=Decimal("0.00"),
-        effective_available_hours=Decimal("76.00"),
-        calendar_version=V4_CALENDAR_VERSION,
-        ruleset_version="v4-annual-leave-1",
-    )
-    draft = CanonicalDraft(
-        action_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
-        leave_type=LeaveType.ANNUAL.value,
+    prepared = V4ExecutablePreparationService().prepare(
+        session,
+        context=ALEX,
         start_date=start,
         end_date=start,
-        requested_hours=Decimal("7.60"),
-        projected_balance_hours=Decimal("68.40"),
-        readiness="ready",
         reason="Family visit",
-        calendar_version=V4_CALENDAR_VERSION,
-        ruleset_version="v4-annual-leave-1",
-        authority_snapshot_hash=snapshot.fingerprint(),
     )
     workflow, _revision = WorkflowRepository().create_workflow_and_revision(
         session,
@@ -123,17 +102,12 @@ def _create_action(session: Session, start: date) -> uuid.UUID:
             jurisdiction="AU-VIC",
             action_type=ActionType.SUBMIT_ANNUAL_LEAVE,
             state=WorkflowState.AWAITING_CONFIRMATION,
-            draft_payload={"leave_type": "annual", "reason": "Family visit"},
-            draft_hash=draft.fingerprint(),
-            authority_snapshot_hash=snapshot.fingerprint(),
-            business_request_key=business_request_key(
-                employee_id="EMP-1001",
-                leave_type="annual",
-                start_date=start,
-                end_date=start,
-            ),
-            ruleset_version="v4-annual-leave-1",
-            calendar_version=V4_CALENDAR_VERSION,
+            draft_payload=prepared.payload(),
+            draft_hash=prepared.draft.fingerprint(),
+            authority_snapshot_hash=prepared.snapshot.fingerprint(),
+            business_request_key=prepared.business_request_key,
+            ruleset_version=prepared.draft.ruleset_version,
+            calendar_version=prepared.draft.calendar_version,
             action_expires_at=datetime.now(UTC) + timedelta(hours=1),
         ),
     )
@@ -186,19 +160,19 @@ def test_worker_delivers_confirmed_barrier_and_duplicate_is_harmless(
     first = worker.run_once()
     second = worker.run_once()
     assert first is not None
-    assert first.observed_state == WorkflowState.CONFIRMED.value
+    assert first.observed_state == WorkflowState.SUCCEEDED.value
     assert first.delivered is True
     assert second is None
     with session_factory() as session:
         outbox = session.execute(text("SELECT delivered_at, event_key FROM workflow_outbox")).one()
         state = WorkflowRepository().get_revision(session, action_id).state
     assert outbox.delivered_at is not None
-    assert state == WorkflowState.CONFIRMED.value
+    assert state == WorkflowState.SUCCEEDED.value
     with open_postgres_checkpointer(isolated_settings) as checkpointer:
         loaded = checkpointer.get({"configurable": {"thread_id": thread_id}})
     assert loaded is not None
-    assert _count(engine, "leave_requests") == 0
-    assert _count(engine, "action_execution_ledger") == 0
+    assert _count(engine, "leave_requests") == 1
+    assert _count(engine, "action_execution_ledger") == 1
 
 
 def test_crash_after_resume_before_mark_can_be_reclaimed(
@@ -221,12 +195,12 @@ def test_crash_after_resume_before_mark_can_be_reclaimed(
         row.locked_until = datetime.now(UTC) - timedelta(seconds=1)
         session.commit()
         state_after_crash = WorkflowRepository().get_revision(session, action_id).state
-    assert state_after_crash == WorkflowState.CONFIRMED.value
+    assert state_after_crash == WorkflowState.SUCCEEDED.value
     recovered = WorkflowWorker(session_factory, isolated_settings, worker_id="worker-recover")
     result = recovered.run_once()
     assert result is not None
     assert result.delivered is True
-    assert result.observed_state == WorkflowState.CONFIRMED.value
+    assert result.observed_state == WorkflowState.SUCCEEDED.value
 
 
 def test_cancel_and_expiry_win_over_old_confirm_event(
@@ -349,10 +323,10 @@ def test_competing_workers_and_expired_lock_reclaim(
     assert reclaimed is not None
     assert reclaimed.event_id == claimed.event_id
     result = competitor.deliver(reclaimed, mark_delivered=True)
-    assert result.observed_state == WorkflowState.CONFIRMED.value
+    assert result.observed_state == WorkflowState.SUCCEEDED.value
     with session_factory() as session:
         state = WorkflowRepository().get_revision(session, action_id).state
-    assert state == WorkflowState.CONFIRMED.value
+    assert state == WorkflowState.SUCCEEDED.value
 
 
 def test_corrupt_checkpoint_is_released_for_retry(

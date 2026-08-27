@@ -27,7 +27,4 @@ def test_worker_source_has_no_provider_or_execution_path() -> None:
         for name in ("worker.py", "worker_cli.py")
     ).lower()
     assert "gemini" not in combined
-    assert "leave_requests" not in combined
-    assert "create_reservation" not in combined
-    assert "confirmed → executing" not in combined
-    assert "workflowstate.executing" not in combined
+    assert "google.genai" not in combined

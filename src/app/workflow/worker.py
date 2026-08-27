@@ -1,4 +1,4 @@
-"""Durable outbox wake worker. No provider calls and no business execution."""
+"""Durable outbox worker for confirmation wakes and execution recovery."""
 
 import time
 from dataclasses import dataclass
@@ -15,6 +15,7 @@ from app.workflow.domain import ActorType, OutboxEventType, WorkflowState
 from app.workflow.errors import (
     OrchestrationAuthorityError,
     ThreadBindingError,
+    WorkflowIntegrityError,
     WorkflowInvariantError,
 )
 from app.workflow.orchestration import WorkflowOrchestrationService
@@ -23,15 +24,18 @@ from app.workflow.time import database_now
 
 AUDIT_OUTBOX_DELIVERED = "OUTBOX_DELIVERED"
 AUDIT_OUTBOX_WAKE_FAILED = "OUTBOX_WAKE_FAILED"
-ACCEPTABLE_WAKE_STATES = frozenset(
+SETTLED_WAKE_STATES = frozenset(
     {
-        WorkflowState.CONFIRMED.value,
+        WorkflowState.SUCCEEDED.value,
+        WorkflowState.EXECUTION_FAILED.value,
+        WorkflowState.UNKNOWN_OUTCOME.value,
         WorkflowState.CANCELLED.value,
         WorkflowState.EXPIRED.value,
         WorkflowState.STALE.value,
     }
 )
 WAKE_BACKOFF_CAP_SECONDS = 60
+RECONCILE_BACKOFF_CAP_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +57,7 @@ class WorkerResult:
 
 
 class WorkflowWorker:
-    """Claim ACTION_CONFIRMED outbox rows and wake the persisted LangGraph thread."""
+    """Claim outbox rows and advance the persisted LangGraph thread as this worker."""
 
     def __init__(
         self,
@@ -102,37 +106,50 @@ class WorkflowWorker:
     def deliver(self, claimed: ClaimedWake, *, mark_delivered: bool) -> WorkerResult:
         try:
             observed = self._wake(claimed)
-            if mark_delivered:
+            should_deliver = mark_delivered and observed in SETTLED_WAKE_STATES
+            if should_deliver:
                 self._mark_delivered(claimed)
+            elif mark_delivered and observed == WorkflowState.CONFIRMED.value:
+                self._release(claimed, failure_kind="pending_unresolved")
+            elif mark_delivered:
+                self._release(claimed, failure_kind="pending_execution")
             return WorkerResult(
                 event_id=claimed.event_id,
                 action_id=claimed.action_id,
                 observed_state=observed,
-                delivered=mark_delivered,
+                delivered=should_deliver,
             )
         except (
             OrchestrationAuthorityError,
             ThreadBindingError,
             WorkflowInvariantError,
+            WorkflowIntegrityError,
         ) as exc:
             self._release(claimed, failure_kind=_failure_kind(exc))
             raise
 
     def _wake(self, claimed: ClaimedWake) -> str:
-        if claimed.event_type != OutboxEventType.CONFIRMATION_COMMITTED.value:
+        if claimed.event_type not in {
+            OutboxEventType.CONFIRMATION_COMMITTED.value,
+            OutboxEventType.RECONCILE_REQUESTED.value,
+        }:
             raise WorkflowInvariantError("unsupported outbox event type")
         view = self._confirmation.normalize_expiry(action_id=claimed.action_id)
-        if view.state == WorkflowState.AWAITING_CONFIRMATION.value:
+        if (
+            claimed.event_type == OutboxEventType.CONFIRMATION_COMMITTED.value
+            and view.state == WorkflowState.AWAITING_CONFIRMATION.value
+        ):
             raise WorkflowInvariantError("ACTION_CONFIRMED observed AWAITING_CONFIRMATION")
         result = self._orchestration.resume_internal(
             action_id=claimed.action_id,
             settings=self._settings,
+            worker_id=self.worker_id,
         )
         observed = str(result.get("observed_state") or "")
-        if observed == WorkflowState.AWAITING_CONFIRMATION.value or result.get("__interrupt__"):
+        if claimed.event_type == OutboxEventType.CONFIRMATION_COMMITTED.value and (
+            observed == WorkflowState.AWAITING_CONFIRMATION.value or result.get("__interrupt__")
+        ):
             raise WorkflowInvariantError("ACTION_CONFIRMED wake remained awaiting")
-        if observed not in ACCEPTABLE_WAKE_STATES:
-            raise WorkflowInvariantError("ACTION_CONFIRMED wake reached an unexpected state")
         return observed
 
     def _mark_delivered(self, claimed: ClaimedWake) -> None:
@@ -155,7 +172,12 @@ class WorkflowWorker:
     def _release(self, claimed: ClaimedWake, *, failure_kind: str) -> None:
         with self._session_factory() as session:
             now = database_now(session)
-            delay = min(WAKE_BACKOFF_CAP_SECONDS, 2 ** min(claimed.attempt_count, 5))
+            cap = (
+                RECONCILE_BACKOFF_CAP_SECONDS
+                if claimed.event_type == OutboxEventType.RECONCILE_REQUESTED.value
+                else WAKE_BACKOFF_CAP_SECONDS
+            )
+            delay = min(cap, 2 ** min(claimed.attempt_count, 5))
             self._outbox.release(
                 session,
                 claimed.event_id,
@@ -192,4 +214,6 @@ def _failure_kind(exc: Exception) -> str:
         return "invariant_failure"
     if isinstance(exc, OrchestrationAuthorityError):
         return "checkpoint_failure"
+    if isinstance(exc, WorkflowIntegrityError):
+        return "integrity_failure"
     return "orchestration_failure"

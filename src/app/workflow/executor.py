@@ -121,16 +121,6 @@ class LeaveSubmissionExecutor:
             session, action_id=permit.action_id, revision=permit.revision
         )
         now = database_now(session)
-        fence = self._evaluate_fence(ledger, revision, permit, now)
-        if fence is not None:
-            session.commit()
-            return fence
-        acquire_employee_lock(session, workflow.owner_employee_id)
-        now = database_now(session)
-        fence = self._evaluate_fence(ledger, revision, permit, now)
-        if fence is not None:
-            session.commit()
-            return fence
         existing = self._find_existing_leave(
             session, permit.execution_key, revision.business_request_key
         )
@@ -142,6 +132,27 @@ class LeaveSubmissionExecutor:
                 execution_key=existing.execution_key,
                 business_request_key=existing.business_request_key,
             )
+        fence = self._evaluate_fence(ledger, revision, permit, now)
+        if fence is not None:
+            session.commit()
+            return fence
+        acquire_employee_lock(session, workflow.owner_employee_id)
+        now = database_now(session)
+        existing = self._find_existing_leave(
+            session, permit.execution_key, revision.business_request_key
+        )
+        if existing is not None:
+            session.commit()
+            return ExecutorResult(
+                BusinessOutcome.APPLIED,
+                leave_request_id=existing.leave_request_id,
+                execution_key=existing.execution_key,
+                business_request_key=existing.business_request_key,
+            )
+        fence = self._evaluate_fence(ledger, revision, permit, now)
+        if fence is not None:
+            session.commit()
+            return fence
         if conclude_absence:
             session.commit()
             return ExecutorResult(

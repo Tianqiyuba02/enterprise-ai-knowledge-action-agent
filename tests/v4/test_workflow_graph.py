@@ -75,7 +75,22 @@ def test_route_uses_postgres_observation_not_cached_graph_state() -> None:
         route_authoritative_state(_observation(WorkflowState.CANCELLED.value)) == "terminal_barrier"
     )
     assert (
-        route_authoritative_state(_observation(WorkflowState.EXECUTING.value)) == "terminal_barrier"
+        route_authoritative_state(
+            _observation(WorkflowState.EXECUTING.value),
+            execution_enabled=False,
+        )
+        == "terminal_barrier"
+    )
+    assert (
+        route_authoritative_state(_observation(WorkflowState.EXECUTING.value))
+        == "reconcile_execution"
+    )
+    assert (
+        route_authoritative_state(
+            _observation(WorkflowState.UNKNOWN_OUTCOME.value),
+            execution_enabled=True,
+        )
+        == "reconcile_execution"
     )
 
 
@@ -220,8 +235,6 @@ def test_graph_source_has_no_provider_or_execution_surface() -> None:
     combined = f"{GRAPH_SOURCE}\n{ORCH_SOURCE}".lower()
     assert "gemini" not in combined
     assert "google.genai" not in combined
-    assert "leave_requests" not in combined
-    assert "create_reservation" not in combined
     assert "apply_revision_state" not in combined
     assert "checkpointer.setup" not in combined
     assert "saver.setup" not in combined

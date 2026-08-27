@@ -1,4 +1,4 @@
-"""PostgreSQL-authority orchestration for the Stage 2 workflow graph."""
+"""PostgreSQL-authority orchestration for the V4 workflow graph."""
 
 from typing import Any
 from uuid import UUID
@@ -8,14 +8,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings
 from app.workflow.checkpointing import open_postgres_checkpointer
-from app.workflow.domain import V4_REVISION
+from app.workflow.domain import V4_REVISION, WorkflowState
 from app.workflow.errors import (
     OrchestrationAuthorityError,
     ThreadBindingError,
     WorkflowOwnershipError,
     WorkflowRowNotFoundError,
 )
+from app.workflow.execution import ReservationOutcome
 from app.workflow.graph import AuthoritativeObservation, WorkflowGraphState, build_workflow_graph
+from app.workflow.runtime import WorkflowExecutionRuntime
 from app.workflow.workflow_repository import WorkflowRepository
 
 
@@ -122,13 +124,27 @@ class WorkflowOrchestrationService:
         *,
         action_id: UUID,
         settings: KnowledgeSettings | None = None,
+        worker_id: str | None = None,
     ) -> dict[str, Any]:
         """Wake a persisted thread as a system actor. Does not grant employee authority."""
 
         observation = self._load_system_action(action_id)
-        return self._resume_observation(
-            observation, resume_payload={"wake": True}, settings=settings
+        runtime = None
+        if worker_id:
+            runtime = WorkflowExecutionRuntime(
+                self._session_factory,
+                settings,
+                worker_id=worker_id,
+            )
+        result = self._resume_observation(
+            observation,
+            resume_payload={"wake": True},
+            settings=settings,
+            execution=runtime,
         )
+        if runtime is not None:
+            result = self._advance_execution(action_id, runtime, result)
+        return result
 
     def _load_system_action(self, action_id: UUID) -> AuthoritativeObservation:
         with self._session_factory() as session:
@@ -145,12 +161,39 @@ class WorkflowOrchestrationService:
                 state=row.state,
             )
 
+    def _advance_execution(
+        self,
+        action_id: UUID,
+        runtime: WorkflowExecutionRuntime,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        observation = self._load_system_action(action_id)
+        state = observation.state
+        if state == WorkflowState.CONFIRMED.value:
+            outcome = runtime.reserve(observation.action_id, observation.revision)
+            if outcome in {ReservationOutcome.RESERVED, ReservationOutcome.ALREADY_RESERVED}:
+                runtime.execute(observation.action_id, observation.revision)
+        elif state in {
+            WorkflowState.EXECUTING.value,
+            WorkflowState.UNKNOWN_OUTCOME.value,
+            WorkflowState.RECONCILING.value,
+        }:
+            runtime.reconcile(observation.action_id, observation.revision)
+        observation = self._load_system_action(action_id)
+        updated = dict(result)
+        updated["observed_state"] = observation.state
+        updated["action_id"] = observation.action_id
+        updated["revision"] = observation.revision
+        updated["langgraph_thread_id"] = observation.langgraph_thread_id
+        return updated
+
     def _resume_observation(
         self,
         observation: AuthoritativeObservation,
         *,
         resume_payload: object,
         settings: KnowledgeSettings | None,
+        execution: WorkflowExecutionRuntime | None = None,
     ) -> dict[str, Any]:
         config = _thread_config(observation.langgraph_thread_id)
         with open_postgres_checkpointer(settings) as checkpointer:
@@ -158,11 +201,16 @@ class WorkflowOrchestrationService:
             if existing is None:
                 raise OrchestrationAuthorityError("missing checkpoint is an orchestration failure")
             _reject_corrupt_checkpoint(existing, observation)
-            graph = build_workflow_graph(self.reload_observation).compile(checkpointer=checkpointer)
+            graph = build_workflow_graph(
+                self.reload_observation,
+                execution=execution,
+            ).compile(checkpointer=checkpointer)
             snapshot = graph.get_state(config)
             if snapshot.next == ():
                 return dict(snapshot.values)
-            return graph.invoke(Command(resume=_wake_payload(resume_payload)), config=config)
+            if snapshot.next == ("await_confirmation",):
+                return graph.invoke(Command(resume=_wake_payload(resume_payload)), config=config)
+            return graph.invoke(None, config=config)
 
 
 def _wake_payload(resume_payload: object) -> object:
