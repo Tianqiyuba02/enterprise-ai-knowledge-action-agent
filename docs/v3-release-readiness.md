@@ -1,7 +1,14 @@
 # V3 / v0.4.0 Release Readiness
 
-Status is based on repository evidence. V3 is **not released**. Authoritative product behavior is
-frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`.
+Status is based on repository evidence. V3 `v0.4.0` is **PUBLISHED**.
+
+- Release commit: `d396122d368be8c4849872c233460da09a857b17`
+- Annotated tag: `v0.4.0`
+- GitHub Release: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent/releases/tag/v0.4.0
+
+Authoritative product behavior remains frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`.
+This post-release documentation update occurs after the tagged artifact and is not part of
+`v0.4.0`.
 
 ## 1. Product implementation
 
@@ -144,34 +151,42 @@ Reviewed RC: `0131bac1ab393513c1242d02d1e9a48c775c4fe1` on `feature/v3-agent-too
 
 ## 7. Release preparation
 
-**IN PROGRESS / READY**
+**DONE**
 
-Version, README, and readiness metadata are prepared on `feature/v3-agent-tools`. `v0.4.0` is
-**not yet published**.
+Version, README, and readiness metadata were prepared on `feature/v3-agent-tools` before
+publication.
 
 ## 8. Merge / release
 
-**NOT YET DONE**
+**DONE / PUBLISHED**
 
-- Merge: **NOT YET DONE**
-- Annotated tag: **NOT YET CREATED**
-- GitHub Release: **NOT YET CREATED**
-- `v0.4.0`: **NOT YET PUBLISHED**
+- feature → develop: **DONE**
+- develop → main: **DONE**
+- Annotated tag `v0.4.0`: **DONE**
+- GitHub Release: **PUBLISHED**
+- `v0.4.0`: **PUBLISHED**
 
-When authorized:
+Publication path completed:
 
 `feature/v3-agent-tools` → `develop` → `main` → annotated tag `v0.4.0` → GitHub Release
 
-No force push. Do not perform these actions until explicitly authorized. Do not mark `v0.4.0`
-released yet.
+`v0.4.0` remains anchored to `d396122d368be8c4849872c233460da09a857b17`.
 
-## 9. Release blocker summary
+## 9. Final published status
 
-V3 product implementation is frozen. Development evaluation, independent pre-holdout review,
-frozen holdout evaluation, and final release-candidate review have passed.
-
-`v0.4.0` is currently blocked on merge to `develop`/`main`, then annotated tag and GitHub
-Release. It is not yet published.
+| Gate | Status |
+|---|---|
+| Implementation | DONE |
+| Security / hardening | PASS |
+| Development evaluation | PASS — 16/16 |
+| Independent pre-holdout review | PASS |
+| Frozen holdout | PASS — 8/8 first exposure |
+| Final RC review | PASS |
+| Release preparation | DONE |
+| feature → develop | DONE |
+| develop → main | DONE |
+| Annotated tag `v0.4.0` | DONE |
+| GitHub Release | PUBLISHED |
 
 Medium backlog finding, not fixed: relative-weekday enforcement can over-constrain mixed-form
 date requests. It fails closed and remains deferred as post-V3 hardening.
