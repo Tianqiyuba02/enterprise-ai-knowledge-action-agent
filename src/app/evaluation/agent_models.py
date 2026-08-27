@@ -221,7 +221,7 @@ class AgentEvaluationCaseResult(AgentEvaluationModel):
 
 
 class AgentEvaluationConfiguration(AgentEvaluationModel):
-    evaluation_schema_version: Literal["v3-agent-eval-1"] = "v3-agent-eval-1"
+    evaluation_schema_version: Literal["v3-agent-eval-1", "v3-agent-eval-2"] = "v3-agent-eval-2"
     agent_model: NonEmptyString
     agent_timeout_seconds: Annotated[int, Field(ge=1, le=120)] = 30
     agent_max_attempts: Annotated[int, Field(ge=1, le=3)] = 2

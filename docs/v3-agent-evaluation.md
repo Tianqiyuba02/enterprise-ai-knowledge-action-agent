@@ -15,7 +15,7 @@ and orchestration.
   `c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`;
 - holdout: 8 cases, fingerprint
   `b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`;
-- evaluator schema: `v3-agent-eval-1`; and
+- evaluator schema: `v3-agent-eval-2` for new reports; and
 - demo fixtures: `alex` and `sam`, resolved by the harness to trusted
   `AuthenticatedEmployeeContext` values.
 
@@ -78,10 +78,18 @@ never supplies citation or prepared-action truth.
 
 ## Provider blocking and resume
 
-Provider-blocked cases are distinct from completed semantic/model failures. The runner stops after
-the first provider-blocked case, writes a partial report, and records `no_tuning_performed`.
-`--resume` carries completed cases forward, retries blocked/error cases, and continues unattempted
-cases without duplicate result rows.
+Provider-blocked cases are distinct from completed semantic/model failures. They are recorded with
+safe `provider_failure` diagnostics and excluded from semantic/model-success scoring. A provider
+availability failure is evidence; it does not convert the case into a pass or a semantic fail, and
+it does not terminate the rest of the split. Later independent development cases continue in the
+same invocation. Each case receives at most one evaluation attempt per invocation.
+`--resume` carries completed compatible cases forward, retries blocked/error cases while preserving
+attempt history, and continues previously unrun cases without duplicate result rows.
+
+New reports use evaluator schema `v3-agent-eval-2`. Historical `v3-agent-eval-1` reports remain
+readable as evidence but cannot be resumed under the new control-flow semantics. The next live
+development evaluation must start fresh under `v3-agent-eval-2`; do not migrate the 5/16
+`v3-agent-eval-1` checkpoint as the final baseline.
 
 Provider-blocked rows may include an optional safe `provider_failure` diagnostic (`kind`,
 allowlisted exception class, optional HTTP code, optional sanitized symbolic status). Messages,
@@ -99,26 +107,30 @@ into the frozen 60-second, one-attempt configuration.
 
 ## Current development checkpoint
 
-The freeze-HEAD development report is
+The historical `v3-agent-eval-1` freeze-HEAD development report is
 `evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`.
+It remains evidence only and must not be resumed under `v3-agent-eval-2`.
 
 Recorded frozen runtime: `gemini-3.6-flash`, `AGENT_TIMEOUT_SECONDS=60`, `AGENT_MAX_ATTEMPTS=1`.
 
-Current factual status:
+Historical factual status under the previous stop-on-block control flow:
 
 - 16 development cases;
 - 5 completed;
-- 1 provider-blocked (`dev_agent_ticket_and_it_policy`);
+- 1 provider-blocked (`dev_agent_ticket_and_it_policy`, 7 preserved attempts);
 - 10 not run;
 - semantic status accuracy `1.0` on completed/evaluable cases;
 - no observed semantic/mechanical failures among those five;
 - no gold-label correction;
 - no tuning performed.
 
-Case 6 has demonstrated successful round-1 selection of `get_my_ticket` and `knowledge_query`, and
-both tools have executed in some attempts. Other attempts were blocked before dispatch. Observed
+Case 6 has demonstrated successful selection of `get_my_ticket` and `knowledge_query`, and both
+tools have executed in some attempts. Other attempts were blocked before dispatch. Observed
 provider failures include HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. These remain
 provider-blocked, not completed semantic failures.
+
+Development evaluation is **not complete**. The next live development run must be a fresh
+`v3-agent-eval-2` baseline over the same 16-case dataset.
 
 ## Development command
 
@@ -130,7 +142,8 @@ uv run enterprise-ai-eval \
   --delay-seconds 2
 ```
 
-Compatible partial runs use the same command with `--resume` against the freeze-HEAD report path.
+Compatible `v3-agent-eval-2` partial runs use the same command with `--resume` against a new-schema
+report. Do not `--resume` the historical `v3-agent-eval-1` checkpoint.
 
 ## Holdout status
 

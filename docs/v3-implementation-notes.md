@@ -4,7 +4,8 @@
 
 Product Milestone V3 — Agent + Tools is under **code freeze** on `feature/v3-agent-tools`.
 Deterministic product code is frozen at `e93b5c1a476a4ed6983f60897839c016652971ba`. Later commits
-may add evaluation evidence or documentation only.
+may add evaluation evidence, evaluator-harness control-flow, or documentation. Frozen product
+behavior is unchanged.
 
 V3 is **not released**. Live development evaluation is **incomplete**. The frozen holdout has
 **not** been run. Target release remains `v0.4.0` after development review, holdout, and release
@@ -113,16 +114,21 @@ model, outer timeout, max attempts, trusted date, tool/model bounds, tool-regist
 demo fixture version, knowledge settings, corpus identity/counts, evaluator schema, split, and
 dataset fingerprint. Optional `provider_failure` diagnostics are not a compatibility parameter.
 
+New reports use evaluator schema `v3-agent-eval-2`. A provider-blocked case is recorded and
+excluded from semantic scoring, then the runner continues to later cases in the same invocation.
+Historical `v3-agent-eval-1` reports remain readable but cannot be resumed.
+
 ### Current development status
 
 Development dataset: 16 cases, fingerprint
 `c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`.
 
-Current frozen checkpoint
-`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`:
+Historical `v3-agent-eval-1` checkpoint
+`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`
+(evidence only; do not resume):
 
 - 5 completed
-- 1 provider-blocked
+- 1 provider-blocked (7 Case 6 attempts)
 - 10 not run
 
 Completed/evaluable cases:
@@ -135,6 +141,9 @@ Completed/evaluable cases:
 - required citation recall `1.0` on applicable completed cases
 - no gold-label correction proposed
 - no tuning performed
+
+Development evaluation is not complete. The next live development baseline must start fresh under
+`v3-agent-eval-2`.
 
 `dev_agent_ticket_and_it_policy` (Case 6) remains provider-blocked. Prior attempts have shown
 successful round-1 selection of both `get_my_ticket` and `knowledge_query`, and both tools have
@@ -459,12 +468,14 @@ Both datasets were created before development execution:
 - development: 16 cases;
 - frozen holdout: 8 cases;
 - trusted date: `2026-08-26`; and
-- evaluator schema: `v3-agent-eval-1`.
+- evaluator schema at Stage 5A introduction: `v3-agent-eval-1`; current new reports:
+  `v3-agent-eval-2`.
 
 Resume compatibility includes the dataset, model, outer timeout, max attempts, fixed date,
-tool/model bounds, tool registry, demo fixture version, knowledge settings, and database corpus
-identity. Completed cases carry forward; provider-blocked/error cases may be retried without
-duplicate result rows.
+tool/model bounds, tool registry, demo fixture version, knowledge settings, database corpus
+identity, and evaluator schema. Completed cases carry forward; provider-blocked/error cases may be
+retried without duplicate result rows. Under `v3-agent-eval-2`, a provider block does not stop later
+independent cases in the same invocation.
 
 Metrics are mechanical. They grade tool selection, identity/business-state invariants, structured
 citations, structured prepared actions, bounded execution, narrow false-execution phrases, and

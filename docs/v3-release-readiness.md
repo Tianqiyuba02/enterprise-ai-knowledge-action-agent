@@ -44,9 +44,11 @@ Status is based on repository evidence. V3 is **not released**. Product code is 
 
 **IN PROGRESS**
 
+Historical `v3-agent-eval-1` evidence (do not resume; not the final baseline):
+
 - 16 total cases
 - 5 completed
-- 1 provider-blocked (`dev_agent_ticket_and_it_policy`)
+- 1 provider-blocked (`dev_agent_ticket_and_it_policy`, 7 attempts)
 - 10 not run
 - 0 semantic/mechanical failures among completed cases
 - semantic status accuracy `1.0` on completed/evaluable cases
@@ -55,8 +57,16 @@ Status is based on repository evidence. V3 is **not released**. Product code is 
 - frozen runtime recorded: `gemini-3.6-flash`, 60-second outer-round timeout, one SDK attempt
 - `no_tuning_performed=true`
 
+Evaluator control flow is now `v3-agent-eval-2`: provider-blocked cases are recorded and excluded
+from semantic scoring, but they no longer stop later independent development cases. A
+provider-blocked case is not a pass.
+
+The next live development evaluation must start fresh under `v3-agent-eval-2`. Development
+evaluation is not complete.
+
 Exit criterion: all development cases evaluated sufficiently for review. Provider blocks are
-resolved through compatible resume, not product tuning, unless a new deterministic defect appears.
+recorded as evidence and do not gate later cases. Product tuning is used only if a new
+deterministic defect appears.
 
 ## 4. Development review gate
 

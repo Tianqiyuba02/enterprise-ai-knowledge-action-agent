@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -31,7 +32,8 @@ from app.api.assistant_models import (
     PreparedLeaveRequestAction,
 )
 from app.api.knowledge_models import KnowledgeCitation
-from app.evaluation.agent_cli import AGENT_EVALUATION_DATE
+from app.config import APPROVED_AGENT_MODEL, AgentSettings
+from app.evaluation.agent_cli import AGENT_EVALUATION_DATE, AGENT_EVALUATION_SCHEMA_VERSION
 from app.evaluation.agent_loader import (
     agent_dataset_fingerprint,
     load_agent_evaluation_cases,
@@ -43,6 +45,7 @@ from app.evaluation.agent_metrics import (
     evaluate_agent_invariants,
 )
 from app.evaluation.agent_models import (
+    AgentCaseAttempt,
     AgentCaseCategory,
     AgentCaseExecutionState,
     AgentCaseMetrics,
@@ -407,9 +410,11 @@ def _runner(provider, dispatcher=None, repository=None, configuration=None):
     )
 
 
-def test_provider_blocked_is_separate_and_stops_without_semantic_failure() -> None:
+def test_provider_blocked_is_separate_and_does_not_stop_later_cases() -> None:
     cases = (_case(id="dev_provider_one"), _case(id="dev_provider_two"))
-    provider = SequenceProvider([AgentProviderRateLimitError("secret provider payload")])
+    provider = SequenceProvider(
+        [AgentProviderRateLimitError("secret provider payload"), _profile_session()]
+    )
 
     report = _runner(provider).run(
         split=EvaluationSplit.DEVELOPMENT,
@@ -417,12 +422,17 @@ def test_provider_blocked_is_separate_and_stops_without_semantic_failure() -> No
         dataset_fingerprint=agent_dataset_fingerprint(cases),
     )
 
-    assert report.summary.cases_completed == 0
+    assert report.configuration.evaluation_schema_version == "v3-agent-eval-2"
+    assert report.summary.cases_completed == 1
     assert report.summary.cases_provider_blocked == 1
-    assert report.summary.cases_not_run == 1
-    assert report.summary.semantic_status_accuracy is None
+    assert report.summary.cases_not_run == 0
+    assert report.summary.semantic_status_accuracy == 1.0
+    assert report.cases[0].state is AgentCaseExecutionState.PROVIDER_BLOCKED
+    assert report.cases[0].metrics is None
     assert report.cases[0].safe_error_category == "provider_rate_limited"
     assert report.cases[0].provider_failure is None
+    assert report.cases[1].state is AgentCaseExecutionState.COMPLETED
+    assert report.cases[1].metrics is not None
     assert "secret provider payload" not in report.model_dump_json()
 
 
@@ -435,7 +445,10 @@ def test_provider_blocked_persists_safe_failure_diagnostics() -> None:
     )
     cases = (_case(id="dev_provider_timeout"), _case(id="dev_provider_next"))
     provider = SequenceProvider(
-        [AgentProviderTimeoutError("secret timeout payload", failure=failure)]
+        [
+            AgentProviderTimeoutError("secret timeout payload", failure=failure),
+            _profile_session(),
+        ]
     )
 
     report = _runner(provider).run(
@@ -446,13 +459,16 @@ def test_provider_blocked_persists_safe_failure_diagnostics() -> None:
     serialized = report.model_dump_json()
 
     assert report.summary.cases_provider_blocked == 1
-    assert report.summary.semantic_status_accuracy is None
+    assert report.summary.cases_completed == 1
+    assert report.summary.cases_not_run == 0
+    assert report.summary.semantic_status_accuracy == 1.0
     assert report.cases[0].safe_error_category == "provider_unavailable"
     assert report.cases[0].provider_failure == failure
     assert report.cases[0].attempt_history[0].provider_failure == failure
     assert report.cases[0].provider_failure is not None
     assert report.cases[0].provider_failure.kind is AgentProviderFailureKind.TIMEOUT
     assert report.cases[0].provider_failure.http_status_code == 504
+    assert report.cases[1].state is AgentCaseExecutionState.COMPLETED
     assert "secret" not in serialized
     assert "message" not in report.cases[0].provider_failure.model_dump()
 
@@ -520,7 +536,7 @@ def test_resume_rejects_incompatible_or_duplicate_reports(mismatch: str) -> None
         previous = previous.model_copy(update={"configuration": changed})
     elif mismatch == "schema":
         changed = previous.configuration.model_copy(
-            update={"evaluation_schema_version": "incompatible"}
+            update={"evaluation_schema_version": "v3-agent-eval-1"}
         )
         previous = previous.model_copy(update={"configuration": changed})
     elif mismatch == "fingerprint":
@@ -696,3 +712,225 @@ def test_agent_cli_requires_live_and_resume_file(capsys, tmp_path) -> None:
     assert missing_resume == 2
     assert "explicit --live" in captured.err
     assert "--resume requires an existing report" in captured.err
+
+
+HISTORICAL_V1_CHECKPOINT = Path(
+    "evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json"
+)
+
+
+def _timeout_failure() -> AgentProviderFailureDetail:
+    return AgentProviderFailureDetail(
+        kind=AgentProviderFailureKind.TIMEOUT,
+        exception_class=AgentProviderExceptionClass.SERVER_ERROR,
+        http_status_code=504,
+        symbolic_status=AgentProviderSymbolicStatus.DEADLINE_EXCEEDED,
+    )
+
+
+def _completed_case_result(case_id: str) -> AgentEvaluationCaseResult:
+    return AgentEvaluationCaseResult(
+        case_id=case_id,
+        state=AgentCaseExecutionState.COMPLETED,
+        result_origin=ResultOrigin.CURRENT_INVOCATION,
+        attempt_history=(AgentCaseAttempt(state=AgentCaseExecutionState.COMPLETED),),
+        observed_public_status="completed",
+        answer="Safe.",
+        metrics=_basic_metrics(),
+        invariants=_invariants(),
+        tool_calls_attempted=1,
+        model_rounds=2,
+    )
+
+
+def _blocked_case_result(
+    case_id: str,
+    *,
+    failure: AgentProviderFailureDetail | None = None,
+    history: tuple[AgentCaseAttempt, ...] | None = None,
+) -> AgentEvaluationCaseResult:
+    attempt = AgentCaseAttempt(
+        state=AgentCaseExecutionState.PROVIDER_BLOCKED,
+        safe_error_category="provider_unavailable",
+        provider_failure=failure,
+    )
+    return AgentEvaluationCaseResult(
+        case_id=case_id,
+        state=AgentCaseExecutionState.PROVIDER_BLOCKED,
+        result_origin=ResultOrigin.CURRENT_INVOCATION,
+        attempt_history=history or (attempt,),
+        invariants=_invariants(),
+        tool_calls_attempted=0,
+        model_rounds=1,
+        safe_error_category="provider_unavailable",
+        provider_failure=failure,
+    )
+
+
+def test_multiple_provider_blocks_are_recorded_and_later_cases_still_run() -> None:
+    cases = (
+        _case(id="dev_block_one"),
+        _case(id="dev_block_two"),
+        _case(id="dev_after_blocks"),
+    )
+    provider = SequenceProvider(
+        [
+            AgentProviderRateLimitError("first block"),
+            AgentProviderTimeoutError("second block", failure=_timeout_failure()),
+            _profile_session(),
+        ]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=agent_dataset_fingerprint(cases),
+    )
+
+    assert [result.state for result in report.cases] == [
+        AgentCaseExecutionState.PROVIDER_BLOCKED,
+        AgentCaseExecutionState.PROVIDER_BLOCKED,
+        AgentCaseExecutionState.COMPLETED,
+    ]
+    assert report.summary.cases_provider_blocked == 2
+    assert report.summary.cases_completed == 1
+    assert report.summary.cases_not_run == 0
+    assert report.summary.semantic_status_accuracy == 1.0
+    assert all(result.metrics is None for result in report.cases[:2])
+    assert report.cases[2].metrics is not None
+    assert report.cases[2].metrics.semantic_status_correct is True
+
+
+def test_resume_retries_blocked_case_once_and_continues_to_unrun_cases() -> None:
+    cases = (
+        _case(id="dev_resume_completed"),
+        _case(id="dev_resume_blocked"),
+        _case(id="dev_resume_unrun"),
+    )
+    fingerprint = agent_dataset_fingerprint(cases)
+    prior_failure = _timeout_failure()
+    prior_attempt = AgentCaseAttempt(
+        state=AgentCaseExecutionState.PROVIDER_BLOCKED,
+        safe_error_category="provider_unavailable",
+        provider_failure=prior_failure,
+    )
+    previous = AgentEvaluationReport(
+        generated_at=datetime.now(UTC),
+        split=EvaluationSplit.DEVELOPMENT,
+        dataset_fingerprint=fingerprint,
+        configuration=_configuration(),
+        summary=build_agent_summary(
+            cases_total=3,
+            results=(
+                _completed_case_result("dev_resume_completed"),
+                _blocked_case_result("dev_resume_blocked", failure=prior_failure),
+            ),
+        ),
+        cases=(
+            _completed_case_result("dev_resume_completed"),
+            _blocked_case_result(
+                "dev_resume_blocked",
+                failure=prior_failure,
+                history=(prior_attempt,),
+            ),
+        ),
+    )
+    provider = SequenceProvider(
+        [
+            AgentProviderTimeoutError("retry still blocked", failure=_timeout_failure()),
+            _profile_session(),
+        ]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=fingerprint,
+        previous_report=previous,
+    )
+
+    assert provider.messages == ["What is my profile?", "What is my profile?"]
+    assert [result.case_id for result in report.cases] == [
+        "dev_resume_completed",
+        "dev_resume_blocked",
+        "dev_resume_unrun",
+    ]
+    assert report.cases[0].result_origin is ResultOrigin.CARRIED_FORWARD
+    assert report.cases[1].state is AgentCaseExecutionState.PROVIDER_BLOCKED
+    assert report.cases[1].result_origin is ResultOrigin.CURRENT_INVOCATION
+    assert len(report.cases[1].attempt_history) == 2
+    assert report.cases[1].attempt_history[0] == prior_attempt
+    assert report.cases[2].state is AgentCaseExecutionState.COMPLETED
+    assert report.summary.cases_carried_forward == 1
+    assert report.summary.cases_completed == 2
+    assert report.summary.cases_provider_blocked == 1
+    assert report.summary.cases_not_run == 0
+
+
+def test_one_case_is_attempted_at_most_once_per_invocation() -> None:
+    cases = (
+        _case(id="dev_once_one"),
+        _case(id="dev_once_two"),
+        _case(id="dev_once_three"),
+    )
+    provider = SequenceProvider(
+        [_profile_session(), _profile_session(), _profile_session(), _profile_session()]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.DEVELOPMENT,
+        cases=cases,
+        dataset_fingerprint=agent_dataset_fingerprint(cases),
+    )
+
+    assert provider.messages == ["What is my profile?"] * 3
+    assert [result.case_id for result in report.cases] == [
+        "dev_once_one",
+        "dev_once_two",
+        "dev_once_three",
+    ]
+    assert len({result.case_id for result in report.cases}) == 3
+    assert report.summary.cases_completed == 3
+    assert report.summary.cases_completed_current_invocation == 3
+
+
+def test_historical_v1_schema_checkpoint_remains_readable_but_cannot_resume() -> None:
+    historical = AgentEvaluationReport.model_validate_json(
+        HISTORICAL_V1_CHECKPOINT.read_text(encoding="utf-8")
+    )
+    development = load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT)
+    v2_configuration = historical.configuration.model_copy(
+        update={"evaluation_schema_version": "v3-agent-eval-2"}
+    )
+
+    assert historical.configuration.evaluation_schema_version == "v3-agent-eval-1"
+    assert historical.dataset_fingerprint == DEVELOPMENT_FINGERPRINT
+    assert historical.summary.cases_completed == 5
+    assert historical.summary.cases_provider_blocked == 1
+    assert historical.summary.cases_not_run == 10
+    assert len(historical.cases[5].attempt_history) == 7
+
+    with pytest.raises(AgentResumeCompatibilityError, match="configuration does not match"):
+        _runner(SequenceProvider([]), configuration=v2_configuration).run(
+            split=EvaluationSplit.DEVELOPMENT,
+            cases=development,
+            dataset_fingerprint=historical.dataset_fingerprint,
+            previous_report=historical,
+        )
+
+
+def test_current_evaluator_schema_and_product_runtime_defaults_are_unchanged() -> None:
+    assert AGENT_EVALUATION_SCHEMA_VERSION == "v3-agent-eval-2"
+    assert _configuration().evaluation_schema_version == "v3-agent-eval-2"
+    assert APPROVED_AGENT_MODEL == "gemini-3.6-flash"
+    assert AgentSettings.model_fields["agent_timeout_seconds"].default == 60
+    assert AgentSettings.model_fields["agent_max_attempts"].default == 1
+    assert "ThinkingLevel.MINIMAL" in Path("src/app/agent/client.py").read_text(encoding="utf-8")
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT))
+        == DEVELOPMENT_FINGERPRINT
+    )
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.HOLDOUT))
+        == HOLDOUT_FINGERPRINT
+    )

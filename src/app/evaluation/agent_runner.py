@@ -135,8 +135,6 @@ class AgentEvaluationRunner:
                 }
             )
             results.append(result)
-            if result.state is AgentCaseExecutionState.PROVIDER_BLOCKED:
-                break
 
         result_tuple = tuple(results)
         return AgentEvaluationReport(

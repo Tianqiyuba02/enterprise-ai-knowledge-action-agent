@@ -41,7 +41,7 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 
 AGENT_EVALUATION_DATE = date(2026, 8, 26)
-AGENT_EVALUATION_SCHEMA_VERSION = "v3-agent-eval-1"
+AGENT_EVALUATION_SCHEMA_VERSION = "v3-agent-eval-2"
 DEMO_FIXTURE_VERSION = "v1-demo-records-2026-08-24"
 
 
