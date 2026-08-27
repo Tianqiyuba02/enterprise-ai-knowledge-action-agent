@@ -15,3 +15,15 @@ class DuplicateExecutionReservationError(WorkflowError):
 
 class WorkflowRowNotFoundError(WorkflowError):
     """Raised when a locked or owner-scoped workflow row is absent."""
+
+
+class WorkflowOwnershipError(WorkflowError):
+    """Raised when a trusted owner cannot access the requested action."""
+
+
+class ThreadBindingError(WorkflowError):
+    """Raised when a caller-supplied thread_id does not match the stored binding."""
+
+
+class OrchestrationAuthorityError(WorkflowError):
+    """Raised when checkpoint loss cannot be used to guess workflow authority."""

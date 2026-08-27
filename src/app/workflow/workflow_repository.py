@@ -117,6 +117,21 @@ class WorkflowRepository:
             raise WorkflowRowNotFoundError("action revision was not found for locking")
         return row
 
+    def apply_revision_state(
+        self,
+        session: Session,
+        *,
+        action_id: UUID,
+        state: WorkflowState,
+        revision: int = V4_REVISION,
+    ) -> ActionRevision:
+        """CAS-style state write for future confirmation/service use. Not HTTP."""
+
+        row = self.lock_revision(session, action_id=action_id, revision=revision)
+        row.state = state.value
+        session.flush()
+        return row
+
     def lock_revision_statement(
         self,
         *,
