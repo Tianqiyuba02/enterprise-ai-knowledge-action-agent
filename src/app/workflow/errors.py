@@ -27,3 +27,7 @@ class ThreadBindingError(WorkflowError):
 
 class OrchestrationAuthorityError(WorkflowError):
     """Raised when checkpoint loss cannot be used to guess workflow authority."""
+
+
+class WorkflowInvariantError(WorkflowError):
+    """Raised when durable scheduling contradicts authoritative PostgreSQL state."""

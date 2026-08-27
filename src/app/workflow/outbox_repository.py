@@ -97,11 +97,20 @@ class OutboxRepository:
         row.locked_until = None
         session.flush()
 
-    def release(self, session: Session, event_id: UUID, *, failure_kind: str | None = None) -> None:
+    def release(
+        self,
+        session: Session,
+        event_id: UUID,
+        *,
+        failure_kind: str | None = None,
+        available_at: datetime | None = None,
+    ) -> None:
         row = session.get(WorkflowOutbox, event_id)
         if row is None:
             return
         row.locked_by = None
         row.locked_until = None
         row.last_failure_kind = failure_kind
+        if available_at is not None:
+            row.available_at = available_at
         session.flush()

@@ -113,6 +113,45 @@ class WorkflowOrchestrationService:
             action_id=action_id,
             owner_subject_id=owner_subject_id,
         )
+        return self._resume_observation(
+            observation, resume_payload=resume_payload, settings=settings
+        )
+
+    def resume_internal(
+        self,
+        *,
+        action_id: UUID,
+        settings: KnowledgeSettings | None = None,
+    ) -> dict[str, Any]:
+        """Wake a persisted thread as a system actor. Does not grant employee authority."""
+
+        observation = self._load_system_action(action_id)
+        return self._resume_observation(
+            observation, resume_payload={"wake": True}, settings=settings
+        )
+
+    def _load_system_action(self, action_id: UUID) -> AuthoritativeObservation:
+        with self._session_factory() as session:
+            workflow = self._workflows.get_workflow(session, action_id)
+            if workflow is None:
+                raise OrchestrationAuthorityError("system wake cannot guess a missing action")
+            row = self._workflows.get_revision(session, action_id, V4_REVISION)
+            if row is None:
+                raise OrchestrationAuthorityError("system wake cannot guess a missing revision")
+            return AuthoritativeObservation(
+                action_id=str(workflow.action_id),
+                revision=row.revision,
+                langgraph_thread_id=workflow.langgraph_thread_id,
+                state=row.state,
+            )
+
+    def _resume_observation(
+        self,
+        observation: AuthoritativeObservation,
+        *,
+        resume_payload: object,
+        settings: KnowledgeSettings | None,
+    ) -> dict[str, Any]:
         config = _thread_config(observation.langgraph_thread_id)
         with open_postgres_checkpointer(settings) as checkpointer:
             existing = checkpointer.get(config)

@@ -54,7 +54,12 @@ def observation_update(observation: AuthoritativeObservation) -> WorkflowGraphSt
 def route_authoritative_state(
     observation: AuthoritativeObservation,
 ) -> RouteName:
-    """Route from PostgreSQL state only. Cached graph observations never authorize."""
+    """Route from PostgreSQL state only. Cached graph observations never authorize.
+
+    Routing EXECUTING and later non-confirmed states to terminal_barrier is a
+    temporary Stage 2/3 safety boundary. Revisit only when Stage 4 execution is
+    explicitly authorized.
+    """
 
     if observation.state == WorkflowState.CONFIRMED.value:
         return ROUTE_CONFIRMED
