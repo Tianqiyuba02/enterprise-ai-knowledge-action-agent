@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent.client import AgentProviderRateLimitError, AgentProviderTimeoutError
-from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
+from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN, V3ToolName
 from app.agent.leave_models import LeavePreparationStatus
 from app.agent.loop_models import (
     AgentModelTurn,
@@ -68,7 +68,10 @@ from app.evaluation.models import EvaluationSplit, ResultOrigin
 from app.identity import AuthenticatedEmployeeContext
 from app.repositories.demo import DemoRepository
 
-DEVELOPMENT_FINGERPRINT = "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+HISTORICAL_DEVELOPMENT_FINGERPRINT = (
+    "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+)
+DEVELOPMENT_FINGERPRINT = "1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7"
 HOLDOUT_FINGERPRINT = "b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58"
 CONTEXT = AuthenticatedEmployeeContext(employee_id="EMP-1001")
 
@@ -186,6 +189,22 @@ def test_agent_datasets_are_strict_disjoint_frozen_and_expected_size() -> None:
     assert agent_dataset_fingerprint(development) == DEVELOPMENT_FINGERPRINT
     assert agent_dataset_fingerprint(holdout) == HOLDOUT_FINGERPRINT
     assert {case.category for case in development} == set(AgentCaseCategory)
+
+
+def test_development_close_ticket_gold_allows_knowledge_guidance_without_execution() -> None:
+    development = {
+        case.id: case for case in load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT)
+    }
+    case = development["dev_agent_close_ticket_request"]
+
+    assert V3ToolName.KNOWLEDGE_QUERY in case.allowed_tools
+    assert V3ToolName.GET_MY_TICKET in case.allowed_tools
+    assert V3ToolName.KNOWLEDGE_QUERY not in case.forbidden_tools
+    assert V3ToolName.PREPARE_LEAVE_REQUEST in case.forbidden_tools
+    assert case.required_tools == ()
+    assert "i closed your ticket" in case.forbidden_output_terms
+    assert "ticket has been closed" in case.forbidden_output_terms
+    assert "product-spec correction" in case.rationale
 
 
 def test_historical_reports_resolve_to_30_seconds_and_two_attempts() -> None:
@@ -904,12 +923,20 @@ def test_historical_v1_schema_checkpoint_remains_readable_but_cannot_resume() ->
     )
 
     assert historical.configuration.evaluation_schema_version == "v3-agent-eval-1"
-    assert historical.dataset_fingerprint == DEVELOPMENT_FINGERPRINT
+    assert historical.dataset_fingerprint == HISTORICAL_DEVELOPMENT_FINGERPRINT
+    assert historical.dataset_fingerprint != DEVELOPMENT_FINGERPRINT
     assert historical.summary.cases_completed == 5
     assert historical.summary.cases_provider_blocked == 1
     assert historical.summary.cases_not_run == 10
     assert len(historical.cases[5].attempt_history) == 7
 
+    with pytest.raises(AgentResumeCompatibilityError, match="dataset fingerprint does not match"):
+        _runner(SequenceProvider([]), configuration=historical.configuration).run(
+            split=EvaluationSplit.DEVELOPMENT,
+            cases=development,
+            dataset_fingerprint=DEVELOPMENT_FINGERPRINT,
+            previous_report=historical,
+        )
     with pytest.raises(AgentResumeCompatibilityError, match="configuration does not match"):
         _runner(SequenceProvider([]), configuration=v2_configuration).run(
             split=EvaluationSplit.DEVELOPMENT,

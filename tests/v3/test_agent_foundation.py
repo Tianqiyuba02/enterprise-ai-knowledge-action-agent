@@ -209,7 +209,7 @@ def test_knowledge_guidance_preserves_other_tool_contracts_and_boundaries() -> N
     assert AgentSettings.model_fields["agent_max_attempts"].default == 1
     assert (
         agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT))
-        == "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+        == "1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7"
     )
     assert (
         agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.HOLDOUT))
@@ -250,7 +250,7 @@ def test_system_instruction_change_does_not_weaken_security_or_runtime_boundarie
     assert "employee_id" not in V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_TICKET].llm_arguments
     assert (
         agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT))
-        == "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+        == "1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7"
     )
     assert (
         agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.HOLDOUT))

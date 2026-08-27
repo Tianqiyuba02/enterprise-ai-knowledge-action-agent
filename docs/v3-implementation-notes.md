@@ -133,7 +133,11 @@ Historical `v3-agent-eval-1` reports remain readable but cannot be resumed.
 ### Current development status
 
 Development dataset: 16 cases, fingerprint
-`c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`.
+`1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7`.
+This supersedes historical development fingerprint
+`c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a` after an intentional
+product-spec correction that allows READ knowledge guidance for unsupported execution requests.
+Historical development reports remain evidence and cannot be resumed under the new fingerprint.
 
 Historical `v3-agent-eval-1` checkpoint
 `evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`

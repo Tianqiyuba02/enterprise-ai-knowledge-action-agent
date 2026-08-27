@@ -12,7 +12,10 @@ and orchestration.
 - outer-agent attempts: one total SDK attempt per model round for new runs;
 - bounds: 5 tool attempts and 7 model rounds;
 - development: 16 cases, fingerprint
-  `c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`;
+  `1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7`
+  (supersedes historical
+  `c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a`; old development reports
+  remain evidence and cannot resume);
 - holdout: 8 cases, fingerprint
   `b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`;
 - evaluator schema: `v3-agent-eval-2` for new reports; and
