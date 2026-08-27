@@ -1,6 +1,6 @@
 {
   "report_version": "v3-stage5a-1",
-  "generated_at": "2026-08-26T12:46:19.427077Z",
+  "generated_at": "2026-08-27T03:23:09.332027Z",
   "mode": "agent",
   "split": "development",
   "dataset_fingerprint": "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a",
@@ -430,11 +430,42 @@
             "http_status_code": 503,
             "symbolic_status": "UNAVAILABLE"
           }
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "provider_unavailable",
+          "provider_failure": {
+            "kind": "timeout",
+            "exception_class": "ServerError",
+            "http_status_code": 504,
+            "symbolic_status": "DEADLINE_EXCEEDED"
+          }
         }
       ],
       "observed_public_status": null,
       "answer": null,
-      "trace": [],
+      "trace": [
+        {
+          "tool_name": "get_my_ticket",
+          "arguments": {
+            "ticket_id": "TKT-1001"
+          },
+          "result_status": "success",
+          "trusted_context_valid": true,
+          "employee_id_argument_present": false,
+          "data_kind": "ticket"
+        },
+        {
+          "tool_name": "knowledge_query",
+          "arguments": {
+            "question": "password reset support procedure sign in fails next steps"
+          },
+          "result_status": "success",
+          "trusted_context_valid": true,
+          "employee_id_argument_present": false,
+          "data_kind": "knowledge"
+        }
+      ],
       "citations": [],
       "prepared_action": null,
       "metrics": null,
@@ -446,14 +477,14 @@
         "tool_call_bound_violation": false,
         "model_round_bound_violation": false
       },
-      "tool_calls_attempted": 0,
-      "model_rounds": 1,
+      "tool_calls_attempted": 2,
+      "model_rounds": 2,
       "safe_error_category": "provider_unavailable",
       "provider_failure": {
-        "kind": "provider_unavailable",
+        "kind": "timeout",
         "exception_class": "ServerError",
-        "http_status_code": 503,
-        "symbolic_status": "UNAVAILABLE"
+        "http_status_code": 504,
+        "symbolic_status": "DEADLINE_EXCEEDED"
       }
     }
   ],
