@@ -23,8 +23,8 @@ and orchestration.
   `AuthenticatedEmployeeContext` values.
 
 The case datasets were created together before the development baseline. Accidental
-`--mode agent --split holdout` remains rejected. Stage 5B adds an explicit
-`--authorize-holdout` opt-in for one frozen holdout campaign. The holdout has not been executed.
+`--mode agent --split holdout` remains rejected. Stage 5B required explicit
+`--authorize-holdout` for the one frozen holdout campaign. That campaign is complete.
 
 Development categories are:
 
@@ -94,9 +94,9 @@ same invocation. Each case receives at most one evaluation attempt per invocatio
 attempt history, and continues previously unrun cases without duplicate result rows.
 
 New reports use evaluator schema `v3-agent-eval-2`. Historical `v3-agent-eval-1` reports remain
-readable as evidence but cannot be resumed under the new control-flow semantics. The next live
-development evaluation must start fresh under `v3-agent-eval-2`; do not migrate the 5/16
-`v3-agent-eval-1` checkpoint as the final baseline.
+readable as evidence but cannot be resumed under the new control-flow semantics. The final
+development baseline started fresh under `v3-agent-eval-2`; the 5/16 `v3-agent-eval-1`
+checkpoint was not migrated.
 
 Provider-blocked rows may include an optional safe `provider_failure` diagnostic (`kind`,
 allowlisted exception class, optional HTTP code, optional sanitized symbolic status). Messages,
@@ -112,13 +112,43 @@ Historical reports created before reliability isolation omit timeout/attempt fie
 the inherited 30-second agent timeout and two-attempt retry policy. Those reports cannot be resumed
 into the frozen 60-second, one-attempt configuration.
 
-## Current development checkpoint
+## Final development baseline
+
+Final `v3-agent-eval-2` development report:
+`evals/results/v3-stage5a-development-agent-2c05c8f9fe79b63e247dd6994e47176db8003763.json`.
+
+Fingerprint: `1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7`.
+
+Frozen runtime: `gemini-3.6-flash`, `AGENT_TIMEOUT_SECONDS=60`, `AGENT_MAX_ATTEMPTS=1`,
+`ThinkingLevel.MINIMAL`.
+
+- 16/16 completed
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 not-run
+- 0 expectation misses
+- semantic status accuracy `1.0`
+- required-tool recall `1.0`
+- tool-selection success `1.0`
+- unnecessary-tool rate `0.0`
+- forbidden-tool rate `0.0`
+- identity violations `0`
+- accepted `employee_id` violations `0`
+- business mutations `0`
+- citation integrity metrics passed
+- prepared-action metrics passed
+- non-executing invariant `1.0`
+- false execution claims `0`
+- prompt-injection undesired-call rate `0.0`
+- tool/model/citation bound violations `0`
+- no gold-label correction after this baseline
+- no tuning performed
+
+## Historical development checkpoints
 
 The historical `v3-agent-eval-1` freeze-HEAD development report is
 `evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`.
 It remains evidence only and must not be resumed under `v3-agent-eval-2`.
-
-Recorded frozen runtime: `gemini-3.6-flash`, `AGENT_TIMEOUT_SECONDS=60`, `AGENT_MAX_ATTEMPTS=1`.
 
 Historical factual status under the previous stop-on-block control flow:
 
@@ -131,13 +161,9 @@ Historical factual status under the previous stop-on-block control flow:
 - no gold-label correction;
 - no tuning performed.
 
-Case 6 has demonstrated successful selection of `get_my_ticket` and `knowledge_query`, and both
-tools have executed in some attempts. Other attempts were blocked before dispatch. Observed
-provider failures include HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. These remain
-provider-blocked, not completed semantic failures.
-
-Development evaluation is **not complete**. The next live development run must be a fresh
-`v3-agent-eval-2` baseline over the same 16-case dataset.
+Case 6 later demonstrated successful selection of `get_my_ticket` and `knowledge_query`. Observed
+provider failures included HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. Those remain
+historical provider-blocked evidence, not completed semantic failures.
 
 ## Development command
 
@@ -159,7 +185,8 @@ history, and resume compatibility remain `v3-agent-eval-2`. The passing developm
 not invalidated.
 
 Frozen holdout: 8 cases, fingerprint
-`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.**
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. First authorized
+exposure completed the campaign.
 
 Accidental invocation remains rejected:
 
@@ -181,6 +208,47 @@ uv run enterprise-ai-eval \
 `--authorize-holdout` is valid only with `--split holdout`. The CLI accepts only the frozen
 holdout fingerprint above.
 
+### Final holdout result
+
+First-exposure report: `evals/results/v3-stage5b-holdout-agent.json`.
+
+- 8/8 attempted
+- 8/8 completed/evaluable
+- carried `0`
+- completed_now `8`
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 not-run
+- 0 expectation misses
+- no tuning
+- no holdout gold modification
+- no PRODUCT FAILURE
+- no HOLDOUT SPEC DRIFT
+
+Aggregate holdout metrics:
+
+- semantic status accuracy `1.0`
+- required-tool recall `1.0`
+- tool-selection success `1.0`
+- unnecessary-tool rate `0.0`
+- forbidden-tool rate `0.0`
+- identity violations `0`
+- accepted `employee_id` violations `0`
+- business mutations `0`
+- required citation recall `1.0`
+- forbidden citation hit rate `0.0`
+- citation metadata validity `1.0`
+- citation bound violations `0`
+- prepared-action presence accuracy `1.0`
+- preparation structured accuracy `1.0`
+- non-executing invariant `1.0`
+- forbidden prepared identifiers `0`
+- false execution claims `0`
+- tool/model/citation bound violations `0`
+
+Prompt-injection undesired-call rate was `null` because no completed holdout case carried that
+dedicated applicable label. That is not a `0.0` score.
+
 ### Holdout campaign and resume
 
 One frozen holdout campaign:
@@ -201,7 +269,7 @@ holdout exposure and that provider-only resume.
 
 A semantic or mechanical holdout miss must never cause tuning and rerunning the holdout.
 
-### Pre-exposure adjudication
+### Adjudication
 
 Holdout outcomes are adjudicated as:
 
@@ -214,6 +282,19 @@ Holdout outcomes are adjudicated as:
   adjudication separately.
 - **PROVIDER BLOCK** — no semantic judgment; eligible only for compatible provider-only resume.
 
-Pre-existing approved product changes that may later require drift adjudication include the
-relative weekday convention, deterministic relative-weekday enforcement, and helpful knowledge
-fallback. Holdout contents are not inspected before exposure.
+First-exposure adjudication: **PASS**. No PRODUCT FAILURE. No HOLDOUT SPEC DRIFT. No provider
+block required a resume.
+
+Pre-existing approved product changes that were eligible for drift adjudication if a conflict
+appeared: relative weekday convention, deterministic relative-weekday enforcement, and helpful
+knowledge fallback. None required drift adjudication.
+
+### Independent pre-holdout review
+
+Reviewed HEAD: `c1eb121cb8c6bcd812c483fc9819c6361ce47936`.
+
+Verdict: **PASS**. Blockers: 0. High findings: 0.
+
+Medium backlog finding, not fixed: relative-weekday enforcement can over-constrain mixed-form
+date requests because a matched relative weekday may constrain both prepare endpoints. This
+fails closed and is deferred as post-V3 hardening.

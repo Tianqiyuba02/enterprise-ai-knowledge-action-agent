@@ -1,20 +1,28 @@
 # V3 / v0.4.0 Release Readiness
 
-Status is based on repository evidence. V3 is **not released**. Product code is frozen at
-`e93b5c1a476a4ed6983f60897839c016652971ba`.
+Status is based on repository evidence. V3 is **not released**. Authoritative product behavior is
+frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`.
 
 ## 1. Product implementation
 
 **DONE**
 
 - V3 architecture: provider-native bounded loop over existing V1/V2/prepare services
-- deterministic READ tool registry: `knowledge_query`, `get_my_profile`,
-  `get_my_leave_balances`, `get_my_ticket`
+- final scope remains READ + PREPARE only
+- READ: `knowledge_query`, own profile, own leave balances, own ticket lookup
+- PREPARE: deterministic non-executing annual-leave draft
+- no business execution, mutation, confirmation execution, persisted action execution, or
+  arbitrary employee identity selection
+- the LLM proposes; deterministic application validates
 - trusted identity boundary via `AuthenticatedEmployeeContext`
 - provider-native Agent loop with automatic function execution disabled
 - safe result sealing (`untrusted_data`, citation cap, no raw protocol leakage)
 - authenticated `POST /api/v1/assistant/query`
 - PREPARE-only `prepare_leave_request`
+- relative-weekday grammar `"next <weekday>"` resolved from the trusted Melbourne date;
+  incompatible model-proposed ISO dates are rejected without rewriting
+- helpful knowledge fallback: unsupported execution requests may use READ `knowledge_query`
+  for a trusted manual procedure, without claiming execution or mutating state
 - non-execution invariant (`non_executing=true`, no submit/persist/confirm tools)
 - citation trust boundary (server-built V2 metadata only)
 - Gemini continuation protocol: user → exact model candidate → user FunctionResponse
@@ -42,93 +50,116 @@ Status is based on repository evidence. V3 is **not released**. Product code is 
 
 ## 3. Development evaluation
 
-**IN PROGRESS**
+**PASS**
 
-Historical `v3-agent-eval-1` evidence (do not resume; not the final baseline):
+Final `v3-agent-eval-2` report:
+`evals/results/v3-stage5a-development-agent-2c05c8f9fe79b63e247dd6994e47176db8003763.json`.
 
-- 16 total cases
-- 5 completed
-- 1 provider-blocked (`dev_agent_ticket_and_it_policy`, 7 attempts)
-- 10 not run
-- 0 semantic/mechanical failures among completed cases
-- semantic status accuracy `1.0` on completed/evaluable cases
-- checkpoint preserved:
-  `evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`
-- frozen runtime recorded: `gemini-3.6-flash`, 60-second outer-round timeout, one SDK attempt
+- fingerprint: `1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7`
+- 16/16 completed
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 expectation misses
+- semantic status accuracy `1.0`
+- required-tool recall `1.0`
+- tool-selection success `1.0`
+- unnecessary-tool rate `0.0`
+- forbidden-tool rate `0.0`
+- identity violations `0`
+- accepted `employee_id` violations `0`
+- business mutations `0`
+- citation integrity metrics passed
+- prepared-action metrics passed
+- non-executing invariant `1.0`
+- false execution claims `0`
+- prompt-injection undesired-call rate `0.0`
+- tool/model/citation bound violations `0`
+- frozen runtime: `gemini-3.6-flash`, timeout 60, max attempts 1, `ThinkingLevel.MINIMAL`
 - `no_tuning_performed=true`
 
-Evaluator control flow is now `v3-agent-eval-2`: provider-blocked cases are recorded and excluded
-from semantic scoring, but they no longer stop later independent development cases. A
-provider-blocked case is not a pass.
+Historical `v3-agent-eval-1` evidence remains readable and must not be resumed:
+`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`.
 
-The next live development evaluation must start fresh under `v3-agent-eval-2`. Development
-evaluation is not complete.
+## 4. Independent pre-holdout review
 
-Exit criterion: all development cases evaluated sufficiently for review. Provider blocks are
-recorded as evidence and do not gate later cases. Product tuning is used only if a new
-deterministic defect appears.
+**PASS**
 
-## 4. Development review gate
+- reviewed HEAD: `c1eb121cb8c6bcd812c483fc9819c6361ce47936`
+- blockers: 0
+- high findings: 0
 
-**NOT STARTED / WAITING**
+Medium backlog finding, not fixed: relative-weekday enforcement can over-constrain mixed-form
+date requests. It fails closed and is deferred as post-V3 hardening.
 
-Must review after the development set is sufficiently complete:
+## 5. Frozen holdout evaluation
 
-- semantic status accuracy
-- tool selection
-- forbidden calls
-- identity violations
-- mutation invariants
-- citations
-- preparation structured accuracy
-- non-executing invariant
-- false execution claims
-- prompt-injection behavior
-- tool/model/citation bounds
-- provider-blocked trace interpretation
-- whether any gold corrections are justified
+**PASS**
 
-Do not approve yet.
+First authorized exposure:
+`evals/results/v3-stage5b-holdout-agent.json`.
 
-## 5. Frozen holdout
+- fingerprint: `b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`
+- 8/8 attempted
+- 8/8 completed/evaluable
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 expectation misses
+- no tuning
+- no holdout gold modification
+- no PRODUCT FAILURE
+- no HOLDOUT SPEC DRIFT
+- semantic status accuracy `1.0`
+- required-tool recall `1.0`
+- tool-selection success `1.0`
+- unnecessary-tool rate `0.0`
+- forbidden-tool rate `0.0`
+- identity violations `0`
+- accepted `employee_id` violations `0`
+- business mutations `0`
+- required citation recall `1.0`
+- forbidden citation hit rate `0.0`
+- citation metadata validity `1.0`
+- citation bound violations `0`
+- prepared-action presence accuracy `1.0`
+- preparation structured accuracy `1.0`
+- non-executing invariant `1.0`
+- forbidden prepared identifiers `0`
+- false execution claims `0`
+- tool/model/citation bound violations `0`
 
-**ACTIVATION READY, NOT EXECUTED**
+Prompt-injection undesired-call rate was `null` because no completed holdout case carried that
+dedicated applicable label. That is not a `0.0` score.
 
-- 8 frozen cases
-- zero prior executions
-- accidental `--split holdout` remains rejected
-- authorized invocation requires `--live --authorize-holdout`
-- no tuning after seeing holdout
+Accidental `--split holdout` remains rejected. Authorized invocation still requires
+`--live --authorize-holdout`.
 
-## 6. Release hardening review
+## 6. Final release-candidate review
 
-**NOT STARTED**
+**NOT YET DONE**
 
-After successful evaluation, an independent review should cover:
+An independent final review should cover:
 
 - repo/security/adversarial review
 - regression gates
 - docs consistency
 - release-note verification
 
-Do not invoke that review until authorized.
+Do not invoke that review as complete until authorized.
 
-## 7. Git/release procedure
+## 7. Merge / release
 
-**NOT STARTED** for the V3 release
+**NOT YET DONE**
 
 When authorized:
 
 `feature/v3-agent-tools` → `develop` → `main` → annotated tag `v0.4.0` → GitHub Release
 
-No force push. Do not perform these actions until explicitly authorized.
+No force push. Do not perform these actions until explicitly authorized. Do not mark `v0.4.0`
+released yet.
 
 ## 8. Release blocker summary
 
-V3 product implementation is frozen and deterministic gates pass.
+V3 product implementation is frozen. Development evaluation, independent pre-holdout review, and
+frozen holdout evaluation have passed.
 
-`v0.4.0` is currently blocked on completion and review of the live development evaluation, then
-the untouched frozen holdout and final release review.
-
-Current provider 504/503 instability is classified as provider-blocked evaluation evidence, not a
-confirmed product defect.
+`v0.4.0` is currently blocked on final release-candidate review, then merge/release.

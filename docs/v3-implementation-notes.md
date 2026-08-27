@@ -3,19 +3,19 @@
 ## Current stage
 
 Product Milestone V3 — Agent + Tools is under **code freeze** on `feature/v3-agent-tools`.
-Deterministic product code is frozen at `e93b5c1a476a4ed6983f60897839c016652971ba`. Later commits
-may add evaluation evidence, evaluator-harness control-flow, or documentation. Frozen product
+Authoritative product behavior is frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`. Later
+commits add evaluation evidence, evaluator-harness control-flow, or documentation. Frozen product
 behavior is unchanged.
 
-V3 is **not released**. Live development evaluation passed. The frozen holdout has **not** been
-run. Stage 5B activates an explicit `--authorize-holdout` CLI path without changing product
-behavior or `v3-agent-eval-2` report semantics. Target release remains `v0.4.0` after holdout and
-release review. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
+V3 is **not released**. Live development evaluation passed. The frozen holdout passed on first
+exposure. Target release remains `v0.4.0` after final release-candidate review. See
+[`docs/v3-release-readiness.md`](v3-release-readiness.md).
 
 ## Frozen V3 design
 
 The LLM proposes and selects tools. Deterministic application code validates arguments, injects
-trusted identity, and performs only allowed READ and PREPARE operations.
+trusted identity, and performs only allowed READ and PREPARE operations. The model proposes;
+the application validates.
 
 ### Scope
 
@@ -55,9 +55,10 @@ must state that it cannot perform and did not perform the action. It may use `kn
 a trusted manual procedure or next steps when that information is relevant. Guidance must remain
 distinct from execution. This does not add an execution capability or mutate business state.
 
-Post-V3 hardening backlog, not a pre-holdout blocker: the current relative-weekday constraint can
-over-constrain mixed-form date requests because a matched relative weekday may constrain both
-prepare endpoints. This fails closed. Do not change the frozen product implementation for it.
+Post-V3 hardening backlog, not fixed: the current relative-weekday constraint can over-constrain
+mixed-form date requests because a matched relative weekday may constrain both prepare endpoints.
+This fails closed and is deferred as post-V3 hardening. Do not change the frozen product
+implementation for it.
 
 Public surface: authenticated `POST /api/v1/assistant/query`.
 
@@ -137,6 +138,9 @@ Historical `v3-agent-eval-1` reports remain readable but cannot be resumed.
 
 ### Current development status
 
+Final `v3-agent-eval-2` development baseline:
+`evals/results/v3-stage5a-development-agent-2c05c8f9fe79b63e247dd6994e47176db8003763.json`.
+
 Development dataset: 16 cases, fingerprint
 `1b6fb7d7e7a813bae4d71e1459bf2d5e20ab611c6e9091f9bf4a556bf9ec3ee7`.
 This supersedes historical development fingerprint
@@ -144,41 +148,63 @@ This supersedes historical development fingerprint
 product-spec correction that allows READ knowledge guidance for unsupported execution requests.
 Historical development reports remain evidence and cannot be resumed under the new fingerprint.
 
-Historical `v3-agent-eval-1` checkpoint
-`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`
-(evidence only; do not resume):
+Final result:
 
-- 5 completed
-- 1 provider-blocked (7 Case 6 attempts)
-- 10 not run
-
-Completed/evaluable cases:
-
+- 16/16 completed
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 expectation misses
 - semantic status accuracy `1.0`
-- no observed semantic/mechanical failures among those five
-- forbidden-tool rate `0`
+- required-tool recall `1.0`
+- tool-selection success `1.0`
+- unnecessary-tool rate `0.0`
+- forbidden-tool rate `0.0`
 - identity violations `0`
+- accepted `employee_id` violations `0`
 - business mutations `0`
-- required citation recall `1.0` on applicable completed cases
-- no gold-label correction proposed
+- citation integrity metrics passed
+- prepared-action metrics passed
+- non-executing invariant `1.0`
+- false execution claims `0`
+- prompt-injection undesired-call rate `0.0`
+- tool/model/citation bound violations `0`
 - no tuning performed
 
-Development evaluation is not complete. The next live development baseline must start fresh under
-`v3-agent-eval-2`.
+Historical `v3-agent-eval-1` checkpoint
+`evals/results/v3-stage5a-development-agent-e93b5c1a476a4ed6983f60897839c016652971ba.json`
+(evidence only; do not resume): 5 completed, 1 provider-blocked (7 Case 6 attempts), 10 not run.
 
-`dev_agent_ticket_and_it_policy` (Case 6) remains provider-blocked. Prior attempts have shown
-successful round-1 selection of both `get_my_ticket` and `knowledge_query`, and both tools have
-executed successfully. Other attempts were blocked before dispatch. Observed provider failures
-include HTTP 504 `DEADLINE_EXCEEDED` and HTTP 503 `UNAVAILABLE`. These are classified as
-provider-blocked, not deterministic semantic or product failures. The root cause is not claimed to
-be localized inside the provider.
+### Independent pre-holdout review
+
+Reviewed HEAD: `c1eb121cb8c6bcd812c483fc9819c6361ce47936`.
+
+Verdict: **PASS**. Blockers: 0. High findings: 0.
+
+Medium backlog finding, not fixed: relative-weekday enforcement can over-constrain mixed-form
+date requests. It fails closed and is deferred as post-V3 hardening.
 
 ### Holdout status
 
 Frozen holdout: 8 cases, fingerprint
-`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** Accidental
-`--split holdout` remains rejected. Authorized Stage 5B invocation requires `--authorize-holdout`
-and the frozen fingerprint. The holdout has not been executed.
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. First authorized exposure
+completed the campaign:
+`evals/results/v3-stage5b-holdout-agent.json`.
+
+- 8/8 attempted
+- 8/8 completed/evaluable
+- 0 provider-blocked
+- 0 evaluator/runtime errors
+- 0 expectation misses
+- no tuning
+- no holdout gold modification
+- no PRODUCT FAILURE
+- no HOLDOUT SPEC DRIFT
+
+Prompt-injection undesired-call rate was `null` because no completed holdout case carried that
+dedicated applicable label. That is not a `0.0` score.
+
+Accidental `--split holdout` remains rejected. Authorized invocation still requires
+`--authorize-holdout` and the frozen fingerprint.
 
 ## Historical stage notes
 
@@ -505,10 +531,10 @@ Metrics are mechanical. They grade tool selection, identity/business-state invar
 citations, structured prepared actions, bounded execution, narrow false-execution phrases, and
 forbidden prompt-injection calls. No second LLM or generic answer-quality judge is used.
 
-Stage 5A's CLI rejected `--mode agent --split holdout`. Stage 5B keeps that accidental rejection
-and adds `--authorize-holdout` for one frozen campaign. Report schema remains `v3-agent-eval-2`.
-The holdout has not been executed or used for tuning. Detailed methodology and frozen fingerprints
-are in `docs/v3-agent-evaluation.md`.
+Stage 5A's CLI rejected `--mode agent --split holdout`. Stage 5B kept that accidental rejection
+and added `--authorize-holdout` for one frozen campaign. Report schema remains `v3-agent-eval-2`.
+The frozen holdout has now been executed once, with no tuning. Detailed methodology, fingerprints,
+and final results are in `docs/v3-agent-evaluation.md`.
 
 ## Gemini GenerateContent continuation correction
 
