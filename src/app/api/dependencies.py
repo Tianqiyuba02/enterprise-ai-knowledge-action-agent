@@ -28,11 +28,24 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
-DEMO_SESSIONS: Final = MappingProxyType(
+DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
     {
-        "demo-v1-7f4c2a91": "EMP-1001",
-        "demo-v1-3b8e6d50": "EMP-1002",
+        "demo-v1-7f4c2a91": AuthenticatedEmployeeContext(
+            employee_id="EMP-1001",
+            subject_id="subj_9f2c4e81a6b047d3",
+            session_id="sess_c4a81f07e2d94b6a",
+            jurisdiction="AU-VIC",
+        ),
+        "demo-v1-3b8e6d50": AuthenticatedEmployeeContext(
+            employee_id="EMP-1002",
+            subject_id="subj_1a8e5c03d7f249b6",
+            session_id="sess_e50b3d6a91c8472f",
+            jurisdiction="AU-VIC",
+        ),
     }
+)
+DEMO_SESSIONS: Final = MappingProxyType(
+    {token: identity.employee_id for token, identity in DEMO_IDENTITY_BINDINGS.items()}
 )
 
 
@@ -41,10 +54,10 @@ def get_authenticated_employee(
 ) -> AuthenticatedEmployeeContext:
     """Resolve an opaque demo token to server-controlled employee identity."""
 
-    employee_id = DEMO_SESSIONS.get(x_demo_session or "")
-    if employee_id is None:
+    identity = DEMO_IDENTITY_BINDINGS.get(x_demo_session or "")
+    if identity is None:
         raise InvalidDemoSessionError
-    return AuthenticatedEmployeeContext(employee_id=employee_id)
+    return identity
 
 
 def get_demo_repository(request: Request) -> DemoRepository:

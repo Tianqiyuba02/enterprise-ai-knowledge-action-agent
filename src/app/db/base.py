@@ -1,4 +1,4 @@
-"""Declarative metadata for V2 knowledge persistence."""
+"""Declarative metadata for the shared application PostgreSQL schema."""
 
 from sqlalchemy.orm import DeclarativeBase
 

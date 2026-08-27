@@ -83,6 +83,10 @@ class KnowledgeSettings(BaseSettings):
         populate_by_name=True,
     )
 
+    app_database_url: SecretStr | None = Field(
+        default=None,
+        validation_alias="APP_DATABASE_URL",
+    )
     knowledge_database_url: SecretStr = Field(
         default=DEFAULT_KNOWLEDGE_DATABASE_URL,
         validation_alias="KNOWLEDGE_DATABASE_URL",
@@ -100,6 +104,14 @@ class KnowledgeSettings(BaseSettings):
         default=APPROVED_GROUNDED_MODEL,
         validation_alias="KNOWLEDGE_GROUNDED_MODEL",
     )
+
+    @property
+    def database_url(self) -> SecretStr:
+        """Prefer APP_DATABASE_URL, then fall back to KNOWLEDGE_DATABASE_URL."""
+
+        if self.app_database_url is not None and self.app_database_url.get_secret_value():
+            return self.app_database_url
+        return self.knowledge_database_url
 
 
 class AgentSettings(BaseSettings):
