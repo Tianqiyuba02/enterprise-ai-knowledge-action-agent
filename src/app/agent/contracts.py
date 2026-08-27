@@ -53,8 +53,10 @@ V3_TOOL_ALLOWLIST: Final = MappingProxyType(
             name=V3ToolName.KNOWLEDGE_QUERY,
             capability=ToolCapability.READ,
             description=(
-                "Return one existing V2 grounded knowledge response. "
-                "Applicability is injected from trusted server context."
+                "Return one existing V2 grounded knowledge response for informational, "
+                "policy, procedure, or how-to questions. Applicability is injected from "
+                "trusted server context. Do not use this tool as an automatic fallback when "
+                "the user asks the assistant to perform an unsupported action."
             ),
             argument_model=KnowledgeQueryArguments,
             handler=ToolHandlerName.KNOWLEDGE_QUERY,

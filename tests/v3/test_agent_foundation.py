@@ -154,6 +154,64 @@ def test_system_instruction_states_general_no_exploratory_tool_discipline() -> N
     assert "dev_agent_" not in AGENT_SYSTEM_INSTRUCTION
 
 
+def test_knowledge_tool_guidance_distinguishes_informational_from_unsupported_action() -> None:
+    """Contract/prompt representation only; this does not prove live model behavior."""
+
+    description = V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].description
+    assert "informational" in description
+    assert "policy" in description
+    assert "procedure" in description
+    assert "how-to" in description
+    assert "automatic fallback" in description
+    assert "unsupported action" in description
+    assert (
+        "Use the knowledge tool for informational, policy, procedure, or how-to questions."
+        in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "Do not use it as" in AGENT_SYSTEM_INSTRUCTION
+    assert "an automatic fallback merely because a requested action is unsupported." in (
+        AGENT_SYSTEM_INSTRUCTION
+    )
+    for surface in (description, AGENT_SYSTEM_INSTRUCTION):
+        assert "TKT-1001" not in surface
+        assert "close my ticket" not in surface.lower()
+        assert "dev_agent_close_ticket" not in surface
+        assert "close-ticket" not in surface
+
+
+def test_knowledge_guidance_preserves_other_tool_contracts_and_boundaries() -> None:
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_PROFILE].description == (
+        "Read the authenticated employee's own profile."
+    )
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_LEAVE_BALANCES].description == (
+        "Read the authenticated employee's own leave balances."
+    )
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_TICKET].description == (
+        "Read one support ticket only when it belongs to the authenticated employee."
+    )
+    assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].description == (
+        "Build one annual leave draft from trusted schedule and balance data. "
+        "The draft changes no business state."
+    )
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_PROFILE].llm_arguments == ()
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_LEAVE_BALANCES].llm_arguments == ()
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_TICKET].llm_arguments == ("ticket_id",)
+    assert V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].llm_arguments == ("question",)
+    assert "execute" not in V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].description.lower()
+    assert "write" not in V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].description.lower()
+    assert APPROVED_AGENT_MODEL == "gemini-3.6-flash"
+    assert AgentSettings.model_fields["agent_timeout_seconds"].default == 60
+    assert AgentSettings.model_fields["agent_max_attempts"].default == 1
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT))
+        == "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+    )
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.HOLDOUT))
+        == "b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58"
+    )
+
+
 def test_system_instruction_states_general_relative_weekday_convention() -> None:
     assert (
         'Interpret "next <weekday>" as the first occurrence of that weekday strictly after the '
