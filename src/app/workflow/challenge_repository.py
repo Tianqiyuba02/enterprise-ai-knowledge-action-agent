@@ -61,3 +61,31 @@ class ChallengeRepository:
                 ConfirmationChallenge.status == ChallengeStatus.ACTIVE.value,
             )
         ).scalar_one_or_none()
+
+    def lock_challenge(
+        self,
+        session: Session,
+        challenge_id: UUID,
+    ) -> ConfirmationChallenge | None:
+        return session.execute(
+            select(ConfirmationChallenge)
+            .where(ConfirmationChallenge.challenge_id == challenge_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+    def lock_active_challenge(
+        self,
+        session: Session,
+        *,
+        action_id: UUID,
+        revision: int = V4_REVISION,
+    ) -> ConfirmationChallenge | None:
+        return session.execute(
+            select(ConfirmationChallenge)
+            .where(
+                ConfirmationChallenge.action_id == action_id,
+                ConfirmationChallenge.revision == revision,
+                ConfirmationChallenge.status == ChallengeStatus.ACTIVE.value,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()

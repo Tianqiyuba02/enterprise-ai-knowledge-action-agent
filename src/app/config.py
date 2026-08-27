@@ -104,6 +104,18 @@ class KnowledgeSettings(BaseSettings):
         default=APPROVED_GROUNDED_MODEL,
         validation_alias="KNOWLEDGE_GROUNDED_MODEL",
     )
+    v4_confirmation_challenge_ttl_seconds: int = Field(
+        default=600,
+        validation_alias="V4_CONFIRMATION_CHALLENGE_TTL_SECONDS",
+        ge=1,
+        le=86_400,
+    )
+    v4_confirmed_ttl_seconds: int = Field(
+        default=600,
+        validation_alias="V4_CONFIRMED_TTL_SECONDS",
+        ge=1,
+        le=86_400,
+    )
 
     @property
     def database_url(self) -> SecretStr:

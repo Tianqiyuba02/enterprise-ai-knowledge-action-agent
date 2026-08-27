@@ -42,6 +42,8 @@ def test_existing_v2_knowledge_configuration_remains_compatible() -> None:
     assert settings.app_database_url is None
     assert settings.knowledge_database_url.get_secret_value() == DEFAULT_KNOWLEDGE_DATABASE_URL
     assert settings.database_url.get_secret_value() == DEFAULT_KNOWLEDGE_DATABASE_URL
+    assert settings.v4_confirmation_challenge_ttl_seconds == 600
+    assert settings.v4_confirmed_ttl_seconds == 600
 
 
 def test_empty_app_database_url_falls_back_to_knowledge_url() -> None:

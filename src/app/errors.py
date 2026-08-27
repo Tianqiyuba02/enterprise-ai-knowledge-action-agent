@@ -32,3 +32,24 @@ class TicketNotFoundError(ApplicationError):
 
     error_code = "ticket_not_found"
     public_message = "The requested ticket was not found."
+
+
+class ActionNotFoundError(ApplicationError):
+    """Raised for nonexistent and non-owned actions without distinguishing them."""
+
+    error_code = "action_not_found"
+    public_message = "The requested action was not found."
+
+
+class ConfirmationInvalidError(ApplicationError):
+    """Raised for generic confirmation failures that must not leak token detail."""
+
+    error_code = "confirmation_invalid"
+    public_message = "The confirmation request is invalid."
+
+
+class ActionConflictError(ApplicationError):
+    """Raised when the current action or challenge state rejects the request."""
+
+    error_code = "action_conflict"
+    public_message = "The action cannot be changed in its current state."

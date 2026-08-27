@@ -12,6 +12,7 @@ from app.api.dependencies import (
     DEMO_SESSIONS,
     get_authenticated_employee,
 )
+from app.api.models import ConfirmActionRequest
 from app.errors import InvalidDemoSessionError
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.applicability import resolve_knowledge_applicability
@@ -90,6 +91,19 @@ def test_model_and_tool_inputs_cannot_supply_trusted_identity_fields() -> None:
 
     for contract in V3_TOOL_ALLOWLIST.values():
         assert FORBIDDEN_IDENTITY_FIELDS.isdisjoint(contract.llm_arguments)
+
+    with pytest.raises(ValidationError):
+        ConfirmActionRequest.model_validate(
+            {
+                "challenge_id": "11111111-1111-1111-1111-111111111111",
+                "confirmation_token": "token",
+                "employee_id": "EMP-1002",
+                "subject_id": "subj_injected",
+                "session_id": "sess_injected",
+                "confirmed": True,
+                "execute": True,
+            }
+        )
 
 
 def test_v1_v2_v3_identity_behavior_remains_unchanged() -> None:

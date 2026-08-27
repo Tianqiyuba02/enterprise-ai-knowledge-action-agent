@@ -98,6 +98,14 @@ class WorkflowRepository:
             )
         ).scalar_one_or_none()
 
+    def lock_workflow(self, session: Session, action_id: UUID) -> ActionWorkflow:
+        row = session.execute(
+            select(ActionWorkflow).where(ActionWorkflow.action_id == action_id).with_for_update()
+        ).scalar_one_or_none()
+        if row is None:
+            raise WorkflowRowNotFoundError("action workflow was not found for locking")
+        return row
+
     def lock_revision(
         self,
         session: Session,

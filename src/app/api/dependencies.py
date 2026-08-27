@@ -26,6 +26,7 @@ from app.services.chat import ChatService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
+from app.workflow.confirmation import ConfirmationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
 DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
@@ -109,6 +110,27 @@ def get_knowledge_query_service(request: Request) -> KnowledgeQueryService:
         )
         request.app.state.knowledge_engine = engine
         request.app.state.knowledge_query_service = service
+    return service
+
+
+def get_confirmation_service(request: Request) -> ConfirmationService:
+    """Build the confirmation control plane only when an action route needs it."""
+
+    service = cast(
+        ConfirmationService | None,
+        getattr(request.app.state, "confirmation_service", None),
+    )
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ConfirmationService(factory, settings)
+    request.app.state.confirmation_service = service
     return service
 
 
