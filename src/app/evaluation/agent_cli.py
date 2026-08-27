@@ -43,6 +43,18 @@ from app.services.leave_preparation import LeavePreparationService
 AGENT_EVALUATION_DATE = date(2026, 8, 26)
 AGENT_EVALUATION_SCHEMA_VERSION = "v3-agent-eval-2"
 DEMO_FIXTURE_VERSION = "v1-demo-records-2026-08-24"
+FROZEN_AGENT_HOLDOUT_FINGERPRINT = (
+    "b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58"
+)
+UNAUTHORIZED_HOLDOUT_MESSAGE = (
+    "Error: V3 agent holdout is frozen and requires explicit --authorize-holdout."
+)
+HOLDOUT_AUTHORIZATION_SCOPE_MESSAGE = (
+    "Error: --authorize-holdout is valid only with --split holdout."
+)
+HOLDOUT_FINGERPRINT_MISMATCH_MESSAGE = (
+    "Error: V3 agent holdout fingerprint does not match the frozen holdout."
+)
 
 
 class FixedAgentEvaluationClock:
@@ -50,15 +62,42 @@ class FixedAgentEvaluationClock:
         return AGENT_EVALUATION_DATE
 
 
-def run_agent_cli(args: Namespace, split: EvaluationSplit) -> int:
+def authorize_agent_evaluation_split(
+    split: EvaluationSplit,
+    *,
+    authorize_holdout: bool,
+    dataset_fingerprint: str | None = None,
+) -> str | None:
+    """Return a safe error if the requested agent split is not explicitly authorized."""
+
     if split is EvaluationSplit.HOLDOUT:
-        print(
-            "Error: V3 agent holdout is frozen and not authorized in Stage 5A.",
-            file=sys.stderr,
-        )
+        if not authorize_holdout:
+            return UNAUTHORIZED_HOLDOUT_MESSAGE
+        if (
+            dataset_fingerprint is not None
+            and dataset_fingerprint != FROZEN_AGENT_HOLDOUT_FINGERPRINT
+        ):
+            return HOLDOUT_FINGERPRINT_MISMATCH_MESSAGE
+        return None
+    if authorize_holdout:
+        return HOLDOUT_AUTHORIZATION_SCOPE_MESSAGE
+    return None
+
+
+def run_agent_cli(args: Namespace, split: EvaluationSplit) -> int:
+    authorize_holdout = bool(getattr(args, "authorize_holdout", False))
+    authorization_error = authorize_agent_evaluation_split(
+        split, authorize_holdout=authorize_holdout
+    )
+    if authorization_error is not None:
+        print(authorization_error, file=sys.stderr)
         return 2
 
-    output: Path = args.output or Path("evals/results/v3-stage5a-development-agent.json")
+    output: Path = args.output or (
+        Path("evals/results/v3-stage5b-holdout-agent.json")
+        if split is EvaluationSplit.HOLDOUT
+        else Path("evals/results/v3-stage5a-development-agent.json")
+    )
     if args.resume and not output.is_file():
         print("Error: --resume requires an existing report file.", file=sys.stderr)
         return 2
@@ -67,6 +106,14 @@ def run_agent_cli(args: Namespace, split: EvaluationSplit) -> int:
     try:
         cases = load_agent_evaluation_cases(split)
         dataset_fingerprint = agent_dataset_fingerprint(cases)
+        authorization_error = authorize_agent_evaluation_split(
+            split,
+            authorize_holdout=authorize_holdout,
+            dataset_fingerprint=dataset_fingerprint,
+        )
+        if authorization_error is not None:
+            print(authorization_error, file=sys.stderr)
+            return 2
         previous_report = (
             AgentEvaluationReport.model_validate_json(output.read_text(encoding="utf-8"))
             if args.resume
@@ -157,7 +204,9 @@ def run_agent_cli(args: Namespace, split: EvaluationSplit) -> int:
         if engine is not None:
             engine.dispose()
 
-    print("mode=agent split=development")
+    print(f"mode=agent split={split.value}")
+    if split is EvaluationSplit.HOLDOUT:
+        print("holdout_use=frozen_final_validation_only")
     print(f"dataset_fingerprint={report.dataset_fingerprint}")
     print(f"trusted_evaluation_date={report.configuration.trusted_evaluation_date}")
     print(

@@ -111,10 +111,11 @@ The V3 development agent baseline uses the real bounded agent and a fixed truste
 uv run enterprise-ai-eval --mode agent --split development --live --delay-seconds 2
 ```
 
-The V3 agent holdout is frozen and has not been executed. See
-`docs/v3-agent-evaluation.md` for the mechanical metrics and resume contract, and
-`docs/v3-release-readiness.md` for the current `v0.4.0` gate. V3 product code is frozen;
-V3 is not released.
+The V3 agent holdout is frozen and has not been executed. Accidental
+`--mode agent --split holdout` remains rejected. An authorized campaign requires explicit
+`--authorize-holdout`. See `docs/v3-agent-evaluation.md` for the mechanical metrics, campaign
+contract, and adjudication policy, and `docs/v3-release-readiness.md` for the current `v0.4.0`
+gate. V3 product code is frozen; V3 is not released.
 
 ## Prerequisites
 

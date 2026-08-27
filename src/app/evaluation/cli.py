@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicitly allow Gemini and PostgreSQL calls",
     )
     parser.add_argument(
+        "--authorize-holdout",
+        action="store_true",
+        help="explicitly authorize the frozen V3 agent holdout campaign",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="resume compatible incomplete results without rerunning completed cases",

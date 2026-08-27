@@ -92,11 +92,12 @@ Do not approve yet.
 
 ## 5. Frozen holdout
 
-**NOT STARTED**
+**ACTIVATION READY, NOT EXECUTED**
 
 - 8 frozen cases
 - zero prior executions
-- run only after development review approval
+- accidental `--split holdout` remains rejected
+- authorized invocation requires `--live --authorize-holdout`
 - no tuning after seeing holdout
 
 ## 6. Release hardening review

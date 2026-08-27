@@ -22,8 +22,9 @@ and orchestration.
 - demo fixtures: `alex` and `sam`, resolved by the harness to trusted
   `AuthenticatedEmployeeContext` values.
 
-The case datasets were created together before the development baseline. Stage 5A refuses an agent
-holdout CLI invocation. The holdout has not been run or used for tuning.
+The case datasets were created together before the development baseline. Accidental
+`--mode agent --split holdout` remains rejected. Stage 5B adds an explicit
+`--authorize-holdout` opt-in for one frozen holdout campaign. The holdout has not been executed.
 
 Development categories are:
 
@@ -151,9 +152,68 @@ uv run enterprise-ai-eval \
 Compatible `v3-agent-eval-2` partial runs use the same command with `--resume` against a new-schema
 report. Do not `--resume` the historical `v3-agent-eval-1` checkpoint.
 
-## Holdout status
+## Holdout activation
+
+This is a CLI/control-plane activation only. Report structure, scoring, result statuses, attempt
+history, and resume compatibility remain `v3-agent-eval-2`. The passing development baseline is
+not invalidated.
 
 Frozen holdout: 8 cases, fingerprint
-`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** Stage 5A's CLI
-rejects `--mode agent --split holdout`. The holdout remains untouched until a development review is
-accepted.
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.**
+
+Accidental invocation remains rejected:
+
+```bash
+uv run enterprise-ai-eval --mode agent --split holdout --live
+```
+
+Authorized campaign command:
+
+```bash
+uv run enterprise-ai-eval \
+  --mode agent \
+  --split holdout \
+  --live \
+  --authorize-holdout \
+  --delay-seconds 2
+```
+
+`--authorize-holdout` is valid only with `--split holdout`. The CLI accepts only the frozen
+holdout fingerprint above.
+
+### Holdout campaign and resume
+
+One frozen holdout campaign:
+
+- the initial authorized invocation attempts all 8 cases;
+- provider-blocked cases are recorded and excluded from semantic scoring;
+- later cases continue in the same invocation;
+- each case is attempted at most once per invocation.
+
+If all 8 are evaluable, the campaign is complete.
+
+If one or more cases are provider-blocked, a compatible `--resume` may retry only those
+incomplete cases and carry completed cases forward. Resume is allowed only when every frozen
+compatibility field remains identical: product behavior, evaluator schema, dataset fingerprint,
+model, timeout, max attempts, thinking, tool registry, corpus identity, and the other existing
+`v3-agent-eval-2` fields. No product, config, or evaluator change may occur between initial
+holdout exposure and that provider-only resume.
+
+A semantic or mechanical holdout miss must never cause tuning and rerunning the holdout.
+
+### Pre-exposure adjudication
+
+Holdout outcomes are adjudicated as:
+
+- **PASS** — current product satisfies the frozen expectation.
+- **PRODUCT FAILURE** — current product violates an approved current product or safety
+  specification.
+- **HOLDOUT SPEC DRIFT** — a frozen expectation conflicts with a product specification that was
+  explicitly approved before holdout exposure. Preserve the raw frozen result. Do not silently
+  rewrite the frozen holdout. Do not tune the product to pass the old expectation. Document
+  adjudication separately.
+- **PROVIDER BLOCK** — no semantic judgment; eligible only for compatible provider-only resume.
+
+Pre-existing approved product changes that may later require drift adjudication include the
+relative weekday convention, deterministic relative-weekday enforcement, and helpful knowledge
+fallback. Holdout contents are not inspected before exposure.

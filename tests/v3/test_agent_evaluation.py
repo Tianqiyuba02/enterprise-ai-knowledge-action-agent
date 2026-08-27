@@ -33,7 +33,15 @@ from app.api.assistant_models import (
 )
 from app.api.knowledge_models import KnowledgeCitation
 from app.config import APPROVED_AGENT_MODEL, AgentSettings
-from app.evaluation.agent_cli import AGENT_EVALUATION_DATE, AGENT_EVALUATION_SCHEMA_VERSION
+from app.evaluation.agent_cli import (
+    AGENT_EVALUATION_DATE,
+    AGENT_EVALUATION_SCHEMA_VERSION,
+    FROZEN_AGENT_HOLDOUT_FINGERPRINT,
+    HOLDOUT_AUTHORIZATION_SCOPE_MESSAGE,
+    HOLDOUT_FINGERPRINT_MISMATCH_MESSAGE,
+    UNAUTHORIZED_HOLDOUT_MESSAGE,
+    authorize_agent_evaluation_split,
+)
 from app.evaluation.agent_loader import (
     agent_dataset_fingerprint,
     load_agent_evaluation_cases,
@@ -708,7 +716,45 @@ def test_agent_cli_refuses_holdout_before_any_provider_or_database_call(capsys) 
     exit_code = evaluation_main(["--mode", "agent", "--split", "holdout", "--live"])
 
     assert exit_code == 2
-    assert "holdout is frozen" in capsys.readouterr().err
+    assert UNAUTHORIZED_HOLDOUT_MESSAGE in capsys.readouterr().err
+
+
+def test_agent_cli_rejects_authorize_holdout_on_development(capsys) -> None:
+    exit_code = evaluation_main(
+        ["--mode", "agent", "--split", "development", "--live", "--authorize-holdout"]
+    )
+
+    assert exit_code == 2
+    assert HOLDOUT_AUTHORIZATION_SCOPE_MESSAGE in capsys.readouterr().err
+
+
+def test_explicit_holdout_authorization_accepts_only_the_frozen_fingerprint() -> None:
+    assert (
+        authorize_agent_evaluation_split(EvaluationSplit.DEVELOPMENT, authorize_holdout=False)
+        is None
+    )
+    assert (
+        authorize_agent_evaluation_split(EvaluationSplit.HOLDOUT, authorize_holdout=False)
+        == UNAUTHORIZED_HOLDOUT_MESSAGE
+    )
+    assert (
+        authorize_agent_evaluation_split(
+            EvaluationSplit.HOLDOUT,
+            authorize_holdout=True,
+            dataset_fingerprint=FROZEN_AGENT_HOLDOUT_FINGERPRINT,
+        )
+        is None
+    )
+    assert (
+        authorize_agent_evaluation_split(
+            EvaluationSplit.HOLDOUT,
+            authorize_holdout=True,
+            dataset_fingerprint="f" * 64,
+        )
+        == HOLDOUT_FINGERPRINT_MISMATCH_MESSAGE
+    )
+    assert FROZEN_AGENT_HOLDOUT_FINGERPRINT == HOLDOUT_FINGERPRINT
+    assert AGENT_EVALUATION_SCHEMA_VERSION == "v3-agent-eval-2"
 
 
 def test_agent_cli_requires_live_and_resume_file(capsys, tmp_path) -> None:
@@ -943,6 +989,148 @@ def test_historical_v1_schema_checkpoint_remains_readable_but_cannot_resume() ->
             cases=development,
             dataset_fingerprint=historical.dataset_fingerprint,
             previous_report=historical,
+        )
+
+
+def _holdout_case(case_id: str) -> AgentEvaluationCase:
+    return _case(id=case_id, split="holdout")
+
+
+def test_holdout_runner_records_multiple_blocks_and_later_cases_still_run() -> None:
+    cases = (
+        _holdout_case("holdout_activation_one"),
+        _holdout_case("holdout_activation_two"),
+        _holdout_case("holdout_activation_three"),
+    )
+    provider = SequenceProvider(
+        [
+            AgentProviderRateLimitError("first block"),
+            AgentProviderTimeoutError("second block", failure=_timeout_failure()),
+            _profile_session(),
+        ]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.HOLDOUT,
+        cases=cases,
+        dataset_fingerprint=agent_dataset_fingerprint(cases),
+    )
+
+    assert [result.state for result in report.cases] == [
+        AgentCaseExecutionState.PROVIDER_BLOCKED,
+        AgentCaseExecutionState.PROVIDER_BLOCKED,
+        AgentCaseExecutionState.COMPLETED,
+    ]
+    assert report.split is EvaluationSplit.HOLDOUT
+    assert report.configuration.evaluation_schema_version == "v3-agent-eval-2"
+    assert report.summary.cases_provider_blocked == 2
+    assert report.summary.cases_completed == 1
+    assert report.summary.cases_not_run == 0
+    assert report.summary.semantic_status_accuracy == 1.0
+    assert all(result.metrics is None for result in report.cases[:2])
+
+
+def test_holdout_compatible_resume_retries_blocked_and_carries_completed() -> None:
+    cases = (
+        _holdout_case("holdout_resume_completed"),
+        _holdout_case("holdout_resume_blocked"),
+        _holdout_case("holdout_resume_unrun"),
+    )
+    fingerprint = agent_dataset_fingerprint(cases)
+    prior_failure = _timeout_failure()
+    prior_attempt = AgentCaseAttempt(
+        state=AgentCaseExecutionState.PROVIDER_BLOCKED,
+        safe_error_category="provider_unavailable",
+        provider_failure=prior_failure,
+    )
+    previous = AgentEvaluationReport(
+        generated_at=datetime.now(UTC),
+        split=EvaluationSplit.HOLDOUT,
+        dataset_fingerprint=fingerprint,
+        configuration=_configuration(),
+        summary=build_agent_summary(
+            cases_total=3,
+            results=(
+                _completed_case_result("holdout_resume_completed"),
+                _blocked_case_result("holdout_resume_blocked", failure=prior_failure),
+            ),
+        ),
+        cases=(
+            _completed_case_result("holdout_resume_completed"),
+            _blocked_case_result(
+                "holdout_resume_blocked",
+                failure=prior_failure,
+                history=(prior_attempt,),
+            ),
+        ),
+    )
+    provider = SequenceProvider(
+        [
+            AgentProviderTimeoutError("retry still blocked", failure=_timeout_failure()),
+            _profile_session(),
+        ]
+    )
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.HOLDOUT,
+        cases=cases,
+        dataset_fingerprint=fingerprint,
+        previous_report=previous,
+    )
+
+    assert provider.messages == ["What is my profile?", "What is my profile?"]
+    assert report.cases[0].result_origin is ResultOrigin.CARRIED_FORWARD
+    assert report.cases[1].state is AgentCaseExecutionState.PROVIDER_BLOCKED
+    assert report.cases[1].result_origin is ResultOrigin.CURRENT_INVOCATION
+    assert len(report.cases[1].attempt_history) == 2
+    assert report.cases[2].state is AgentCaseExecutionState.COMPLETED
+    assert report.summary.cases_carried_forward == 1
+    assert report.summary.cases_completed == 2
+    assert report.summary.cases_provider_blocked == 1
+
+
+def test_holdout_case_is_attempted_at_most_once_per_invocation() -> None:
+    cases = (
+        _holdout_case("holdout_once_one"),
+        _holdout_case("holdout_once_two"),
+    )
+    provider = SequenceProvider([_profile_session(), _profile_session(), _profile_session()])
+
+    report = _runner(provider).run(
+        split=EvaluationSplit.HOLDOUT,
+        cases=cases,
+        dataset_fingerprint=agent_dataset_fingerprint(cases),
+    )
+
+    assert provider.messages == ["What is my profile?"] * 2
+    assert report.summary.cases_completed_current_invocation == 2
+
+
+def test_holdout_incompatible_resume_is_rejected() -> None:
+    cases = (_holdout_case("holdout_incompatible"),)
+    fingerprint = agent_dataset_fingerprint(cases)
+    previous = AgentEvaluationReport(
+        generated_at=datetime.now(UTC),
+        split=EvaluationSplit.HOLDOUT,
+        dataset_fingerprint=fingerprint,
+        configuration=_configuration(),
+        summary=build_agent_summary(cases_total=1, results=()),
+        cases=(),
+    )
+
+    with pytest.raises(AgentResumeCompatibilityError, match="dataset fingerprint does not match"):
+        _runner(SequenceProvider([])).run(
+            split=EvaluationSplit.HOLDOUT,
+            cases=cases,
+            dataset_fingerprint="f" * 64,
+            previous_report=previous,
+        )
+    with pytest.raises(AgentResumeCompatibilityError, match="configuration does not match"):
+        _runner(SequenceProvider([]), configuration=_configuration(agent_timeout_seconds=45)).run(
+            split=EvaluationSplit.HOLDOUT,
+            cases=cases,
+            dataset_fingerprint=fingerprint,
+            previous_report=previous,
         )
 
 

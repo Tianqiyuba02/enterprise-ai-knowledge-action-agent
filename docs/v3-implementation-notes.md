@@ -7,9 +7,10 @@ Deterministic product code is frozen at `e93b5c1a476a4ed6983f60897839c016652971b
 may add evaluation evidence, evaluator-harness control-flow, or documentation. Frozen product
 behavior is unchanged.
 
-V3 is **not released**. Live development evaluation is **incomplete**. The frozen holdout has
-**not** been run. Target release remains `v0.4.0` after development review, holdout, and release
-review. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
+V3 is **not released**. Live development evaluation passed. The frozen holdout has **not** been
+run. Stage 5B activates an explicit `--authorize-holdout` CLI path without changing product
+behavior or `v3-agent-eval-2` report semantics. Target release remains `v0.4.0` after holdout and
+release review. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
 
 ## Frozen V3 design
 
@@ -53,6 +54,10 @@ Helpful knowledge fallback: when a user asks V3 to perform an unsupported action
 must state that it cannot perform and did not perform the action. It may use `knowledge_query` for
 a trusted manual procedure or next steps when that information is relevant. Guidance must remain
 distinct from execution. This does not add an execution capability or mutate business state.
+
+Post-V3 hardening backlog, not a pre-holdout blocker: the current relative-weekday constraint can
+over-constrain mixed-form date requests because a matched relative weekday may constrain both
+prepare endpoints. This fails closed. Do not change the frozen product implementation for it.
 
 Public surface: authenticated `POST /api/v1/assistant/query`.
 
@@ -171,8 +176,9 @@ be localized inside the provider.
 ### Holdout status
 
 Frozen holdout: 8 cases, fingerprint
-`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** The holdout
-has remained untouched.
+`b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58`. **0 executed.** Accidental
+`--split holdout` remains rejected. Authorized Stage 5B invocation requires `--authorize-holdout`
+and the frozen fingerprint. The holdout has not been executed.
 
 ## Historical stage notes
 
@@ -499,8 +505,10 @@ Metrics are mechanical. They grade tool selection, identity/business-state invar
 citations, structured prepared actions, bounded execution, narrow false-execution phrases, and
 forbidden prompt-injection calls. No second LLM or generic answer-quality judge is used.
 
-Stage 5A's CLI rejects `--mode agent --split holdout`; the holdout has not been executed or used for
-tuning. Detailed methodology and frozen fingerprints are in `docs/v3-agent-evaluation.md`.
+Stage 5A's CLI rejected `--mode agent --split holdout`. Stage 5B keeps that accidental rejection
+and adds `--authorize-holdout` for one frozen campaign. Report schema remains `v3-agent-eval-2`.
+The holdout has not been executed or used for tuning. Detailed methodology and frozen fingerprints
+are in `docs/v3-agent-evaluation.md`.
 
 ## Gemini GenerateContent continuation correction
 
