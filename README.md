@@ -2,8 +2,8 @@
 
 This repository contains the completed **Product Milestone V0** LLM foundation, **Product
 Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** authority-aware
-RAG implementation released as `v0.3.0`, and **Product Milestone V3** Agent + Tools prepared
-for release as `v0.4.0`.
+RAG implementation released as `v0.3.0`, and **Product Milestone V3** Agent + Tools released
+as `v0.4.0`.
 
 This is not yet the finished enterprise assistant. The approved product plan is in
 [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -15,7 +15,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
-| V3 — Agent + Tools | ✅ Complete — target `v0.4.0` |
+| V3 — Agent + Tools | ✅ Complete — `v0.4.0` |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
 
@@ -67,7 +67,11 @@ Development and frozen holdout are separate campaigns. They are not one 24-case 
 
 **Final release-candidate review:** PASS — 0 blockers, 0 high
 
-V3 is prepared for `v0.4.0` and is not yet published.
+V3 `v0.4.0` is published.
+
+- Release commit: `d396122d368be8c4849872c233460da09a857b17`
+- Annotated tag: `v0.4.0`
+- GitHub Release: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent/releases/tag/v0.4.0
 
 ## What V0 demonstrates
 
@@ -138,8 +142,8 @@ uv run enterprise-ai-eval --mode agent --split development --live --delay-second
 The V3 agent holdout passed on first authorized exposure. Accidental
 `--mode agent --split holdout` remains rejected. An authorized campaign still requires explicit
 `--authorize-holdout`. See `docs/v3-agent-evaluation.md` for the mechanical metrics, campaign
-result, and adjudication record, and `docs/v3-release-readiness.md` for the current `v0.4.0`
-gate. V3 product code is frozen; V3 is not released.
+result, and adjudication record, and `docs/v3-release-readiness.md` for the published `v0.4.0`
+status. V3 product code remains frozen at the published release.
 
 ## Prerequisites
 
@@ -271,7 +275,7 @@ GitHub Release
 
 Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, and V3 → `v0.4.0`. Planned
 future mapping is V4 → `v0.5.0` and portfolio-ready V5 → `v1.0.0`. Tags are created only after
-milestone review and merge to `main`. `v0.4.0` is not yet published.
+milestone review and merge to `main`. `v0.4.0` is published.
 
 ## Project structure
 

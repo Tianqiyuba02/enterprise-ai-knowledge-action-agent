@@ -2,14 +2,16 @@
 
 ## Current stage
 
-Product Milestone V3 — Agent + Tools is under **code freeze** on `feature/v3-agent-tools`.
-Authoritative product behavior is frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`. Later
-commits add evaluation evidence, evaluator-harness control-flow, or documentation. Frozen product
-behavior is unchanged.
+Product Milestone V3 — Agent + Tools is **published** as `v0.4.0`.
 
-V3 is **not released**. Live development evaluation passed. The frozen holdout passed on first
-exposure. Final release-candidate review passed. Release preparation for `v0.4.0` is in
-progress. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
+- Release commit: `d396122d368be8c4849872c233460da09a857b17`
+- Annotated tag: `v0.4.0`
+- GitHub Release: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent/releases/tag/v0.4.0
+
+Authoritative product behavior remains frozen at `2c05c8f9fe79b63e247dd6994e47176db8003763`.
+Later commits added evaluation evidence, evaluator-harness control-flow, documentation, or
+release metadata. This post-release documentation update occurs after the tagged artifact and
+is not part of `v0.4.0`. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
 
 ## Frozen V3 design
 
