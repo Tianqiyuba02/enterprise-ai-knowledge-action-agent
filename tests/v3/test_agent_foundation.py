@@ -154,6 +154,24 @@ def test_system_instruction_states_general_no_exploratory_tool_discipline() -> N
     assert "dev_agent_" not in AGENT_SYSTEM_INSTRUCTION
 
 
+def test_system_instruction_states_general_relative_weekday_convention() -> None:
+    assert (
+        'Interpret "next <weekday>" as the first occurrence of that weekday strictly after the '
+        "trusted" in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "current Australia/Melbourne date" in AGENT_SYSTEM_INSTRUCTION
+    assert (
+        "Convert that interpreted date to ISO YYYY-MM-DD before proposing"
+        in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "A prepared leave draft remains non-executing" in AGENT_SYSTEM_INSTRUCTION
+    assert "must expose the resulting" in AGENT_SYSTEM_INSTRUCTION
+    assert "explicit date" in AGENT_SYSTEM_INSTRUCTION
+    assert "2026-08-28" not in AGENT_SYSTEM_INSTRUCTION
+    assert "Friday" not in AGENT_SYSTEM_INSTRUCTION
+    assert "dev_agent_prepare_next_friday" not in AGENT_SYSTEM_INSTRUCTION
+
+
 def test_system_instruction_change_does_not_weaken_security_or_runtime_boundaries() -> None:
     assert "UNTRUSTED DATA" in AGENT_SYSTEM_INSTRUCTION
     assert "Never infer, select, or change employee identity" in AGENT_SYSTEM_INSTRUCTION

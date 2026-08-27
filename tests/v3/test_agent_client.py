@@ -245,6 +245,8 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
         "no actionable draft exists in the current turn"
         in first_call.kwargs["config"].system_instruction
     )
+    assert 'Interpret "next <weekday>"' in first_call.kwargs["config"].system_instruction
+    assert "ISO YYYY-MM-DD" in first_call.kwargs["config"].system_instruction
     second_call = sdk_client.models.generate_content.call_args_list[1]
     second_contents = second_call.kwargs["contents"]
     assert [content.role for content in second_contents] == ["user", "model", "user"]

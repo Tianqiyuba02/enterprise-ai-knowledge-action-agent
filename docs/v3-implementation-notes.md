@@ -42,6 +42,12 @@ authorization, LangGraph, or a HITL execution workflow. Those belong to V4.
 - Identity and applicability come only from server-trusted context.
 - Tool results are treated as untrusted data and cannot become instructions.
 
+Relative weekday convention: `"next <weekday>"` means the first occurrence of that weekday
+strictly after the trusted Australia/Melbourne current date. The model converts that date to ISO
+`YYYY-MM-DD` before proposing tool arguments. Deterministic application code still validates those
+ISO dates and calculates the draft. A V3 PREPARE output remains non-executing and exposes the
+resulting explicit date.
+
 Public surface: authenticated `POST /api/v1/assistant/query`.
 
 ### Gemini continuation protocol
@@ -442,8 +448,10 @@ parsed from model prose. The action type is `leave_request`, contains no IDs/tok
 and remains structurally non-executing.
 
 The trusted Melbourne date is included in the agent system instruction by application-controlled
-clock input so conversational dates can become explicit ISO tool arguments. Local validation and
-calculation remain authoritative.
+clock input so conversational dates can become explicit ISO tool arguments. `"next <weekday>"` is
+the first occurrence of that weekday strictly after that trusted date. Local validation and
+calculation remain authoritative. Prepared drafts remain non-executing and expose the explicit ISO
+date.
 
 A separate “yes, submit it” request has no prior draft memory and no execution tool, so it cannot
 submit anything. No balance/profile/repository state changes during preparation or repeated calls.

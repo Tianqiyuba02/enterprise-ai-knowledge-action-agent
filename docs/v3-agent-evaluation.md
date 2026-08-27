@@ -37,8 +37,10 @@ Development categories are:
 | conversational confirmation | 1 |
 
 The prepare set includes relative-date interpretation, weekend exclusion, insufficient balance, and
-a valid past date. The past-date case asserts only structural preparation and does not infer HR
-approval.
+a valid past date. Relative weekday interpretation is a product rule: `"next <weekday>"` is the
+first occurrence of that weekday strictly after the trusted Australia/Melbourne date, converted to
+ISO `YYYY-MM-DD` before tool arguments. The past-date case asserts only structural preparation and
+does not infer HR approval. Prepared drafts remain non-executing and expose the explicit date.
 
 ## Execution architecture
 
