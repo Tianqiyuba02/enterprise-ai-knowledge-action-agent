@@ -31,3 +31,11 @@ class OrchestrationAuthorityError(WorkflowError):
 
 class WorkflowInvariantError(WorkflowError):
     """Raised when durable scheduling contradicts authoritative PostgreSQL state."""
+
+
+class WorkflowIntegrityError(WorkflowError):
+    """Raised when stored workflow authority is internally inconsistent."""
+
+
+class ExecutionFenceError(WorkflowError):
+    """Raised when a stale or unauthorized worker may not mutate business state."""

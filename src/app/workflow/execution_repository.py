@@ -67,6 +67,22 @@ class ExecutionLedgerRepository:
             )
         ).scalar_one_or_none()
 
+    def get_by_action(
+        self,
+        session: Session,
+        *,
+        action_id: UUID,
+        revision: int = V4_REVISION,
+        operation: ExecutionOperation = ExecutionOperation.SUBMIT_ANNUAL_LEAVE,
+    ) -> ActionExecutionLedger | None:
+        return session.execute(
+            select(ActionExecutionLedger).where(
+                ActionExecutionLedger.action_id == action_id,
+                ActionExecutionLedger.revision == revision,
+                ActionExecutionLedger.operation == operation.value,
+            )
+        ).scalar_one_or_none()
+
     def lock_reservation_statement(
         self,
         *,

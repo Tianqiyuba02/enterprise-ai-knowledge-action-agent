@@ -5,6 +5,7 @@ from sqlalchemy.dialects import postgresql
 from app.workflow.audit_repository import AuditRepository
 from app.workflow.challenge_repository import ChallengeRepository
 from app.workflow.execution_repository import ExecutionLedgerRepository
+from app.workflow.leave_command_repository import LeaveCommandRepository
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.outbox_repository import OutboxRepository
 from app.workflow.workflow_repository import WorkflowRepository
@@ -25,6 +26,7 @@ def test_leave_query_repository_has_no_submission_path() -> None:
         "overlapping_active_annual_leave",
     } <= methods
     assert {"insert", "create", "submit", "add", "save", "persist"}.isdisjoint(methods)
+    assert "persist" in {name for name in dir(LeaveCommandRepository) if not name.startswith("_")}
 
 
 def test_challenge_repository_has_no_token_issuance() -> None:

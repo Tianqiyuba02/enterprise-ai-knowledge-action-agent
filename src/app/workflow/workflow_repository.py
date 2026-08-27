@@ -9,7 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.workflow_models import ActionRevision, ActionWorkflow
-from app.workflow.domain import V4_REVISION, ActionType, WorkflowState
+from app.workflow.domain import (
+    UNRESOLVED_EXECUTION_STATES,
+    V4_REVISION,
+    ActionType,
+    WorkflowState,
+)
 from app.workflow.errors import WorkflowRowNotFoundError
 
 
@@ -139,6 +144,19 @@ class WorkflowRepository:
         row.state = state.value
         session.flush()
         return row
+
+    def list_unresolved_by_business_request_key(
+        self,
+        session: Session,
+        business_request_key: str,
+    ) -> tuple[ActionRevision, ...]:
+        rows = session.execute(
+            select(ActionRevision).where(
+                ActionRevision.business_request_key == business_request_key,
+                ActionRevision.state.in_([state.value for state in UNRESOLVED_EXECUTION_STATES]),
+            )
+        ).scalars()
+        return tuple(rows)
 
     def lock_revision_statement(
         self,

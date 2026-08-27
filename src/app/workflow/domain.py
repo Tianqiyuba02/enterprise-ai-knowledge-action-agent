@@ -39,6 +39,13 @@ TERMINAL_WORKFLOW_STATES: Final = frozenset(
     }
 )
 ALL_WORKFLOW_STATES: Final = NON_TERMINAL_WORKFLOW_STATES | TERMINAL_WORKFLOW_STATES
+UNRESOLVED_EXECUTION_STATES: Final = frozenset(
+    {
+        WorkflowState.EXECUTING,
+        WorkflowState.UNKNOWN_OUTCOME,
+        WorkflowState.RECONCILING,
+    }
+)
 
 
 class ActionType(StrEnum):
