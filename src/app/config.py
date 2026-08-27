@@ -1,4 +1,4 @@
-"""Environment-based configuration for the released app and isolated V2 database paths."""
+"""Environment configuration with isolated released-app, V2, and V3 boundaries."""
 
 from typing import Literal
 
@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 APPROVED_EMBEDDING_MODEL = "gemini-embedding-2"
 APPROVED_EMBEDDING_DIMENSION = 768
 APPROVED_GROUNDED_MODEL = "gemini-3.6-flash"
+APPROVED_AGENT_MODEL = "gemini-3.6-flash"
 DEFAULT_KNOWLEDGE_DATABASE_URL = (
     "postgresql+psycopg://knowledge_app:knowledge_app_local_only@127.0.0.1:5433/knowledge_agent"
 )
@@ -28,6 +29,13 @@ class KnowledgeConfigurationError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Knowledge database configuration is missing or invalid.")
+
+
+class AgentConfigurationError(RuntimeError):
+    """Raised only when a V3 agent path loads invalid model configuration."""
+
+    def __init__(self) -> None:
+        super().__init__("Agent configuration is missing or invalid.")
 
 
 class Settings(BaseSettings):
@@ -94,6 +102,35 @@ class KnowledgeSettings(BaseSettings):
     )
 
 
+class AgentSettings(BaseSettings):
+    """V3 settings loaded lazily and independently of released V1/V2 paths."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    agent_model: Literal["gemini-3.6-flash"] = Field(
+        default=APPROVED_AGENT_MODEL,
+        validation_alias="AGENT_MODEL",
+    )
+    agent_timeout_seconds: int = Field(
+        default=60,
+        validation_alias="AGENT_TIMEOUT_SECONDS",
+        ge=1,
+        le=120,
+    )
+    agent_max_attempts: int = Field(
+        default=1,
+        validation_alias="AGENT_MAX_ATTEMPTS",
+        ge=1,
+        le=3,
+    )
+
+
 def load_settings() -> Settings:
     """Load settings while replacing validation details with a safe CLI message."""
 
@@ -110,3 +147,12 @@ def load_knowledge_settings() -> KnowledgeSettings:
         return KnowledgeSettings()
     except ValidationError as exc:
         raise KnowledgeConfigurationError from exc
+
+
+def load_agent_settings() -> AgentSettings:
+    """Load isolated V3 model settings only when an agent path requests them."""
+
+    try:
+        return AgentSettings()
+    except ValidationError as exc:
+        raise AgentConfigurationError from exc

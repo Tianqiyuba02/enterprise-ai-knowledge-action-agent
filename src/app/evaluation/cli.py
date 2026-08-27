@@ -11,6 +11,7 @@ from app.config import load_knowledge_settings, load_settings
 from app.db.models import Document, DocumentChunk
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
+from app.evaluation.agent_cli import run_agent_cli
 from app.evaluation.loader import evaluation_dataset_fingerprint, load_evaluation_cases
 from app.evaluation.models import (
     CaseExecutionState,
@@ -47,9 +48,13 @@ def _nonnegative_float(value: str) -> float:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="enterprise-ai-eval",
-        description="Measure the frozen V2 RAG baseline without tuning.",
+        description="Measure frozen V2 RAG or V3 agent behavior without tuning.",
     )
-    parser.add_argument("--mode", choices=[mode.value for mode in EvaluationMode], required=True)
+    parser.add_argument(
+        "--mode",
+        choices=[mode.value for mode in EvaluationMode] + ["agent"],
+        required=True,
+    )
     parser.add_argument(
         "--split",
         choices=[split.value for split in EvaluationSplit],
@@ -59,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--live",
         action="store_true",
         help="explicitly allow Gemini and PostgreSQL calls",
+    )
+    parser.add_argument(
+        "--authorize-holdout",
+        action="store_true",
+        help="explicitly authorize the frozen V3 agent holdout campaign",
     )
     parser.add_argument(
         "--resume",
@@ -77,13 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    mode = EvaluationMode(args.mode)
     split = EvaluationSplit(args.split)
     if not args.live:
         print(
             "Error: evaluation requires explicit --live provider/database access.", file=sys.stderr
         )
         return 2
+    if args.mode == "agent":
+        return run_agent_cli(args, split)
+    mode = EvaluationMode(args.mode)
 
     output = args.output or Path(f"evals/results/v2-stage5a-{split.value}-{mode.value}.json")
     if args.resume and not output.is_file():
