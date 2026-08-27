@@ -240,6 +240,11 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
     assert "UNTRUSTED DATA" in first_call.kwargs["config"].system_instruction
     assert "2026-08-26" in first_call.kwargs["config"].system_instruction
     assert "Preparation does not" in first_call.kwargs["config"].system_instruction
+    assert "without exploratory READ calls" in first_call.kwargs["config"].system_instruction
+    assert (
+        "no actionable draft exists in the current turn"
+        in first_call.kwargs["config"].system_instruction
+    )
     second_call = sdk_client.models.generate_content.call_args_list[1]
     second_contents = second_call.kwargs["contents"]
     assert [content.role for content in second_contents] == ["user", "model", "user"]

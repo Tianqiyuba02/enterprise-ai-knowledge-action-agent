@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.agent.client import AGENT_SYSTEM_INSTRUCTION
 from app.agent.contracts import (
     MAX_TOOL_CALLS_PER_TURN,
     V3_TOOL_ALLOWLIST,
@@ -8,7 +9,12 @@ from app.agent.contracts import (
     V3ToolName,
 )
 from app.agent.models import ToolResultStatus
-from app.config import AgentSettings, KnowledgeSettings, Settings
+from app.config import APPROVED_AGENT_MODEL, AgentSettings, KnowledgeSettings, Settings
+from app.evaluation.agent_loader import (
+    agent_dataset_fingerprint,
+    load_agent_evaluation_cases,
+)
+from app.evaluation.models import EvaluationSplit
 
 
 def test_agent_model_is_isolated_from_released_v1_v2_models() -> None:
@@ -121,3 +127,51 @@ def test_tool_budget_and_safe_error_taxonomy_are_explicit() -> None:
 
     with pytest.raises(TypeError):
         V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_PROFILE] = None
+
+
+def test_system_instruction_states_general_no_exploratory_tool_discipline() -> None:
+    assert (
+        "Only call tools when necessary to fulfill an allowed operation for the "
+        "authenticated employee."
+    ) in AGENT_SYSTEM_INSTRUCTION
+    assert (
+        "If a request is disallowed, inapplicable, or cannot be fulfilled in the current turn"
+        in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "without exploratory READ calls" in AGENT_SYSTEM_INSTRUCTION
+    assert (
+        "A request for another employee's private data must not trigger the current "
+        "employee's self-profile" in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "or self-balance tools merely to gather context" in AGENT_SYSTEM_INSTRUCTION
+    assert "A standalone confirmation or submission utterance" in AGENT_SYSTEM_INSTRUCTION
+    assert (
+        "must not trigger READ or PREPARE tools to reconstruct missing" in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert "no actionable draft exists in the current turn" in AGENT_SYSTEM_INSTRUCTION
+    assert "Sam Lee" not in AGENT_SYSTEM_INSTRUCTION
+    assert "Yes, submit it." not in AGENT_SYSTEM_INSTRUCTION
+    assert "dev_agent_" not in AGENT_SYSTEM_INSTRUCTION
+
+
+def test_system_instruction_change_does_not_weaken_security_or_runtime_boundaries() -> None:
+    assert "UNTRUSTED DATA" in AGENT_SYSTEM_INSTRUCTION
+    assert "Never infer, select, or change employee identity" in AGENT_SYSTEM_INSTRUCTION
+    assert (
+        "Authorization and the absence of write tools are enforced by application code"
+        in AGENT_SYSTEM_INSTRUCTION
+    )
+    assert APPROVED_AGENT_MODEL == "gemini-3.6-flash"
+    assert AgentSettings.model_fields["agent_timeout_seconds"].default == 60
+    assert AgentSettings.model_fields["agent_max_attempts"].default == 1
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_PROFILE].llm_arguments == ()
+    assert V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_LEAVE_BALANCES].llm_arguments == ()
+    assert "employee_id" not in V3_TOOL_ALLOWLIST[V3ToolName.GET_MY_TICKET].llm_arguments
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.DEVELOPMENT))
+        == "c8c8822bb4a6b7c6c3058d2c68328ec2c94a5e6b956459688c797e5f11c6bf7a"
+    )
+    assert (
+        agent_dataset_fingerprint(load_agent_evaluation_cases(EvaluationSplit.HOLDOUT))
+        == "b68a78f687b81040e265aef6d934d4879b3180405159cb4d5ed10ad923ba4d58"
+    )
