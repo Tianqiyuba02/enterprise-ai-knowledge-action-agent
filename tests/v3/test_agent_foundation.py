@@ -154,7 +154,7 @@ def test_system_instruction_states_general_no_exploratory_tool_discipline() -> N
     assert "dev_agent_" not in AGENT_SYSTEM_INSTRUCTION
 
 
-def test_knowledge_tool_guidance_distinguishes_informational_from_unsupported_action() -> None:
+def test_knowledge_tool_guidance_allows_helpful_fallback_without_execution() -> None:
     """Contract/prompt representation only; this does not prove live model behavior."""
 
     description = V3_TOOL_ALLOWLIST[V3ToolName.KNOWLEDGE_QUERY].description
@@ -162,16 +162,21 @@ def test_knowledge_tool_guidance_distinguishes_informational_from_unsupported_ac
     assert "policy" in description
     assert "procedure" in description
     assert "how-to" in description
-    assert "automatic fallback" in description
-    assert "unsupported action" in description
+    assert "cannot perform" in description or "cannot perform" in AGENT_SYSTEM_INSTRUCTION
+    assert "trusted manual procedure" in description
+    assert "does not perform the requested action" in description
+    assert "automatic fallback" not in description
+    assert "automatic fallback" not in AGENT_SYSTEM_INSTRUCTION
     assert (
         "Use the knowledge tool for informational, policy, procedure, or how-to questions."
         in AGENT_SYSTEM_INSTRUCTION
     )
-    assert "Do not use it as" in AGENT_SYSTEM_INSTRUCTION
-    assert "an automatic fallback merely because a requested action is unsupported." in (
-        AGENT_SYSTEM_INSTRUCTION
-    )
+    assert "clearly state that it cannot perform and did not" in AGENT_SYSTEM_INSTRUCTION
+    assert "perform the requested action" in AGENT_SYSTEM_INSTRUCTION
+    assert "trusted manual procedure or" in AGENT_SYSTEM_INSTRUCTION
+    assert "next steps when that information is relevant" in AGENT_SYSTEM_INSTRUCTION
+    assert "Keep that guidance distinct from performing the" in AGENT_SYSTEM_INSTRUCTION
+    assert "Never claim that a business action was executed" in AGENT_SYSTEM_INSTRUCTION
     for surface in (description, AGENT_SYSTEM_INSTRUCTION):
         assert "TKT-1001" not in surface
         assert "close my ticket" not in surface.lower()

@@ -245,11 +245,12 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
         "no actionable draft exists in the current turn"
         in first_call.kwargs["config"].system_instruction
     )
-    assert "Do not use it as" in first_call.kwargs["config"].system_instruction
+    assert "trusted manual procedure or" in first_call.kwargs["config"].system_instruction
     assert (
-        "an automatic fallback merely because a requested action is unsupported."
+        "next steps when that information is relevant"
         in first_call.kwargs["config"].system_instruction
     )
+    assert "automatic fallback" not in first_call.kwargs["config"].system_instruction
     assert 'Interpret "next <weekday>"' in first_call.kwargs["config"].system_instruction
     assert "ISO YYYY-MM-DD" in first_call.kwargs["config"].system_instruction
     assert (

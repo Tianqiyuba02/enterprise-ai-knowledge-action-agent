@@ -49,6 +49,11 @@ PREPARE, incompatible model-proposed ISO dates are rejected without rewriting th
 `LeavePreparationService` arithmetic remains unchanged. A V3 PREPARE output remains non-executing
 and exposes the resulting explicit date.
 
+Helpful knowledge fallback: when a user asks V3 to perform an unsupported action, the assistant
+must state that it cannot perform and did not perform the action. It may use `knowledge_query` for
+a trusted manual procedure or next steps when that information is relevant. Guidance must remain
+distinct from execution. This does not add an execution capability or mutate business state.
+
 Public surface: authenticated `POST /api/v1/assistant/query`.
 
 ### Gemini continuation protocol
