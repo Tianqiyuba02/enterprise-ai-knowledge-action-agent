@@ -3,14 +3,16 @@
 from datetime import date
 from typing import Protocol
 
+from pydantic import ValidationError
+
 from app.agent.client import (
     AgentProviderError,
     AgentProviderRateLimitError,
     InvalidAgentProviderResponseError,
 )
-from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN
+from app.agent.contracts import MAX_TOOL_CALLS_PER_TURN, V3ToolName
 from app.agent.dispatcher import ToolDispatcher
-from app.agent.leave_models import LeaveRequestDraft
+from app.agent.leave_models import LeaveRequestDraft, PrepareLeaveRequestArguments
 from app.agent.loop_models import (
     MAX_AGENT_CITATIONS,
     AgentModelTurn,
@@ -24,7 +26,13 @@ from app.agent.models import (
     ToolResult,
     ToolResultStatus,
 )
+from app.agent.provider import normalize_provider_arguments
 from app.agent.provider_failures import AgentProviderFailureDetail
+from app.agent.relative_weekday import (
+    RelativeWeekdayResolution,
+    dates_match_resolved_weekdays,
+    resolve_request_next_weekdays,
+)
 from app.api.knowledge_models import KnowledgeCitation
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.clock import MelbourneClock, TrustedClock
@@ -93,6 +101,7 @@ class AgentService:
                 rounds=0,
             )
 
+        weekday_resolutions = resolve_request_next_weekdays(cleaned_message, self._clock.today())
         pending_responses: tuple[AgentToolResponse, ...] = ()
         citations: list[KnowledgeCitation] = []
         citation_identities: set[tuple[str, str, str, str, int | None]] = set()
@@ -162,10 +171,11 @@ class AgentService:
                     )
                 tool_calls_attempted += 1
                 try:
-                    result = self._dispatcher.dispatch(
-                        name=requested_call.name,
-                        arguments=requested_call.arguments,
-                        context=context,
+                    result = self._dispatch_requested_call(
+                        requested_call.name,
+                        requested_call.arguments,
+                        context,
+                        weekday_resolutions,
                     )
                 except Exception:
                     result = ToolResult.failure(
@@ -197,6 +207,44 @@ class AgentService:
             citations=tuple(citations),
             prepared_leave_request=prepared_leave_request,
         )
+
+    def _dispatch_requested_call(
+        self,
+        name: object,
+        arguments: object,
+        context: AuthenticatedEmployeeContext,
+        weekday_resolutions: tuple[RelativeWeekdayResolution, ...],
+    ) -> ToolResult:
+        rejected = _incompatible_prepare_result(name, arguments, weekday_resolutions)
+        if rejected is not None:
+            return rejected
+        return self._dispatcher.dispatch(
+            name=name,
+            arguments=arguments,
+            context=context,
+        )
+
+
+def _incompatible_prepare_result(
+    name: object,
+    arguments: object,
+    weekday_resolutions: tuple[RelativeWeekdayResolution, ...],
+) -> ToolResult | None:
+    if not weekday_resolutions or name != V3ToolName.PREPARE_LEAVE_REQUEST.value:
+        return None
+    try:
+        parsed = PrepareLeaveRequestArguments.model_validate(
+            normalize_provider_arguments(arguments)
+        )
+    except (ValidationError, ValueError, TypeError):
+        return None
+    if dates_match_resolved_weekdays(parsed.start_date, parsed.end_date, weekday_resolutions):
+        return None
+    return ToolResult.failure(
+        V3ToolName.PREPARE_LEAVE_REQUEST.value,
+        ToolResultStatus.INVALID_ARGUMENTS,
+        "The requested tool or its arguments were invalid.",
+    )
 
 
 def _collect_citations(

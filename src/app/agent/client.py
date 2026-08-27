@@ -21,6 +21,10 @@ from app.agent.provider_failures import (
     AgentProviderFailureKind,
     classify_provider_failure,
 )
+from app.agent.relative_weekday import (
+    resolve_request_next_weekdays,
+    trusted_relative_weekday_context,
+)
 from app.config import AgentSettings, Settings
 
 AGENT_SYSTEM_INSTRUCTION = """You are an internal employee assistant.
@@ -117,15 +121,17 @@ class GeminiAgentClient:
         user_message: str,
         trusted_today: date,
     ) -> "GeminiAgentSession":
-        config = self._config.model_copy(
-            update={
-                "system_instruction": (
-                    f"{AGENT_SYSTEM_INSTRUCTION}\n"
-                    "Trusted current date in Australia/Melbourne: "
-                    f"{trusted_today.isoformat()}."
-                )
-            }
+        instruction = (
+            f"{AGENT_SYSTEM_INSTRUCTION}\n"
+            "Trusted current date in Australia/Melbourne: "
+            f"{trusted_today.isoformat()}."
         )
+        weekday_context = trusted_relative_weekday_context(
+            resolve_request_next_weekdays(user_message, trusted_today)
+        )
+        if weekday_context:
+            instruction = f"{instruction}\n{weekday_context}"
+        config = self._config.model_copy(update={"system_instruction": instruction})
         return GeminiAgentSession(
             client=self._client,
             model=self._model,

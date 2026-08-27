@@ -247,6 +247,9 @@ def test_gemini_session_keeps_automatic_execution_disabled_and_appends_tool_data
     )
     assert 'Interpret "next <weekday>"' in first_call.kwargs["config"].system_instruction
     assert "ISO YYYY-MM-DD" in first_call.kwargs["config"].system_instruction
+    assert (
+        "Trusted relative-weekday resolution" not in first_call.kwargs["config"].system_instruction
+    )
     second_call = sdk_client.models.generate_content.call_args_list[1]
     second_contents = second_call.kwargs["contents"]
     assert [content.role for content in second_contents] == ["user", "model", "user"]
@@ -355,3 +358,45 @@ def test_provider_timeout_is_safe() -> None:
         session.next()
 
     assert "sensitive" not in str(captured.value)
+
+
+def test_start_exposes_request_scoped_relative_weekday_as_trusted_context() -> None:
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = _response(
+        types.Content(role="model", parts=[types.Part(text="Ready.")])
+    )
+    session = GeminiAgentClient(
+        _settings(),
+        _agent_settings(),
+        sdk_client=sdk_client,
+    ).start("Please prepare annual leave for next Friday.", date(2024, 1, 3))
+
+    session.next()
+
+    instruction = sdk_client.models.generate_content.call_args.kwargs["config"].system_instruction
+    assert "Trusted current date in Australia/Melbourne: 2024-01-03." in instruction
+    assert "Trusted relative-weekday resolution for this request:" in instruction
+    assert "- next friday = 2024-01-05" in instruction
+    assert "UNTRUSTED DATA" in instruction
+    assert instruction.index("Trusted relative-weekday resolution") > instruction.index(
+        "UNTRUSTED DATA"
+    )
+    assert "2024-01-12" not in instruction
+    assert "relative_weekday" not in instruction
+    assert "resolve_next_weekday" not in instruction
+
+
+def test_start_does_not_claim_resolution_for_unsupported_date_phrases() -> None:
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = _response(
+        types.Content(role="model", parts=[types.Part(text="Ready.")])
+    )
+    GeminiAgentClient(
+        _settings(),
+        _agent_settings(),
+        sdk_client=sdk_client,
+    ).start("Please prepare annual leave sometime next week.", date(2024, 1, 3)).next()
+
+    instruction = sdk_client.models.generate_content.call_args.kwargs["config"].system_instruction
+    assert "Trusted relative-weekday resolution" not in instruction
+    assert "next friday" not in instruction

@@ -38,9 +38,10 @@ Development categories are:
 
 The prepare set includes relative-date interpretation, weekend exclusion, insufficient balance, and
 a valid past date. Relative weekday interpretation is a product rule: `"next <weekday>"` is the
-first occurrence of that weekday strictly after the trusted Australia/Melbourne date, converted to
-ISO `YYYY-MM-DD` before tool arguments. The past-date case asserts only structural preparation and
-does not infer HR approval. Prepared drafts remain non-executing and expose the explicit date.
+first occurrence of that weekday strictly after the trusted Australia/Melbourne date. The
+application resolves that grammar deterministically and rejects incompatible model-proposed ISO
+dates before draft creation. The past-date case asserts only structural preparation and does not
+infer HR approval. Prepared drafts remain non-executing and expose the explicit date.
 
 ## Execution architecture
 

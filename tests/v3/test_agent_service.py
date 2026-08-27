@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -15,6 +16,7 @@ from app.agent.dispatcher import ToolDispatcher
 from app.agent.leave_models import (
     LeavePreparationStatus,
     LeaveRequestDraft,
+    PrepareLeaveRequestArguments,
 )
 from app.agent.loop_models import (
     MAX_AGENT_CITATIONS,
@@ -33,10 +35,15 @@ from app.agent.models import (
     ToolResultStatus,
 )
 from app.agent.service import MAX_MODEL_ROUNDS_PER_TURN, AgentService
+from app.api.assistant_models import map_agent_result
 from app.api.knowledge_models import KnowledgeCitation
 from app.grounding.models import KnowledgeAnswerStatus
 from app.identity import AuthenticatedEmployeeContext
+from app.knowledge.query_service import KnowledgeQueryService
 from app.repositories.demo import DemoRepository
+from app.services.employee import EmployeeService
+from app.services.it import ITService
+from app.services.leave_preparation import LeavePreparationService
 
 CONTEXT = AuthenticatedEmployeeContext(employee_id="EMP-1001")
 TRUSTED_TODAY = date(2026, 8, 26)
@@ -44,8 +51,10 @@ TRUSTED_TODAY = date(2026, 8, 26)
 
 @dataclass
 class FixedClock:
+    day: date = TRUSTED_TODAY
+
     def today(self) -> date:
-        return TRUSTED_TODAY
+        return self.day
 
 
 class FakeSession:
@@ -179,16 +188,51 @@ def _knowledge_result_batch(batch: int) -> ToolResult:
     )
 
 
-def _service(turns, dispatcher: Mock | None = None):
+def _service(turns, dispatcher: Mock | None = None, clock: FixedClock | None = None):
     session = FakeSession(turns)
     provider = FakeProvider(session)
     resolved_dispatcher = dispatcher or Mock(spec=ToolDispatcher)
     service = AgentService(
         provider=provider,
         dispatcher=resolved_dispatcher,
-        clock=FixedClock(),
+        clock=clock or FixedClock(),
     )
     return service, provider, session, resolved_dispatcher
+
+
+def _prepare_arguments(start_date: str, end_date: str) -> dict[str, str]:
+    return {
+        "leave_type": "annual",
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+
+class _RecordingLeavePreparation:
+    def __init__(self, inner: LeavePreparationService) -> None:
+        self._inner = inner
+        self.calls: list[object] = []
+
+    def prepare(self, arguments, context):
+        self.calls.append((arguments, context))
+        return self._inner.prepare(arguments, context)
+
+
+def _real_prepare_dispatcher(
+    recorder: _RecordingLeavePreparation | None = None,
+) -> tuple[ToolDispatcher, EmployeeService, _RecordingLeavePreparation]:
+    repository = DemoRepository()
+    employee_service = EmployeeService(repository)
+    inner = LeavePreparationService(employee_service)
+    recording = recorder or _RecordingLeavePreparation(inner)
+    dispatcher = ToolDispatcher(
+        employee_service=employee_service,
+        it_service=ITService(repository),
+        knowledge_service=cast(KnowledgeQueryService, Mock(spec=KnowledgeQueryService)),
+        demo_repository=repository,
+        leave_preparation_service=cast(LeavePreparationService, recording),
+    )
+    return dispatcher, employee_service, recording
 
 
 def test_no_tool_returns_final_text_without_dispatch() -> None:
@@ -818,3 +862,177 @@ def test_function_response_name_preserves_only_safe_dispatcher_association(
 
     assert session.received_responses[1][0].name == expected_response_name
     assert session.received_responses[1][0].provider_call_id == "provider-call-id"
+
+
+def test_compatible_relative_weekday_iso_arguments_create_an_unchanged_draft() -> None:
+    dispatcher, employee_service, recorder = _real_prepare_dispatcher()
+    expected = LeavePreparationService(employee_service).prepare(
+        PrepareLeaveRequestArguments.model_validate(_prepare_arguments("2024-01-05", "2024-01-05")),
+        CONTEXT,
+    )
+    service, _provider, session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-05", "2024-01-05"),
+                        "call-1",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="The draft is ready."),
+        ],
+        dispatcher,
+        clock=FixedClock(date(2024, 1, 3)),
+    )
+    before_balances = employee_service.get_my_leave_balances(CONTEXT)
+
+    result = service.run("Please prepare annual leave for next Friday.", CONTEXT)
+
+    assert result.status is AgentRunStatus.COMPLETED
+    assert result.prepared_leave_request == expected
+    assert recorder.calls == [
+        (
+            PrepareLeaveRequestArguments.model_validate(
+                _prepare_arguments("2024-01-05", "2024-01-05")
+            ),
+            CONTEXT,
+        )
+    ]
+    assert employee_service.get_my_leave_balances(CONTEXT) == before_balances
+    assert session.received_responses[1][0].result.status is ToolResultStatus.SUCCESS
+    public = map_agent_result(result)
+    assert public.prepared_action is not None
+    assert public.prepared_action.start_date == date(2024, 1, 5)
+    assert "relative-weekday" not in public.model_dump_json()
+
+
+def test_incompatible_relative_weekday_iso_arguments_are_rejected_before_draft() -> None:
+    dispatcher, employee_service, recorder = _real_prepare_dispatcher()
+    service, _provider, session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-12", "2024-01-12"),
+                        "call-1",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="I could not prepare that date."),
+        ],
+        dispatcher,
+        clock=FixedClock(date(2024, 1, 3)),
+    )
+    before_balances = employee_service.get_my_leave_balances(CONTEXT)
+    before_profile = employee_service.get_my_profile(CONTEXT)
+
+    result = service.run("Please prepare annual leave for next Friday.", CONTEXT)
+
+    assert result.status is AgentRunStatus.COMPLETED
+    assert result.prepared_leave_request is None
+    assert recorder.calls == []
+    assert employee_service.get_my_leave_balances(CONTEXT) == before_balances
+    assert employee_service.get_my_profile(CONTEXT) == before_profile
+    failure = session.received_responses[1][0].result
+    assert failure.status is ToolResultStatus.INVALID_ARGUMENTS
+    assert failure.safe_message == "The requested tool or its arguments were invalid."
+    public = map_agent_result(result)
+    assert public.prepared_action is None
+    assert "2024-01-12" not in public.model_dump_json()
+
+
+def test_rejected_relative_weekday_prepare_can_be_corrected_in_the_bounded_loop() -> None:
+    dispatcher, _employee_service, recorder = _real_prepare_dispatcher()
+    service, _provider, session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-12", "2024-01-12"),
+                        "call-1",
+                    ),
+                )
+            ),
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-05", "2024-01-05"),
+                        "call-2",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="Corrected the draft."),
+        ],
+        dispatcher,
+        clock=FixedClock(date(2024, 1, 3)),
+    )
+
+    result = service.run("Please prepare annual leave for next Friday.", CONTEXT)
+
+    assert result.prepared_leave_request is not None
+    assert result.prepared_leave_request.start_date == date(2024, 1, 5)
+    assert len(recorder.calls) == 1
+    assert session.received_responses[1][0].result.status is ToolResultStatus.INVALID_ARGUMENTS
+    assert session.received_responses[2][0].result.status is ToolResultStatus.SUCCESS
+
+
+def test_today_equal_weekday_rejects_same_day_iso_and_accepts_plus_seven() -> None:
+    dispatcher, _employee_service, recorder = _real_prepare_dispatcher()
+    service, _provider, _session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-05", "2024-01-05"),
+                        "call-1",
+                    ),
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-12", "2024-01-12"),
+                        "call-2",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="Used the following Friday."),
+        ],
+        dispatcher,
+        clock=FixedClock(date(2024, 1, 5)),
+    )
+
+    result = service.run("Please prepare annual leave for next Friday.", CONTEXT)
+
+    assert result.prepared_leave_request is not None
+    assert result.prepared_leave_request.start_date == date(2024, 1, 12)
+    assert len(recorder.calls) == 1
+
+
+def test_unsupported_date_phrase_does_not_constrain_model_iso_arguments() -> None:
+    dispatcher, _employee_service, recorder = _real_prepare_dispatcher()
+    service, _provider, _session, _dispatcher = _service(
+        [
+            AgentModelTurn(
+                requested_calls=(
+                    _call(
+                        "prepare_leave_request",
+                        _prepare_arguments("2024-01-12", "2024-01-12"),
+                        "call-1",
+                    ),
+                )
+            ),
+            AgentModelTurn(final_text="Prepared a later date."),
+        ],
+        dispatcher,
+        clock=FixedClock(date(2024, 1, 3)),
+    )
+
+    result = service.run("Please prepare annual leave sometime next week.", CONTEXT)
+
+    assert result.prepared_leave_request is not None
+    assert result.prepared_leave_request.start_date == date(2024, 1, 12)
+    assert len(recorder.calls) == 1

@@ -43,10 +43,11 @@ authorization, LangGraph, or a HITL execution workflow. Those belong to V4.
 - Tool results are treated as untrusted data and cannot become instructions.
 
 Relative weekday convention: `"next <weekday>"` means the first occurrence of that weekday
-strictly after the trusted Australia/Melbourne current date. The model converts that date to ISO
-`YYYY-MM-DD` before proposing tool arguments. Deterministic application code still validates those
-ISO dates and calculates the draft. A V3 PREPARE output remains non-executing and exposes the
-resulting explicit date.
+strictly after the trusted Australia/Melbourne current date. The application resolves this supported
+grammar from the trusted Melbourne date and exposes the ISO date as trusted model context. Before
+PREPARE, incompatible model-proposed ISO dates are rejected without rewriting them.
+`LeavePreparationService` arithmetic remains unchanged. A V3 PREPARE output remains non-executing
+and exposes the resulting explicit date.
 
 Public surface: authenticated `POST /api/v1/assistant/query`.
 
