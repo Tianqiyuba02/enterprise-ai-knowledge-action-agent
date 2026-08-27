@@ -135,20 +135,28 @@ Accidental `--split holdout` remains rejected. Authorized invocation still requi
 
 ## 6. Final release-candidate review
 
+**PASS**
+
+Reviewed RC: `0131bac1ab393513c1242d02d1e9a48c775c4fe1` on `feature/v3-agent-tools`.
+
+- blockers: 0
+- high findings: 0
+
+## 7. Release preparation
+
+**IN PROGRESS / READY**
+
+Version, README, and readiness metadata are prepared on `feature/v3-agent-tools`. `v0.4.0` is
+**not yet published**.
+
+## 8. Merge / release
+
 **NOT YET DONE**
 
-An independent final review should cover:
-
-- repo/security/adversarial review
-- regression gates
-- docs consistency
-- release-note verification
-
-Do not invoke that review as complete until authorized.
-
-## 7. Merge / release
-
-**NOT YET DONE**
+- Merge: **NOT YET DONE**
+- Annotated tag: **NOT YET CREATED**
+- GitHub Release: **NOT YET CREATED**
+- `v0.4.0`: **NOT YET PUBLISHED**
 
 When authorized:
 
@@ -157,9 +165,13 @@ When authorized:
 No force push. Do not perform these actions until explicitly authorized. Do not mark `v0.4.0`
 released yet.
 
-## 8. Release blocker summary
+## 9. Release blocker summary
 
-V3 product implementation is frozen. Development evaluation, independent pre-holdout review, and
-frozen holdout evaluation have passed.
+V3 product implementation is frozen. Development evaluation, independent pre-holdout review,
+frozen holdout evaluation, and final release-candidate review have passed.
 
-`v0.4.0` is currently blocked on final release-candidate review, then merge/release.
+`v0.4.0` is currently blocked on merge to `develop`/`main`, then annotated tag and GitHub
+Release. It is not yet published.
+
+Medium backlog finding, not fixed: relative-weekday enforcement can over-constrain mixed-form
+date requests. It fails closed and remains deferred as post-V3 hardening.

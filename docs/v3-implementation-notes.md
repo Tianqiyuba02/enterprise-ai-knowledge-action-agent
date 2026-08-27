@@ -8,8 +8,8 @@ commits add evaluation evidence, evaluator-harness control-flow, or documentatio
 behavior is unchanged.
 
 V3 is **not released**. Live development evaluation passed. The frozen holdout passed on first
-exposure. Target release remains `v0.4.0` after final release-candidate review. See
-[`docs/v3-release-readiness.md`](v3-release-readiness.md).
+exposure. Final release-candidate review passed. Release preparation for `v0.4.0` is in
+progress. See [`docs/v3-release-readiness.md`](v3-release-readiness.md).
 
 ## Frozen V3 design
 

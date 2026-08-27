@@ -1,8 +1,9 @@
 # Enterprise AI Knowledge & Action Agent
 
 This repository contains the completed **Product Milestone V0** LLM foundation, **Product
-Milestone V1** FastAPI and trusted-identity backend, and **Product Milestone V2** authority-aware
-RAG implementation prepared for release as `v0.3.0`.
+Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** authority-aware
+RAG implementation released as `v0.3.0`, and **Product Milestone V3** Agent + Tools prepared
+for release as `v0.4.0`.
 
 This is not yet the finished enterprise assistant. The approved product plan is in
 [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -14,7 +15,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V0 — Python + LLM API | ✅ Complete |
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
-| V3 — Agent + Tools | Code freeze — read + leave-prepare; evaluation passed, not released |
+| V3 — Agent + Tools | ✅ Complete — target `v0.4.0` |
 | V4 — LangGraph + HITL | Not started |
 | V5 — Evaluation + Deployment | Not started |
 
@@ -44,6 +45,29 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 - Ruff lint and format checks: **passed**
 
 These synthetic evaluation sets are small and do not establish statistical significance.
+
+### V3 Release-Candidate Verification
+
+Development and frozen holdout are separate campaigns. They are not one 24-case benchmark.
+
+**Development** (`v3-agent-eval-2`):
+
+- 16/16 completed
+- 0 expectation misses
+
+**Frozen holdout** (first exposure):
+
+- 8/8 completed/evaluable
+- 0 expectation misses
+- no holdout tuning
+- no holdout gold changes
+- prompt-injection undesired-call rate: N/A (`null`; no completed holdout case carried that label)
+
+**Independent pre-holdout review:** PASS — 0 blockers, 0 high
+
+**Final release-candidate review:** PASS — 0 blockers, 0 high
+
+V3 is prepared for `v0.4.0` and is not yet published.
 
 ## What V0 demonstrates
 
@@ -209,7 +233,8 @@ error message to standard error and exit non-zero without a traceback.
 
 ## Test and lint
 
-All ordinary V0 and V1 tests require no internet, API key, or paid provider call:
+Ordinary V0, V1, V2, and V3 deterministic tests are offline and require no internet, API key, or
+paid provider call:
 
 ```bash
 uv run pytest
@@ -217,8 +242,8 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-There is no live-provider test in the automated suite. A manual run of the CLI is the explicit live
-smoke test when credentials are available.
+PostgreSQL and live-provider gated tests remain separately identified in the suite. A manual run
+of the CLI is the explicit live smoke test when credentials are available.
 
 ## Development Workflow
 
@@ -244,9 +269,9 @@ GitHub Release
 - Pull Requests may be used as review checkpoints in this solo project, but are not mandatory for
   every small documentation change.
 
-Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, and V2 → `v0.3.0`. Planned future mapping is
-V3 → `v0.4.0`, V4 → `v0.5.0`, and portfolio-ready V5 → `v1.0.0`. Tags are created only after
-milestone review and merge to `main`.
+Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, and V3 → `v0.4.0`. Planned
+future mapping is V4 → `v0.5.0` and portfolio-ready V5 → `v1.0.0`. Tags are created only after
+milestone review and merge to `main`. `v0.4.0` is not yet published.
 
 ## Project structure
 
@@ -293,3 +318,7 @@ Prompt-injection controls are layered mitigations, not universal protection.
 V2 explicitly does **not** include agents, provider-native tool calling, LangGraph, business writes,
 action preparation/confirmation, MCP, multi-agent systems, application containerization, enterprise
 integrations, or a frontend. Those capabilities remain outside Product Milestone V2.
+
+V3 remains READ + PREPARE only. It does not include LangGraph, HITL execution, persisted action
+execution, or business mutation. Mixed-form relative-weekday requests may be over-constrained and
+fail closed; that limitation is deferred as post-V3 hardening and is not fixed in this release.
