@@ -59,6 +59,7 @@ class PreparedLeaveRequestAction(AssistantAPIModel):
     reason: str | None = None
     public_holiday_check_required: bool
     non_executing: Literal[True] = True
+    authority: Literal["preview"] = "preview"
 
     @field_serializer(
         "requested_hours",
@@ -71,9 +72,20 @@ class PreparedLeaveRequestAction(AssistantAPIModel):
 
 
 class AssistantActionStatus(StrEnum):
+    NOT_CREATED = "not_created"
     CREATED = "created"
     REUSED = "reused"
     CREATION_FAILED = "creation_failed"
+
+
+class AssistantActionNotCreatedReason(StrEnum):
+    CALENDAR_UNCOVERED = "calendar_uncovered"
+    NO_SCHEDULED_WORK = "no_scheduled_work"
+    INSUFFICIENT_BALANCE = "insufficient_balance"
+    NOT_EXECUTABLE = "not_executable"
+    UNSUPPORTED_LEAVE_TYPE = "unsupported_leave_type"
+    INVALID_PREPARATION = "invalid_preparation"
+    AUTHORITY_INCONSISTENT = "authority_inconsistent"
 
 
 class AssistantDurableAction(AssistantAPIModel):
@@ -84,6 +96,7 @@ class AssistantDurableAction(AssistantAPIModel):
     draft: dict[str, object]
     action_expires_at: datetime
     confirmation_required: StrictBool
+    authority: Literal["authoritative"] = "authoritative"
 
 
 class AssistantQueryResponse(AssistantAPIModel):
@@ -94,6 +107,7 @@ class AssistantQueryResponse(AssistantAPIModel):
     prepared_action: PreparedLeaveRequestAction | None = None
     action: AssistantDurableAction | None = None
     action_status: AssistantActionStatus | None = None
+    action_not_created_reason: AssistantActionNotCreatedReason | None = None
 
     @model_validator(mode="after")
     def validate_public_shape(self) -> Self:

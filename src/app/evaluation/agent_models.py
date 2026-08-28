@@ -166,6 +166,7 @@ class PreparedActionObservation(AgentEvaluationModel):
     reason: str | None = None
     public_holiday_check_required: bool
     non_executing: Literal[True]
+    authority: Literal["preview"] = "preview"
 
 
 class AgentCaseMetrics(AgentEvaluationModel):

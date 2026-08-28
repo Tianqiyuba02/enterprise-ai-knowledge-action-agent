@@ -2,10 +2,11 @@
 
 ## Current stage
 
-V4 Stage 5B adds deterministic durable action creation from a trusted V3 PREPARE
-result, then additive Assistant API integration. Confirmation remains out-of-band.
-The previously reviewed execution engine can complete submitted leave after
-confirm. This is not a V4 evaluation pass or a release-readiness claim.
+V4 Stage 5C hardens Assistant product truth after Stage 5B integration: preview
+versus authoritative draft, reused persisted truth, explicit action-status
+semantics, and stronger chat-confirmation / graph-init failure contracts.
+Confirmation remains out-of-band. This is not a V4 evaluation pass or a
+release-readiness claim.
 
 Project version remains `0.4.0`. Sealed V3 `v0.4.0` is unchanged.
 
@@ -39,11 +40,20 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
   holiday-adjusted canonical result, not the V3 preview.
 - Stage 5B-2 Assistant `POST /api/v1/assistant/query` may include an additive
   `action` field after AgentService returns. The LLM tool protocol is unchanged.
+- Stage 5C product-truth hardening: `prepared_action` is an explicit preview,
+  `action.draft` is the only confirmable/executable payload, reused actions
+  return the persisted draft, and `action_status` distinguishes no-PREPARE,
+  non-executable PREPARE, created, reused, and T1 creation failure.
 
 Independent Stage 4 review of `feature/v4-workflow-foundation` at
 `4f093599843a91ab87c3fcc58d5d1c12e7254dae` returned PASS: 0 BLOCKER, 0 HIGH,
 1 MEDIUM. That review is not an external certification. The MEDIUM finding is
 the stranded `UNKNOWN_OUTCOME` wake-settlement defect closed in Stage 5A.
+
+Adversarial product-authority review of Stage 5B at
+`7a50289a976b73381cd2b8d188e3d317339988ac` returned PASS: 0 BLOCKER, 0 HIGH,
+2 MEDIUM, 2 LOW. That review is not an external certification. Stage 5C closes
+the product-truth findings from that review.
 
 ## Confirmation control plane
 
@@ -175,15 +185,34 @@ Integration lives after `AgentService.run`. `ToolDispatcher` and the LLM tool al
 are unchanged. The model never receives `action_id`, a confirmation token, or an
 execution key. Chat utterances such as "yes" / "submit it" do not confirm or execute.
 
-`POST /api/v1/assistant/query` remains backward compatible. When a V4 action is
-created or reused, the response adds `action` (server-authoritative draft) and
-`action_status` (`created` / `reused`). The conversational `prepared_action` preview
-may still describe V3 hours. If those differ, the persisted V4 `action.draft` is
-authoritative and matches `GET /api/v1/actions/{action_id}`.
+`POST /api/v1/assistant/query` remains backward compatible. Existing V3
+`prepared_action` is unchanged in meaning: it is conversational preview-only
+(`authority=preview`, `non_executing=true`). It is not confirmable.
 
-If action persistence fails after a successful PREPARE, the assistant answer may still
-be returned, `action` is absent, and `action_status` is `creation_failed`. No
-`action_id` is fabricated.
+When a durable action exists, `action.draft` is the persisted V4 canonical draft
+(`authority=authoritative`). Only that draft is confirmable/executable. It matches
+`GET /api/v1/actions/{action_id}`. Reused actions (`REUSED_EXISTING`,
+`RETURNED_IN_FLIGHT`, `RETURNED_SUCCEEDED`) return that persisted draft only; a
+newer conversational reason or hours in `prepared_action` does not mutate it.
+
+`action_status` is the explicit discriminator:
+
+- omitted/`null`: no trusted PREPARE existed (READ-only / no action intent)
+- `not_created`: a conversational PREPARE existed but V4 created no executable
+  action; `action_not_created_reason` carries a deterministic public category;
+  nothing is available to confirm
+- `created`: a new durable action was persisted
+- `reused`: an existing owner-scoped action was returned
+- `creation_failed`: T1 persistence failed; `action` is absent; no fabricated
+  `action_id`
+
+Chat text cannot confirm. Even if the model emits another PREPARE for the same
+business request, ActionCreationService may reuse the live action, but no
+challenge, token, outbox event, or execution occurs.
+
+If graph initialization fails after T1 persistence, the response still returns
+the real persisted `action_id` with `created`/`reused`. That is not
+`creation_failed`. Retry reuses the same action. PostgreSQL remains authority.
 
 A complete offline PostgreSQL path exists:
 

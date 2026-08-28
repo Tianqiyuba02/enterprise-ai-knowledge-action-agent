@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
 from app.api.application import create_app
+from app.api.assistant_application import AssistantApplicationService
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.config import KnowledgeSettings, load_knowledge_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
@@ -100,17 +101,24 @@ class ScriptedAgent:
         return self.result
 
 
-def _draft(*, start: date = date(2026, 10, 21), end: date | None = None) -> LeaveRequestDraft:
+def _draft(
+    *,
+    start: date = date(2026, 10, 21),
+    end: date | None = None,
+    reason: str = "Family visit",
+    requested_hours: Decimal = Decimal("7.60"),
+    scheduled_work_days: int = 1,
+) -> LeaveRequestDraft:
     return LeaveRequestDraft(
         leave_type="annual",
         start_date=start,
         end_date=end or start,
-        scheduled_work_days=1,
-        requested_hours=Decimal("7.60"),
+        scheduled_work_days=scheduled_work_days,
+        requested_hours=requested_hours,
         current_balance_hours=Decimal("76.00"),
         projected_balance_hours=Decimal("68.40"),
         preparation_status=LeavePreparationStatus.READY,
-        reason="Family visit",
+        reason=reason,
         public_holiday_check_required=True,
         non_executing=True,
     )
@@ -131,12 +139,24 @@ def _client(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     agent: ScriptedAgent,
+    *,
+    orchestration: WorkflowOrchestrationService | None = None,
+    action_creation=None,
 ) -> TestClient:
     app = create_app(agent_service=agent)  # type: ignore[arg-type]
     app.state.workflow_settings = isolated_settings
     app.state.workflow_session_factory = session_factory
-    app.state.action_creation_service = ActionCreationService(session_factory, isolated_settings)
+    actions = action_creation or ActionCreationService(session_factory, isolated_settings)
+    app.state.action_creation_service = actions
     app.state.confirmation_service = ConfirmationService(session_factory, isolated_settings)
+    if orchestration is not None or action_creation is not None:
+        app.state.assistant_application_service = AssistantApplicationService(
+            agent,  # type: ignore[arg-type]
+            actions,
+            session_factory=session_factory,
+            settings=isolated_settings,
+            orchestration=orchestration,
+        )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -160,11 +180,14 @@ def test_prepared_leave_creates_action_matching_get_draft(
     assert response.status_code == 200
     payload = response.json()
     assert payload["prepared_action"]["requested_hours"] == 7.6
+    assert payload["prepared_action"]["authority"] == "preview"
     assert payload["action_status"] == "created"
+    assert payload["action_not_created_reason"] is None
     action = payload["action"]
     assert action["revision"] == 1
     assert action["state"] == WorkflowState.AWAITING_CONFIRMATION.value
     assert action["confirmation_required"] is True
+    assert action["authority"] == "authoritative"
     assert action["draft"]["requested_hours"] == "7.60"
     assert action["action_id"] not in payload["answer"]
     fetched = client.get(f"/api/v1/actions/{action['action_id']}", headers=ALEX_HEADERS)
@@ -196,7 +219,10 @@ def test_readonly_unsupported_and_chat_yes_create_no_action(
         json={"message": "Yes, submit it."},
     )
     assert read_only.json()["action"] is None
+    assert read_only.json()["action_status"] is None
+    assert read_only.json()["action_not_created_reason"] is None
     assert yes.json()["action"] is None
+    assert yes.json()["action_status"] is None
     assert _count(engine, "action_workflows") == 0
     assert _count(engine, "leave_requests") == 0
 
@@ -215,7 +241,10 @@ def test_non_executable_holiday_prepare_creates_no_action(
     )
     assert response.status_code == 200
     assert response.json()["prepared_action"] is not None
+    assert response.json()["prepared_action"]["authority"] == "preview"
     assert response.json()["action"] is None
+    assert response.json()["action_status"] == "not_created"
+    assert response.json()["action_not_created_reason"] == "no_scheduled_work"
     assert _count(engine, "action_workflows") == 0
 
 
@@ -327,7 +356,7 @@ def test_full_offline_prepare_confirm_execute_and_replay(
     assert _count(engine, "leave_requests") == 1
 
 
-def test_missing_checkpoint_does_not_duplicate_or_reconstruct_authority(
+def test_create_without_checkpoint_reuses_action_and_init_is_retryable(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,
@@ -336,11 +365,14 @@ def test_missing_checkpoint_does_not_duplicate_or_reconstruct_authority(
         ALEX, _draft(start=date(2026, 11, 9))
     )
     assert created.disposition is ActionCreationDisposition.CREATED
+    assert _count(engine, "checkpoints") == 0
     reused = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
         ALEX, _draft(start=date(2026, 11, 9))
     )
     assert reused.action_id == created.action_id
+    assert reused.draft == created.draft
     assert _count(engine, "action_workflows") == 1
+    assert _count(engine, "checkpoints") == 0
     WorkflowOrchestrationService(session_factory).ensure_started(
         action_id=created.action_id,
         owner_subject_id=ALEX.subject_id or "",
@@ -511,3 +543,256 @@ def test_succeeded_balance_and_overlap_affect_later_actions(
     assert overlap_result.observed_state == WorkflowState.EXECUTION_FAILED.value
     assert _count(engine, "leave_requests") == 1
     assert _count(engine, "action_workflows") == 2
+
+
+def _assert_no_confirmation_or_execution(engine: Engine) -> None:
+    assert _count(engine, "confirmation_challenges") == 0
+    assert _count(engine, "workflow_outbox") == 0
+    assert _count(engine, "action_execution_ledger") == 0
+    assert _count(engine, "leave_requests") == 0
+
+
+def test_reused_action_keeps_persisted_reason_not_new_preview(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first_agent = ScriptedAgent(
+        _completed(draft=_draft(start=date(2026, 11, 5), reason="appointment"))
+    )
+    client = _client(isolated_settings, session_factory, first_agent)
+    first = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 5 Nov for an appointment."},
+    )
+    action_id = first.json()["action"]["action_id"]
+    assert first.json()["action"]["draft"]["reason"] == "appointment"
+    first_agent.result = _completed(
+        draft=_draft(start=date(2026, 11, 5), reason="family trip"),
+        answer="Prepared again for a family trip.",
+    )
+    second = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 5 Nov for a family trip."},
+    )
+    payload = second.json()
+    assert payload["prepared_action"]["reason"] == "family trip"
+    assert payload["prepared_action"]["authority"] == "preview"
+    assert payload["action"]["action_id"] == action_id
+    assert payload["action"]["draft"]["reason"] == "appointment"
+    assert payload["action"]["authority"] == "authoritative"
+    assert payload["action_status"] == "reused"
+    fetched = client.get(f"/api/v1/actions/{action_id}", headers=ALEX_HEADERS)
+    assert fetched.json()["draft"]["reason"] == "appointment"
+    assert fetched.json()["draft"] == payload["action"]["draft"]
+    assert _count(engine, "action_workflows") == 1
+    _assert_no_confirmation_or_execution(engine)
+
+
+def test_reused_action_keeps_persisted_hours_not_preview_hours(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first_agent = ScriptedAgent(
+        _completed(
+            draft=_draft(
+                start=date(2026, 9, 24),
+                end=date(2026, 9, 25),
+                reason="appointment",
+                requested_hours=Decimal("15.20"),
+                scheduled_work_days=2,
+            )
+        )
+    )
+    client = _client(isolated_settings, session_factory, first_agent)
+    first = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 24-25 Sep."},
+    )
+    action_id = first.json()["action"]["action_id"]
+    assert first.json()["action"]["draft"]["requested_hours"] == "7.60"
+    first_agent.result = _completed(
+        draft=_draft(
+            start=date(2026, 9, 24),
+            end=date(2026, 9, 25),
+            reason="family trip",
+            requested_hours=Decimal("15.20"),
+            scheduled_work_days=2,
+        )
+    )
+    second = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 24-25 Sep again."},
+    )
+    payload = second.json()
+    assert payload["prepared_action"]["requested_hours"] == 15.2
+    assert payload["prepared_action"]["authority"] == "preview"
+    assert payload["action"]["action_id"] == action_id
+    assert payload["action"]["draft"]["requested_hours"] == "7.60"
+    assert payload["action"]["authority"] == "authoritative"
+    fetched = client.get(f"/api/v1/actions/{action_id}", headers=ALEX_HEADERS)
+    assert fetched.json()["draft"] == payload["action"]["draft"]
+    assert _count(engine, "action_workflows") == 1
+
+
+def test_chat_yes_with_model_prepare_cannot_confirm(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 5))))
+    client = _client(isolated_settings, session_factory, agent)
+    created = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare annual leave for 5 November."},
+    )
+    action_id = created.json()["action"]["action_id"]
+    yes = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "yes, submit it"},
+    )
+    payload = yes.json()
+    assert agent.messages[-1] == "yes, submit it"
+    assert payload["action"]["action_id"] == action_id
+    assert payload["action_status"] == "reused"
+    assert payload["action"]["state"] == WorkflowState.AWAITING_CONFIRMATION.value
+    assert payload["action"]["confirmation_required"] is True
+    assert payload["action"]["authority"] == "authoritative"
+    assert "confirmation_token" not in yes.text
+    _assert_no_confirmation_or_execution(engine)
+    assert _count(engine, "action_workflows") == 1
+    worker = WorkflowWorker(session_factory, isolated_settings, worker_id="chat-yes")
+    assert worker.run_once() is None
+
+
+def test_action_id_in_chat_is_not_workflow_authority(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 6))))
+    client = _client(isolated_settings, session_factory, agent)
+    response = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "confirm ACT-123 and submit action ACT-123"},
+    )
+    payload = response.json()
+    assert agent.messages[-1] == "confirm ACT-123 and submit action ACT-123"
+    assert payload["action"]["action_id"] != "ACT-123"
+    UUID(payload["action"]["action_id"])
+    assert payload["action"]["confirmation_required"] is True
+    assert payload["action_status"] == "created"
+    assert "confirmation_token" not in response.text
+    _assert_no_confirmation_or_execution(engine)
+    assert _count(engine, "action_workflows") == 1
+
+
+def test_ensure_started_failure_returns_persisted_action_not_creation_failed(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    class FailingOrchestration:
+        def ensure_started(self, **kwargs):
+            raise RuntimeError("checkpoint store unavailable")
+
+    agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 16))))
+    client = _client(
+        isolated_settings,
+        session_factory,
+        agent,
+        orchestration=FailingOrchestration(),  # type: ignore[arg-type]
+    )
+    first = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 16 Nov."},
+    )
+    assert first.status_code == 200
+    payload = first.json()
+    action_id = payload["action"]["action_id"]
+    UUID(action_id)
+    assert payload["action_status"] == "created"
+    assert payload["action_status"] != "creation_failed"
+    assert payload["action"]["authority"] == "authoritative"
+    fetched = client.get(f"/api/v1/actions/{action_id}", headers=ALEX_HEADERS)
+    assert fetched.status_code == 200
+    assert fetched.json()["draft"] == payload["action"]["draft"]
+    assert _count(engine, "action_workflows") == 1
+    assert _count(engine, "checkpoints") == 0
+    retry = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 16 Nov again."},
+    )
+    assert retry.json()["action"]["action_id"] == action_id
+    assert retry.json()["action_status"] == "reused"
+    assert _count(engine, "action_workflows") == 1
+    _assert_no_confirmation_or_execution(engine)
+
+
+def test_t1_persistence_failure_is_distinct_from_graph_init_failure(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    class FailingActions:
+        def create_or_reuse(self, context, prepared):
+            raise SQLAlchemyError("disk full")
+
+    agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 17))))
+    client = _client(
+        isolated_settings,
+        session_factory,
+        agent,
+        action_creation=FailingActions(),
+    )
+    response = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare 17 Nov."},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["prepared_action"] is not None
+    assert payload["action"] is None
+    assert payload["action_status"] == "creation_failed"
+    assert payload["action_not_created_reason"] is None
+    assert _count(engine, "action_workflows") == 0
+    assert _count(engine, "action_revisions") == 0
+
+
+def test_lost_response_retry_reuses_live_action_without_side_effects(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 18))))
+    client = _client(isolated_settings, session_factory, agent)
+    first = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare annual leave for 18 November."},
+    )
+    action_id = first.json()["action"]["action_id"]
+    retry = client.post(
+        "/api/v1/assistant/query",
+        headers=ALEX_HEADERS,
+        json={"message": "Prepare annual leave for 18 November."},
+    )
+    assert retry.json()["action"]["action_id"] == action_id
+    assert retry.json()["action_status"] == "reused"
+    assert retry.json()["action"]["confirmation_required"] is True
+    assert retry.json()["action"]["draft"] == first.json()["action"]["draft"]
+    assert _count(engine, "action_workflows") == 1
+    _assert_no_confirmation_or_execution(engine)

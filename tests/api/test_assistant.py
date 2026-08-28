@@ -192,6 +192,7 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
         "prepared_action": None,
         "action": None,
         "action_status": None,
+        "action_not_created_reason": None,
     }
     assert set(response.json()) == {
         "status",
@@ -201,6 +202,7 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
         "prepared_action",
         "action",
         "action_status",
+        "action_not_created_reason",
     }
     for forbidden in (
         "tool_calls_attempted",
@@ -249,7 +251,11 @@ def test_prepared_action_uses_deterministic_draft_not_model_prose(
         "reason": "Synthetic holiday",
         "public_holiday_check_required": True,
         "non_executing": True,
+        "authority": "preview",
     }
+    assert response.json()["action"] is None
+    assert response.json()["action_status"] == "not_created"
+    assert response.json()["action_not_created_reason"] == "not_executable"
     assert "employee_id" not in response.text
     assert "proposal" not in response.text.lower()
 
@@ -289,6 +295,7 @@ def test_bounded_inability_maps_to_one_safe_public_status(
         "prepared_action": None,
         "action": None,
         "action_status": None,
+        "action_not_created_reason": None,
     }
     assert "budget" not in response.text.lower()
     assert "round" not in response.text.lower()
@@ -426,5 +433,71 @@ def test_persistence_failure_does_not_fabricate_action() -> None:
     )
     assert response.action is None
     assert response.action_status is AssistantActionStatus.CREATION_FAILED
+    assert response.action_not_created_reason is None
     assert response.prepared_action is not None
+    assert response.prepared_action.authority == "preview"
     assert response.answer == "I prepared a draft."
+
+
+def test_graph_initialization_failure_still_returns_persisted_action() -> None:
+    from datetime import UTC, datetime
+    from uuid import UUID
+
+    from app.api.assistant_application import AssistantApplicationService
+    from app.api.assistant_models import AssistantActionStatus
+    from app.identity import AuthenticatedEmployeeContext
+    from app.workflow.action_creation import ActionCreationDisposition, ActionCreationResult
+
+    action_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    persisted_draft = {"reason": "appointment", "requested_hours": "7.60"}
+
+    class CreatedActions:
+        def create_or_reuse(self, context, prepared):
+            return ActionCreationResult(
+                disposition=ActionCreationDisposition.CREATED,
+                action_id=action_id,
+                revision=1,
+                state="AWAITING_CONFIRMATION",
+                action_type="submit_annual_leave",
+                draft=persisted_draft,
+                action_expires_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
+                confirmation_required=True,
+            )
+
+    class FailingOrchestration:
+        def ensure_started(self, **kwargs):
+            raise RuntimeError("checkpoint store unavailable")
+
+    agent = Mock(spec=AgentService)
+    agent.run.return_value = AgentRunResult(
+        status=AgentRunStatus.COMPLETED,
+        answer="I prepared a draft.",
+        citations=(),
+        prepared_leave_request=_draft(),
+        tool_calls_attempted=1,
+        model_rounds=1,
+    )
+    service = AssistantApplicationService(
+        agent,
+        CreatedActions(),
+        orchestration=FailingOrchestration(),  # type: ignore[arg-type]
+    )
+    response = service.query(
+        "Prepare leave",
+        AuthenticatedEmployeeContext(
+            employee_id="EMP-1001",
+            subject_id="subj",
+            session_id="sess",
+            jurisdiction="AU-VIC",
+        ),
+    )
+    assert response.action is not None
+    assert response.action.action_id == str(action_id)
+    assert response.action.draft == persisted_draft
+    assert response.action.authority == "authoritative"
+    assert response.action.confirmation_required is True
+    assert response.action_status is AssistantActionStatus.CREATED
+    assert response.action_status is not AssistantActionStatus.CREATION_FAILED
+    assert response.action_not_created_reason is None
+    assert response.prepared_action is not None
+    assert response.prepared_action.authority == "preview"

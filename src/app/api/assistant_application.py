@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.agent.service import AgentService
 from app.api.assistant_models import (
+    AssistantActionNotCreatedReason,
     AssistantActionStatus,
     AssistantDurableAction,
     AssistantQueryResponse,
@@ -73,7 +74,14 @@ class AssistantApplicationService:
                 update={"action_status": AssistantActionStatus.CREATION_FAILED}
             )
         if not created.has_action or created.action_id is None:
-            return public
+            return public.model_copy(
+                update={
+                    "action_status": AssistantActionStatus.NOT_CREATED,
+                    "action_not_created_reason": _public_not_created_reason(
+                        created.ineligibility_reason
+                    ),
+                }
+            )
         if created.action_id is not None and context.subject_id:
             self._ensure_checkpoint(created.action_id, context.subject_id)
         return public.model_copy(
@@ -101,16 +109,28 @@ def _status_for(disposition: ActionCreationDisposition) -> AssistantActionStatus
         return AssistantActionStatus.CREATED
     if disposition in REUSED_DISPOSITIONS:
         return AssistantActionStatus.REUSED
+    if disposition is ActionCreationDisposition.NOT_CREATED:
+        return AssistantActionStatus.NOT_CREATED
     return None
 
 
+def _public_not_created_reason(reason: str | None) -> AssistantActionNotCreatedReason:
+    try:
+        return AssistantActionNotCreatedReason(reason or "")
+    except ValueError:
+        return AssistantActionNotCreatedReason.NOT_EXECUTABLE
+
+
 def _public_action(created: ActionCreationResult) -> AssistantDurableAction:
+    if created.draft is None:
+        raise ValueError("durable action result is missing persisted draft")
     return AssistantDurableAction(
         action_id=str(created.action_id),
         revision=created.revision or 1,
         action_type=created.action_type or "submit_annual_leave",
         state=created.state or "",
-        draft=created.draft or {},
+        draft=dict(created.draft),
         action_expires_at=created.action_expires_at,
         confirmation_required=created.confirmation_required,
+        authority="authoritative",
     )

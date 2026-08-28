@@ -55,6 +55,7 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "prepared_action",
         "action",
         "action_status",
+        "action_not_created_reason",
     }
     assert "AssistantDurableAction" in component_names
     confirm_properties = schema["components"]["schemas"]["ConfirmActionRequest"]["properties"]

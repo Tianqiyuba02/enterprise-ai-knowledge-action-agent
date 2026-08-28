@@ -269,6 +269,7 @@ def test_policy_balance_and_prepare_flow_returns_deterministic_public_draft() ->
         "reason": None,
         "public_holiday_check_required": True,
         "non_executing": True,
+        "authority": "preview",
     }
     assert response.json()["answer"].startswith("I prepared 80 hours")
 

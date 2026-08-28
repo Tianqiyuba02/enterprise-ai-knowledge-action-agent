@@ -28,9 +28,22 @@ def test_tool_registry_has_no_action_or_execution_tools() -> None:
     application = (ROOT / "src" / "app" / "api" / "assistant_application.py").read_text(
         encoding="utf-8"
     )
+    route = (ROOT / "src" / "app" / "api" / "routes" / "assistant.py").read_text(encoding="utf-8")
     assert "ActionCreationService" not in dispatcher
     assert "ActionCreationService" not in service
+    assert "ConfirmationService" not in dispatcher
+    assert "ConfirmationService" not in service
+    assert "LeaveSubmissionExecutor" not in dispatcher
+    assert "LeaveSubmissionExecutor" not in service
+    assert "LeaveSubmissionExecutor" not in application
+    assert "issue_challenge" not in application
+    assert "issue_challenge" not in route
+    assert ".confirm(" not in application
+    assert ".confirm(" not in route
+    assert ".submit(" not in application
     assert "confirmation_token" not in service
+    assert "confirmation_token" not in application
     assert "action_id" not in service
     assert "AgentService.run" in application or "self._agent.run" in application
     assert "create_or_reuse" in application
+    assert "ensure_started" in application
