@@ -29,25 +29,10 @@ from app.workflow.time import database_now
 from app.workflow.workflow_repository import WorkflowRepository
 
 SUBMIT_MUTATION_STATES = frozenset({WorkflowState.EXECUTING.value})
-RECONCILE_PROBE_STATES = frozenset(
-    {
-        WorkflowState.EXECUTING.value,
-        WorkflowState.UNKNOWN_OUTCOME.value,
-        WorkflowState.RECONCILING.value,
-    }
-)
 SUBMIT_LEDGER_STATUSES = frozenset(
     {
         ExecutionLedgerStatus.RESERVED.value,
         ExecutionLedgerStatus.LEASED.value,
-    }
-)
-RECONCILE_LEDGER_STATUSES = frozenset(
-    {
-        ExecutionLedgerStatus.RESERVED.value,
-        ExecutionLedgerStatus.LEASED.value,
-        ExecutionLedgerStatus.UNKNOWN.value,
-        ExecutionLedgerStatus.RECONCILING.value,
     }
 )
 
@@ -90,7 +75,7 @@ class ExecutorFailpoints:
     raise_after_insert_before_commit: BaseException | None = None
     raise_after_commit: BaseException | None = None
     report_unknown_after_commit: bool = False
-    after_absence_observed: Callable[[], None] | None = None
+    hold_after_insert_before_commit: Callable[[], None] | None = None
 
 
 class LeaveSubmissionExecutor:
@@ -114,17 +99,9 @@ class LeaveSubmissionExecutor:
         self._calendar = TrustedHolidayCalendarService(HolidayCalendarRepository())
 
     def submit(self, permit: ExecutionPermit) -> ExecutorResult:
-        return self._run(permit, conclude_absence=False)
-
-    def reconcile(self, permit: ExecutionPermit) -> ExecutorResult:
-        """Probe-only. Never inserts a leave request."""
-
-        return self._run(permit, conclude_absence=True)
-
-    def _run(self, permit: ExecutionPermit, *, conclude_absence: bool) -> ExecutorResult:
         try:
             with self._session_factory() as session:
-                return self._run_in_session(session, permit, conclude_absence=conclude_absence)
+                return self._run_in_session(session, permit)
         except _AmbiguousOutcome:
             return ExecutorResult(
                 BusinessOutcome.OUTCOME_UNKNOWN,
@@ -136,13 +113,7 @@ class LeaveSubmissionExecutor:
                 execution_key=permit.execution_key,
             )
 
-    def _run_in_session(
-        self,
-        session: Session,
-        permit: ExecutionPermit,
-        *,
-        conclude_absence: bool,
-    ) -> ExecutorResult:
+    def _run_in_session(self, session: Session, permit: ExecutionPermit) -> ExecutorResult:
         workflow = self._workflows.lock_workflow(session, permit.action_id)
         revision = self._workflows.lock_revision(
             session, action_id=permit.action_id, revision=permit.revision
@@ -151,31 +122,14 @@ class LeaveSubmissionExecutor:
             session, action_id=permit.action_id, revision=permit.revision
         )
         now = database_now(session)
-        allowed_states = RECONCILE_PROBE_STATES if conclude_absence else SUBMIT_MUTATION_STATES
-        allowed_ledger = RECONCILE_LEDGER_STATUSES if conclude_absence else SUBMIT_LEDGER_STATUSES
-        fence = self._evaluate_fence(
-            ledger,
-            revision,
-            permit,
-            now,
-            allowed_states=allowed_states,
-            allowed_ledger_statuses=allowed_ledger,
-        )
+        fence = self._evaluate_fence(ledger, revision, permit, now)
         if fence is not None:
             session.commit()
             return fence
         acquire_business_request_lock(session, revision.business_request_key)
-        if not conclude_absence:
-            acquire_employee_lock(session, workflow.owner_employee_id)
+        acquire_employee_lock(session, workflow.owner_employee_id)
         now = database_now(session)
-        fence = self._evaluate_fence(
-            ledger,
-            revision,
-            permit,
-            now,
-            allowed_states=allowed_states,
-            allowed_ledger_statuses=allowed_ledger,
-        )
+        fence = self._evaluate_fence(ledger, revision, permit, now)
         if fence is not None:
             session.commit()
             return fence
@@ -185,15 +139,6 @@ class LeaveSubmissionExecutor:
         if existing is not None:
             session.commit()
             return self._applied_existing(permit, existing)
-        if conclude_absence:
-            self._raise_after_absence_observed()
-            session.commit()
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="authoritatively_absent",
-                execution_key=permit.execution_key,
-                business_request_key=revision.business_request_key,
-            )
         persisted = verify_persisted_draft_integrity(revision)
         calendar = self._calendar.holidays_for_range(
             session,
@@ -274,6 +219,7 @@ class LeaveSubmissionExecutor:
             session.rollback()
             return self._applied_after_conflict(permit, revision.business_request_key)
         self._raise_failpoint("raise_after_insert_before_commit")
+        self._hold_after_insert_before_commit()
         try:
             session.commit()
         except SQLAlchemyError as exc:
@@ -301,9 +247,6 @@ class LeaveSubmissionExecutor:
         revision,
         permit: ExecutionPermit,
         now,
-        *,
-        allowed_states: frozenset[str],
-        allowed_ledger_statuses: frozenset[str],
     ) -> ExecutorResult | None:
         if ledger.execution_key != permit.execution_key:
             return _authority_lost("execution_key_mismatch", permit)
@@ -315,9 +258,9 @@ class LeaveSubmissionExecutor:
             return _authority_lost("wrong_lease_owner", permit)
         if ledger.lease_expires_at is None or ledger.lease_expires_at <= now:
             return _authority_lost("lease_expired", permit)
-        if revision.state not in allowed_states:
+        if revision.state not in SUBMIT_MUTATION_STATES:
             return _authority_lost("revision_not_executable", permit)
-        if ledger.status not in allowed_ledger_statuses:
+        if ledger.status not in SUBMIT_LEDGER_STATUSES:
             return _authority_lost("ledger_not_executable", permit)
         return None
 
@@ -378,10 +321,10 @@ class LeaveSubmissionExecutor:
             raise _AmbiguousOutcome from error
         raise error
 
-    def _raise_after_absence_observed(self) -> None:
-        if self._failpoints is None or self._failpoints.after_absence_observed is None:
+    def _hold_after_insert_before_commit(self) -> None:
+        if self._failpoints is None or self._failpoints.hold_after_insert_before_commit is None:
             return
-        self._failpoints.after_absence_observed()
+        self._failpoints.hold_after_insert_before_commit()
 
 
 def _authority_lost(failure_kind: str, permit: ExecutionPermit) -> ExecutorResult:

@@ -20,7 +20,7 @@ from app.workflow.errors import (
     ExecutionFenceError,
     WorkflowIntegrityError,
 )
-from app.workflow.execution import ExecutionPermit, permit_for_caller
+from app.workflow.execution import ExecutionPermit
 from app.workflow.execution_repository import ExecutionLedgerRepository
 from app.workflow.executor import BusinessOutcome, ExecutorResult, ResolutionKind
 from app.workflow.leave_query_repository import LeaveQueryRepository
@@ -287,39 +287,6 @@ class ExecutionFinalizationService:
                 )
             session.commit()
             return revision.state
-
-    def begin_reconciliation(self, permit: ExecutionPermit, worker_id: str) -> ExecutionPermit:
-        with self._session_factory() as session:
-            self._workflows.lock_workflow(session, permit.action_id)
-            revision = self._workflows.lock_revision(
-                session, action_id=permit.action_id, revision=permit.revision
-            )
-            ledger = self._ledger.lock_reservation(
-                session, action_id=permit.action_id, revision=permit.revision
-            )
-            now = database_now(session)
-            self._require_reconciliation_authority(ledger, permit, worker_id, now)
-            if revision.state in TERMINAL_EXECUTION_STATES:
-                session.commit()
-                return permit_for_caller(ledger, worker_id)
-            from_state = revision.state
-            revision.state = WorkflowState.RECONCILING.value
-            ledger.status = ExecutionLedgerStatus.RECONCILING.value
-            self._audits.insert(
-                session,
-                NewAuditEvent(
-                    action_id=permit.action_id,
-                    event_type=AUDIT_RECONCILIATION_STARTED,
-                    actor_type=ActorType.WORKER,
-                    actor_subject_id=worker_id,
-                    from_state=from_state,
-                    to_state=WorkflowState.RECONCILING.value,
-                    safe_metadata={"lease_generation": ledger.lease_generation},
-                    revision=permit.revision,
-                ),
-            )
-            session.commit()
-            return permit_for_caller(ledger, worker_id)
 
     def _require_reconciliation_authority(
         self,

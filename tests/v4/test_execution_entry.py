@@ -34,9 +34,12 @@ def test_leave_submit_has_exactly_one_normal_runtime_caller() -> None:
     assert "LeaveSubmissionExecutor" not in graph
     assert ".submit(" not in graph
 
-    absence_guard = executor.find("if conclude_absence:")
+    assert "def reconcile(" not in executor
+    assert "conclude_absence" not in executor
+    assert "def begin_reconciliation(" not in finalization
     persist = executor.find("self._leave_commands.persist(")
-    assert 0 < absence_guard < persist
+    assert persist > 0
+    assert executor.count("self._leave_commands.persist(") == 1
 
 
 def test_worker_identity_is_not_taken_from_payloads() -> None:

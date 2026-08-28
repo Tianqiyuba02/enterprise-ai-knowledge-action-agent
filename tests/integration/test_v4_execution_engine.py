@@ -39,6 +39,7 @@ from app.workflow.executor import (
     LeaveSubmissionExecutor,
     ResolutionKind,
 )
+from app.workflow.finalization import ExecutionFinalizationService
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.time import database_now
 from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowRepository
@@ -223,12 +224,33 @@ def test_confirmed_reserves_exactly_one_execution(
     assert second.permit is None
     assert first.permit.lease_generation == 1
     assert _count(engine, "action_execution_ledger") == 1
+    reused = reservation.reserve(action_id=action_id, revision=1, worker_id=WORKER_A)
+    assert reused.outcome is ReservationOutcome.ALREADY_RESERVED
+    assert reused.permit is not None
+    assert reused.permit.execution_key == first.permit.execution_key
     with session_factory() as session:
         state = session.execute(
             text("SELECT state FROM action_revisions WHERE action_id = :action_id"),
             {"action_id": action_id},
         ).scalar_one()
+        audits = (
+            session.execute(
+                text(
+                    """
+                SELECT event_type
+                FROM action_audit_events
+                WHERE action_id = :action_id
+                ORDER BY created_at
+                """
+                ),
+                {"action_id": action_id},
+            )
+            .scalars()
+            .all()
+        )
     assert state == WorkflowState.EXECUTING.value
+    assert "EXECUTION_RESERVATION_REUSED" in audits
+    assert audits.count("EXECUTION_CAS_LOST") == 1
 
 
 def test_expired_confirmed_does_not_reserve(
@@ -558,27 +580,39 @@ def test_reconcile_discovers_applied_and_cross_action_satisfaction(
     unknown = unknown_executor.submit(reserved.permit)
     assert unknown.outcome is BusinessOutcome.OUTCOME_UNKNOWN
     assert _count(engine, "leave_requests") == 1
-    found = LeaveSubmissionExecutor(session_factory, isolated_settings).reconcile(reserved.permit)
-    assert found.outcome is BusinessOutcome.APPLIED
-    assert found.resolution == ResolutionKind.CREATED.value
+    found_state = ExecutionFinalizationService(
+        session_factory, isolated_settings
+    ).classify_and_finalize(reserved.permit, WORKER_A)
+    assert found_state == WorkflowState.SUCCEEDED.value
+    assert _count(engine, "leave_requests") == 1
     with session_factory() as session:
-        session.execute(
-            text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
-            {"action_id": first_id, "state": WorkflowState.SUCCEEDED.value},
-        )
         second_id = _persist_action(session, start=date(2026, 9, 9))
         session.commit()
     second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
     assert second.permit is not None
-    adopted = LeaveSubmissionExecutor(session_factory, isolated_settings).reconcile(second.permit)
-    assert adopted.outcome is BusinessOutcome.APPLIED
-    assert adopted.leave_request_id == found.leave_request_id
-    assert adopted.resolution == ResolutionKind.ADOPTED_EXISTING.value
+    adopted_state = ExecutionFinalizationService(
+        session_factory, isolated_settings
+    ).classify_and_finalize(second.permit, WORKER_B)
+    assert adopted_state == WorkflowState.SUCCEEDED.value
     assert _count(engine, "leave_requests") == 1
     with session_factory() as session:
         row = LeaveQueryRepository().find_by_execution_key(session, reserved.permit.execution_key)
         assert row is not None
         assert row.source_action_id == first_id
+        audits = session.execute(
+            text(
+                """
+                SELECT event_type, safe_metadata
+                FROM action_audit_events
+                WHERE action_id = :action_id AND event_type = 'EXECUTION_SUCCEEDED'
+                """
+            ),
+            {"action_id": second_id},
+        ).all()
+    assert any(
+        audit.safe_metadata.get("resolution") == ResolutionKind.ADOPTED_EXISTING.value
+        for audit in audits
+    )
 
 
 def test_ambiguous_outcome_is_not_labeled_failure(

@@ -37,6 +37,7 @@ from app.workflow.workflow_repository import WorkflowRepository
 AUDIT_ACTION_STALE = "ACTION_STALE"
 AUDIT_EXECUTION_RESERVED = "EXECUTION_RESERVED"
 AUDIT_EXECUTION_CAS_LOST = "EXECUTION_CAS_LOST"
+AUDIT_EXECUTION_RESERVATION_REUSED = "EXECUTION_RESERVATION_REUSED"
 AUDIT_LEASE_TAKEOVER = "LEASE_TAKEOVER"
 
 
@@ -144,11 +145,14 @@ class ExecutionReservationService:
                 return ReservationResult(ReservationOutcome.STALE, row.state)
             existing = self._ledger.get_by_action(session, action_id=action_id, revision=revision)
             if existing is not None:
+                same_owner = existing.lease_owner_id == worker_id
                 self._audits.insert(
                     session,
                     NewAuditEvent(
                         action_id=action_id,
-                        event_type=AUDIT_EXECUTION_CAS_LOST,
+                        event_type=AUDIT_EXECUTION_RESERVATION_REUSED
+                        if same_owner
+                        else AUDIT_EXECUTION_CAS_LOST,
                         actor_type=ActorType.WORKER,
                         actor_subject_id=worker_id,
                         from_state=row.state,
@@ -158,13 +162,10 @@ class ExecutionReservationService:
                     ),
                 )
                 session.commit()
-                owned_permit = None
-                if existing.lease_owner_id == worker_id:
-                    owned_permit = permit_for_caller(existing, worker_id)
                 return ReservationResult(
                     ReservationOutcome.ALREADY_RESERVED,
                     row.state,
-                    permit=owned_permit,
+                    permit=permit_for_caller(existing, worker_id) if same_owner else None,
                 )
             if row.state != WorkflowState.CONFIRMED.value:
                 session.commit()

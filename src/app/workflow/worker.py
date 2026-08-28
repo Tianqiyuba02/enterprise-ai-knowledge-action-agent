@@ -24,11 +24,20 @@ from app.workflow.time import database_now
 
 AUDIT_OUTBOX_DELIVERED = "OUTBOX_DELIVERED"
 AUDIT_OUTBOX_WAKE_FAILED = "OUTBOX_WAKE_FAILED"
-SETTLED_WAKE_STATES = frozenset(
+CONFIRMATION_SETTLED_STATES = frozenset(
     {
         WorkflowState.SUCCEEDED.value,
         WorkflowState.EXECUTION_FAILED.value,
         WorkflowState.UNKNOWN_OUTCOME.value,
+        WorkflowState.CANCELLED.value,
+        WorkflowState.EXPIRED.value,
+        WorkflowState.STALE.value,
+    }
+)
+RECONCILIATION_SETTLED_STATES = frozenset(
+    {
+        WorkflowState.SUCCEEDED.value,
+        WorkflowState.EXECUTION_FAILED.value,
         WorkflowState.CANCELLED.value,
         WorkflowState.EXPIRED.value,
         WorkflowState.STALE.value,
@@ -106,13 +115,11 @@ class WorkflowWorker:
     def deliver(self, claimed: ClaimedWake, *, mark_delivered: bool) -> WorkerResult:
         try:
             observed = self._wake(claimed)
-            should_deliver = mark_delivered and observed in SETTLED_WAKE_STATES
+            should_deliver = mark_delivered and self._event_settled(claimed, observed)
             if should_deliver:
                 self._mark_delivered(claimed)
-            elif mark_delivered and observed == WorkflowState.CONFIRMED.value:
-                self._release(claimed, failure_kind="pending_unresolved")
             elif mark_delivered:
-                self._release(claimed, failure_kind="pending_execution")
+                self._release(claimed, failure_kind=_release_reason(claimed, observed))
             return WorkerResult(
                 event_id=claimed.event_id,
                 action_id=claimed.action_id,
@@ -151,6 +158,20 @@ class WorkflowWorker:
         ):
             raise WorkflowInvariantError("ACTION_CONFIRMED wake remained awaiting")
         return observed
+
+    def _event_settled(self, claimed: ClaimedWake, observed: str) -> bool:
+        if claimed.event_type == OutboxEventType.CONFIRMATION_COMMITTED.value:
+            return confirmation_event_settled(observed)
+        if claimed.event_type == OutboxEventType.RECONCILE_REQUESTED.value:
+            return reconciliation_event_settled(
+                observed,
+                manual_review_required=self._manual_review_required(claimed.action_id),
+            )
+        return False
+
+    def _manual_review_required(self, action_id: UUID) -> bool:
+        view = self._confirmation.normalize_expiry(action_id=action_id)
+        return view.manual_review_required
 
     def _mark_delivered(self, claimed: ClaimedWake) -> None:
         with self._session_factory() as session:
@@ -207,6 +228,24 @@ def _claimed(row: WorkflowOutbox) -> ClaimedWake:
         event_type=row.event_type,
         attempt_count=row.attempt_count,
     )
+
+
+def confirmation_event_settled(observed: str) -> bool:
+    return observed in CONFIRMATION_SETTLED_STATES
+
+
+def reconciliation_event_settled(observed: str, *, manual_review_required: bool) -> bool:
+    if observed in RECONCILIATION_SETTLED_STATES:
+        return True
+    return observed == WorkflowState.UNKNOWN_OUTCOME.value and manual_review_required
+
+
+def _release_reason(claimed: ClaimedWake, observed: str) -> str:
+    if claimed.event_type == OutboxEventType.RECONCILE_REQUESTED.value:
+        return "pending_reconciliation"
+    if observed == WorkflowState.CONFIRMED.value:
+        return "pending_unresolved"
+    return "pending_execution"
 
 
 def _failure_kind(exc: Exception) -> str:

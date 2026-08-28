@@ -26,7 +26,17 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
 - Stage 4C fencing and single-entry corrections: RECONCILING is probe-only, only
   `EXECUTING` may attempt an initial leave INSERT, reconciliation observation plus
   terminal classification is one transaction, and there is exactly one normal submit
-  path. This does not claim a Fable review has passed.
+  path.
+- Stage 5A security/evidence hardening: reconciliation outbox settlement is
+  event-type-specific, a non-owner wake does not consume a reconciliation attempt,
+  an unresolved reconciliation wake remains durable and retryable, both Attack-7
+  serializations have deterministic evidence, and the dead two-step reconciliation
+  APIs were removed.
+
+Independent Stage 4 review of `feature/v4-workflow-foundation` at
+`4f093599843a91ab87c3fcc58d5d1c12e7254dae` returned PASS: 0 BLOCKER, 0 HIGH,
+1 MEDIUM. That review is not an external certification. The MEDIUM finding is
+the stranded `UNKNOWN_OUTCOME` wake-settlement defect closed in Stage 5A.
 
 ## Confirmation control plane
 
@@ -80,8 +90,18 @@ Transaction lock order for confirmation:
   calendar/ruleset version no longer matches the revision, reservation fails closed as
   `STALE`.
 - `OUTCOME_UNKNOWN` persists before reconciliation scheduling. Recovery uses the original
-  key plus business key. After three automatic attempts the revision stays
-  `UNKNOWN_OUTCOME` with `manual_review_required=true`.
+  key plus business key. `reconciliation_attempt_count` increases only when an authorized
+  owner persists UNKNOWN and schedules a real reconciliation attempt. A worker that
+  cannot obtain reconciliation authority because another valid lease owner exists does
+  not consume one of the three automatic attempts. After three real unresolved
+  attempts the revision stays `UNKNOWN_OUTCOME` with `manual_review_required=true` and
+  no new reconciliation event is written.
+- Same-owner `ALREADY_RESERVED` reuses the existing reservation and records
+  `EXECUTION_RESERVATION_REUSED`. A different caller still records
+  `EXECUTION_CAS_LOST` and receives no permit.
+- `LeaveSubmissionExecutor.reconcile` and `ExecutionFinalizationService.begin_reconciliation`
+  were production-dead and preserved the old probe-then-finalize shape. They are
+  removed. Production reconciliation is `classify_and_finalize` only.
 
 ## Worker
 
@@ -93,11 +113,24 @@ A confirmation wake may proceed into execution through the graph only. After a s
 graph run the worker reloads authoritative PostgreSQL state and settles the outbox; it
 does not call submit again. If the checkpoint is already `END` while PostgreSQL is still
 `EXECUTING` / `UNKNOWN_OUTCOME` / `RECONCILING`, recovery may fence, take over, and
-reconcile, but it must not submit. The event is marked delivered only after a settled
-terminal or persisted `UNKNOWN_OUTCOME`. If reservation is blocked by another unresolved
+reconcile, but it must not submit. If reservation is blocked by another unresolved
 attempt for the same business key, the event is released for retry.
 
+Outbox settlement is event-type-specific. A `confirmation_committed` wake may be marked
+delivered after a confirmation-settled state, including persisted `UNKNOWN_OUTCOME`.
+A `reconcile_requested` wake may be marked delivered only when that scheduled attempt
+is actually settled: a terminal state, or `UNKNOWN_OUTCOME` with
+`manual_review_required=true`. If a foreign worker observes `UNKNOWN_OUTCOME` or
+`RECONCILING` because it cannot obtain reconciliation authority while another valid
+lease owner exists, the same event is released with bounded wake-delivery backoff. It
+is not marked delivered. Wake-delivery `attempt_count` and
+`reconciliation_attempt_count` remain separate. The `execution_key` is never replaced.
+
 `reconcile_requested` events are a separate outbox identity and use independent backoff.
+
+Deterministic Attack-7 evidence exists for both legal serializations: failure/absence
+first makes a late submit impossible; submit-first commit then classification observes
+the submitted row and resolves `SUCCEEDED`.
 
 Checkpoint loss/corruption is an orchestration failure, not authority to guess workflow state.
 

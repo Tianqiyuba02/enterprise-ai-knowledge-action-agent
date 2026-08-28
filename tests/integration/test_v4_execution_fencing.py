@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import date, timedelta
@@ -18,7 +19,7 @@ from app.db.session import create_knowledge_engine, create_knowledge_session_fac
 from app.workflow.authority import AuthoritySnapshot, CanonicalDraft
 from app.workflow.calendar import V4_CALENDAR_VERSION
 from app.workflow.canonical import business_request_key
-from app.workflow.domain import ActionType, LeaveType, WorkflowState
+from app.workflow.domain import ActionType, ExecutionLedgerStatus, LeaveType, WorkflowState
 from app.workflow.errors import ExecutionFenceError
 from app.workflow.executable_preparation import (
     READINESS_READY,
@@ -26,7 +27,11 @@ from app.workflow.executable_preparation import (
     serialize_canonical_draft,
 )
 from app.workflow.execution import ExecutionReservationService, ReservationOutcome
-from app.workflow.executor import BusinessOutcome, LeaveSubmissionExecutor
+from app.workflow.executor import (
+    BusinessOutcome,
+    ExecutorFailpoints,
+    LeaveSubmissionExecutor,
+)
 from app.workflow.finalization import ExecutionFinalizationService, FinalizationFailpoints
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.time import database_now
@@ -181,17 +186,35 @@ def _reserve(
     return action_id, result.permit
 
 
+def _force_reconciling(session_factory: sessionmaker[Session], action_id) -> None:
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
+            {"state": WorkflowState.RECONCILING.value, "action_id": action_id},
+        )
+        session.execute(
+            text(
+                """
+                UPDATE action_execution_ledger
+                SET status = :status
+                WHERE action_id = :action_id
+                """
+            ),
+            {"status": ExecutionLedgerStatus.RECONCILING.value, "action_id": action_id},
+        )
+        session.commit()
+
+
 def test_reconciling_submit_performs_zero_mutation(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,
 ) -> None:
     reservation = ExecutionReservationService(session_factory, isolated_settings)
-    finalizer = ExecutionFinalizationService(session_factory, isolated_settings)
     executor = LeaveSubmissionExecutor(session_factory, isolated_settings)
     action_id, permit = _reserve(reservation, session_factory, start=date(2026, 9, 21))
-    owned = finalizer.begin_reconciliation(permit, WORKER_A)
-    result = executor.submit(owned)
+    _force_reconciling(session_factory, action_id)
+    result = executor.submit(permit)
     assert result.outcome is BusinessOutcome.EXECUTION_AUTHORITY_LOST
     assert result.failure_kind == "revision_not_executable"
     assert _count(engine, "leave_requests") == 0
@@ -461,9 +484,8 @@ def test_reconciling_window_cannot_admit_a_late_insert(
 ) -> None:
     reservation = ExecutionReservationService(session_factory, isolated_settings)
     executor = LeaveSubmissionExecutor(session_factory, isolated_settings)
-    finalizer = ExecutionFinalizationService(session_factory, isolated_settings)
     action_id, permit = _reserve(reservation, session_factory, start=date(2026, 9, 30))
-    owned = finalizer.begin_reconciliation(permit, WORKER_A)
+    _force_reconciling(session_factory, action_id)
     entered = threading.Event()
     submit_result: list[BusinessOutcome] = []
     late_thread: threading.Thread | None = None
@@ -471,7 +493,7 @@ def test_reconciling_window_cannot_admit_a_late_insert(
     def after_absence() -> None:
         def late_submit() -> None:
             entered.set()
-            submit_result.append(executor.submit(owned).outcome)
+            submit_result.append(executor.submit(permit).outcome)
 
         nonlocal late_thread
         late_thread = threading.Thread(target=late_submit)
@@ -483,7 +505,7 @@ def test_reconciling_window_cannot_admit_a_late_insert(
         isolated_settings,
         failpoints=FinalizationFailpoints(after_absence_observed=after_absence),
     )
-    state = classifying.classify_and_finalize(owned, WORKER_A)
+    state = classifying.classify_and_finalize(permit, WORKER_A)
     assert late_thread is not None
     late_thread.join(timeout=10)
     assert late_thread.is_alive() is False
@@ -506,9 +528,7 @@ def test_attack7_reconcile_absence_cannot_finalize_failed_after_concurrent_inser
 
     reservation = ExecutionReservationService(session_factory, isolated_settings)
     action_id, permit = _reserve(reservation, session_factory, start=date(2026, 10, 8))
-    ExecutionFinalizationService(session_factory, isolated_settings).begin_reconciliation(
-        permit, WORKER_A
-    )
+    _force_reconciling(session_factory, action_id)
     start = threading.Barrier(2)
     finished = threading.Barrier(2)
 
@@ -536,3 +556,61 @@ def test_attack7_reconcile_absence_cannot_finalize_failed_after_concurrent_inser
         assert state == WorkflowState.SUCCEEDED.value
     if state == WorkflowState.EXECUTION_FAILED.value:
         assert leave_count == 0
+
+
+def test_attack7_submit_wins_first_resolves_succeeded(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    reservation = ExecutionReservationService(session_factory, isolated_settings)
+    action_id, permit = _reserve(reservation, session_factory, start=date(2026, 10, 9))
+    classify_state: list[str] = []
+    classify_thread: threading.Thread | None = None
+
+    def hold_after_insert() -> None:
+        def classify() -> None:
+            classify_state.append(
+                ExecutionFinalizationService(
+                    session_factory, isolated_settings
+                ).classify_and_finalize(permit, WORKER_A)
+            )
+
+        nonlocal classify_thread
+        classify_thread = threading.Thread(target=classify)
+        classify_thread.start()
+        _wait_until_backend_waiting_for_lock(engine)
+
+    submitted = LeaveSubmissionExecutor(
+        session_factory,
+        isolated_settings,
+        failpoints=ExecutorFailpoints(hold_after_insert_before_commit=hold_after_insert),
+    ).submit(permit)
+    assert submitted.outcome is BusinessOutcome.APPLIED
+    assert classify_thread is not None
+    classify_thread.join(timeout=10)
+    assert classify_thread.is_alive() is False
+    assert classify_state == [WorkflowState.SUCCEEDED.value]
+    assert _count(engine, "leave_requests") == 1
+    assert _workflow_state(engine, action_id) == WorkflowState.SUCCEEDED.value
+
+
+def _wait_until_backend_waiting_for_lock(engine: Engine) -> None:
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        with engine.connect() as connection:
+            waiting = connection.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                      AND wait_event_type = 'Lock'
+                      AND pid <> pg_backend_pid()
+                    """
+                )
+            ).scalar_one()
+        if waiting:
+            return
+        time.sleep(0.01)
+    raise AssertionError("classify never blocked on submit's uncommitted row locks")
