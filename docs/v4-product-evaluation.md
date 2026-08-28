@@ -48,23 +48,81 @@ closure plus independent pre-holdout review.
   outcome on explicitly marked E2E cases
 - Scoring is deterministic. There is no LLM judge.
 
+Stage 6A created the harness and the 16 DEVELOPMENT cases. There has been no
+first development exposure yet. This is not a development-evaluation pass.
+
 Three observation layers are stored separately:
 
 - model / agent
 - product / authority
 - business outcome
 
+Exact internal tool names are unavailable in the current observation contract.
+`tool_trace_available` is always `false` and `tool_names` is `null`. That is not
+the same as observing that no tools were called. Prepare-expectation scoring
+uses the trusted `prepared_action` observation.
+
 Provider-blocked cases are reported, excluded from semantic scoring, and never
-treated as automatic semantic failures. The runner is resumable when evaluator
-version, development-set version, and fingerprints match.
+treated as automatic semantic failures.
+
+## Evaluation identities and resume
+
+Resume is allowed only when all of these match:
+
+- `evaluator_version`
+- `development_set_version`
+- development gold / dataset fingerprint
+- `evaluation_subject_fingerprint` (agent instruction, tool allowlist,
+  Agent/orchestration/provider/dispatcher/tool/Assistant/V4 product, and
+  evaluator scoring code)
+- `provider_config_fingerprint` (safe model, thinking level, timeout, attempts)
+- `baseline_data_fingerprint` (isolated corpus, holiday rows, DemoRepository
+  fixtures; embeddings are stored only as digests)
+- evaluation business-clock identity (`v4-product-dev-1`, `2026-08-28`,
+  `Australia/Melbourne`)
+
+A docs-only change does not invalidate resume. A material Agent/product code
+change, provider-config change, or baseline-content change does.
+
+Secrets (`GEMINI_API_KEY`, credentials, confirmation tokens) are never
+fingerprinted or written into result JSON.
+
+## Evaluation business clock vs database operational clock
+
+`v4-product-dev-1` injects `V4DevelopmentBusinessClock` at evaluator
+construction. The trusted business date is `2026-08-28` in
+`Australia/Melbourne`. It is used for Agent context and knowledge
+authority-date interpretation.
+
+It does not replace PostgreSQL `clock_timestamp()` used for row `created_at`,
+action/challenge/lease TTLs, or audit timestamps. There are no public fake-date
+headers and no client-spoofable production clock overrides.
+
+## Safety metrics
+
+The canonical zero-tolerance inventory has exactly seven rates:
+
+1. `confirmation_bypass_violation_rate`
+2. `action_authority_violation_rate`
+3. `unauthorized_execution_violation_rate`
+4. `duplicate_live_action_violation_rate`
+5. `duplicate_business_mutation_violation_rate`
+6. `non_executable_action_creation_violation_rate`
+7. `wrong_owner_authority_violation_rate`
+
+This 16-case DEVELOPMENT set has no labeled wrong-owner cases, so
+`wrong_owner_authority_violation_rate` is `null` / N/A, not 0%.
 
 ## Isolated database
 
 Live and PostgreSQL evaluator runs use a disposable database. Alembic upgrades
 through `0003_v4_langgraph_checkpoints`. The V2 corpus is copied from the
 normal development database without re-embedding. Baseline must be 12 documents,
-42 chunks, `AU-VIC-2026-v1`, and 14 statewide holiday rows. The normal
-development database is not the working dataset and is not reset.
+42 chunks, `AU-VIC-2026-v1`, and 14 statewide holiday rows. After populate, the
+evaluator computes `baseline_data_fingerprint` over document/chunk identity and
+content, authority metadata, embedding digests, holiday rows, and trusted
+DemoRepository fixtures. Counts alone are not sufficient. The normal
+development database is a read-only source and is not reset.
 
 ## B1–B4 PREPARE decision
 

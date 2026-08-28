@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings, load_knowledge_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
+from app.evaluation.v4.fingerprints import baseline_data_fingerprint
+from app.repositories.demo import DemoRepository
 from app.workflow.calendar import V4_CALENDAR_VERSION, VIC_2026_STATEWIDE_HOLIDAYS
 
 EXPECTED_DOCUMENTS = 12
@@ -44,6 +46,7 @@ class IsolatedEvaluationDatabase:
     session_factory: sessionmaker[Session]
     source_settings: KnowledgeSettings
     database_name: str
+    baseline_data_fingerprint: str
 
 
 def _replace_database(url: str, database: str) -> str:
@@ -181,12 +184,14 @@ def isolated_evaluation_database(
         isolated_engine = create_knowledge_engine(isolated_settings)
         copy_trusted_corpus(source_engine, isolated_engine)
         assert_baseline(isolated_engine)
+        baseline = baseline_data_fingerprint(isolated_engine, repository=DemoRepository())
         yield IsolatedEvaluationDatabase(
             settings=isolated_settings,
             engine=isolated_engine,
             session_factory=create_knowledge_session_factory(isolated_engine),
             source_settings=live,
             database_name=database_name,
+            baseline_data_fingerprint=baseline,
         )
     finally:
         if isolated_engine is not None:

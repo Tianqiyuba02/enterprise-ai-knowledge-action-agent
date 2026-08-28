@@ -17,6 +17,12 @@ from app.api.assistant_models import AssistantQueryResponse
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.config import KnowledgeSettings
 from app.evaluation.models import ResultOrigin
+from app.evaluation.v4.clock import (
+    V4_DEVELOPMENT_BUSINESS_CLOCK_VERSION,
+    V4_DEVELOPMENT_BUSINESS_DATE,
+    V4_DEVELOPMENT_BUSINESS_TIMEZONE,
+    V4DevelopmentBusinessClock,
+)
 from app.evaluation.v4.isolation import cleanup_workflow_state, workflow_counts
 from app.evaluation.v4.metrics import (
     assert_report_has_no_secrets,
@@ -38,6 +44,7 @@ from app.evaluation.v4.models import (
     V4SetupKind,
 )
 from app.identity import AuthenticatedEmployeeContext
+from app.knowledge.clock import TrustedClock
 from app.workflow.action_creation import ActionCreationService
 from app.workflow.canonical import business_request_key
 from app.workflow.confirmation import ConfirmationService
@@ -77,6 +84,7 @@ class V4ProductEvaluationRunner:
         fingerprints: V4EvaluationFingerprints,
         branch: str,
         commit: str,
+        clock: TrustedClock | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._agent = agent
@@ -87,7 +95,16 @@ class V4ProductEvaluationRunner:
         self._fingerprints = fingerprints
         self._branch = branch
         self._commit = commit
+        self._clock = clock or V4DevelopmentBusinessClock()
         self._sleep = sleep
+        if self._clock.today() != configuration.trusted_evaluation_date:
+            raise ValueError("Evaluation business clock does not match frozen configuration.")
+        if configuration.trusted_evaluation_date != V4_DEVELOPMENT_BUSINESS_DATE:
+            raise ValueError("V4 development evaluation date must be 2026-08-28.")
+        if configuration.business_clock_timezone != V4_DEVELOPMENT_BUSINESS_TIMEZONE:
+            raise ValueError("V4 development evaluation timezone must be Australia/Melbourne.")
+        if configuration.business_clock_version != V4_DEVELOPMENT_BUSINESS_CLOCK_VERSION:
+            raise ValueError("V4 development business-clock version does not match.")
         self._actions = ActionCreationService(session_factory, settings)
         self._confirmation = ConfirmationService(session_factory, settings)
 
@@ -359,8 +376,29 @@ class V4ProductEvaluationRunner:
             raise V4ResumeCompatibilityError("development-set version does not match")
         if previous.dataset_fingerprint != dataset_fingerprint:
             raise V4ResumeCompatibilityError("development-set fingerprint does not match")
-        if previous.configuration.fingerprints != self._fingerprints:
-            raise V4ResumeCompatibilityError("evaluation fingerprints do not match")
+        previous_prints = previous.configuration.fingerprints
+        if previous_prints.development_set != self._fingerprints.development_set:
+            raise V4ResumeCompatibilityError("development-set fingerprint does not match")
+        if previous_prints.evaluation_subject != self._fingerprints.evaluation_subject:
+            raise V4ResumeCompatibilityError("evaluation-subject fingerprint does not match")
+        if previous_prints.provider_config != self._fingerprints.provider_config:
+            raise V4ResumeCompatibilityError("provider-config fingerprint does not match")
+        if previous_prints.baseline_data != self._fingerprints.baseline_data:
+            raise V4ResumeCompatibilityError("baseline-data fingerprint does not match")
+        if previous_prints.business_clock != self._fingerprints.business_clock:
+            raise V4ResumeCompatibilityError("evaluation business-clock identity does not match")
+        if previous.configuration.trusted_evaluation_date != (
+            self._configuration.trusted_evaluation_date
+        ):
+            raise V4ResumeCompatibilityError("evaluation business-clock date does not match")
+        if previous.configuration.business_clock_timezone != (
+            self._configuration.business_clock_timezone
+        ):
+            raise V4ResumeCompatibilityError("evaluation business-clock timezone does not match")
+        if previous.configuration.business_clock_version != (
+            self._configuration.business_clock_version
+        ):
+            raise V4ResumeCompatibilityError("evaluation business-clock version does not match")
         current_ids = {case.id for case in cases}
         previous_ids = [result.case_id for result in previous.cases]
         if len(previous_ids) != len(set(previous_ids)):
@@ -388,6 +426,8 @@ def _model_observation(
         citation_count=len(public.citations),
         citation_doc_codes=tuple(item.doc_code for item in public.citations),
         latency_ms=latency_ms,
+        tool_trace_available=False,
+        tool_names=None,
     )
 
 

@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -9,7 +9,8 @@ from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.config import load_knowledge_settings
-from app.evaluation.v4.fingerprints import build_fingerprints
+from app.evaluation.v4.clock import V4_DEVELOPMENT_BUSINESS_DATE
+from app.evaluation.v4.fingerprints import baseline_data_fingerprint, build_fingerprints
 from app.evaluation.v4.isolation import (
     EXPECTED_CHUNKS,
     EXPECTED_DOCUMENTS,
@@ -18,11 +19,13 @@ from app.evaluation.v4.isolation import (
     workflow_counts,
 )
 from app.evaluation.v4.loader import load_v4_development_cases, v4_dataset_fingerprint
+from app.evaluation.v4.metrics import build_summary
 from app.evaluation.v4.models import (
     V4CaseExecutionState,
     V4EvaluationConfiguration,
+    V4ProductEvaluationReport,
 )
-from app.evaluation.v4.runner import V4ProductEvaluationRunner
+from app.evaluation.v4.runner import V4ProductEvaluationRunner, V4ResumeCompatibilityError
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
@@ -84,12 +87,15 @@ def _completed(draft: LeaveRequestDraft | None, answer: str = "Prepared.") -> Ag
 def _runner(isolated, agent) -> V4ProductEvaluationRunner:
     cases = load_v4_development_cases()
     fingerprint = v4_dataset_fingerprint(cases)
-    fingerprints = build_fingerprints(fingerprint)
+    fingerprints = build_fingerprints(
+        fingerprint,
+        baseline_data=isolated.baseline_data_fingerprint,
+    )
     configuration = V4EvaluationConfiguration(
         agent_model="scripted",
         agent_timeout_seconds=60,
         agent_max_attempts=1,
-        trusted_evaluation_date=date(2026, 8, 26),
+        trusted_evaluation_date=V4_DEVELOPMENT_BUSINESS_DATE,
         corpus_documents=EXPECTED_DOCUMENTS,
         corpus_chunks=EXPECTED_CHUNKS,
         holiday_rows=EXPECTED_HOLIDAYS,
@@ -119,6 +125,28 @@ def test_isolated_database_copies_corpus_without_touching_source() -> None:
         assert documents == EXPECTED_DOCUMENTS
         assert chunks == EXPECTED_CHUNKS
         assert holidays == EXPECTED_HOLIDAYS
+        first = isolated.baseline_data_fingerprint
+        second = baseline_data_fingerprint(isolated.engine)
+        assert first == second
+        with isolated.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE documents
+                    SET title = title || ' changed'
+                    WHERE id = (SELECT id FROM documents ORDER BY ingested_at LIMIT 1)
+                    """
+                )
+            )
+        changed = baseline_data_fingerprint(isolated.engine)
+        assert changed != first
+        with isolated.engine.connect() as recount:
+            assert recount.execute(text("SELECT count(*) FROM documents")).scalar_one() == (
+                EXPECTED_DOCUMENTS
+            )
+            assert recount.execute(text("SELECT count(*) FROM document_chunks")).scalar_one() == (
+                EXPECTED_CHUNKS
+            )
     source = create_engine(load_knowledge_settings().database_url.get_secret_value())
     try:
         with source.connect() as connection:
@@ -180,3 +208,50 @@ def test_scripted_f1_does_not_persist_confirmation_token() -> None:
         dumped = report.model_dump_json()
         assert "confirmation_token" not in dumped
         assert ALEX.session_id not in dumped
+        assert result.model is not None
+        assert result.model.tool_trace_available is False
+        assert result.model.tool_names is None
+
+
+def test_resume_refuses_same_count_corpus_content_change() -> None:
+    cases = load_v4_development_cases()
+    gold = v4_dataset_fingerprint(cases)
+    with isolated_evaluation_database() as isolated:
+        matching = build_fingerprints(gold, baseline_data=isolated.baseline_data_fingerprint)
+        with isolated.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_chunks
+                    SET content = content || ' changed'
+                    WHERE id = (SELECT id FROM document_chunks ORDER BY created_at LIMIT 1)
+                    """
+                )
+            )
+        changed_baseline = baseline_data_fingerprint(isolated.engine)
+        assert changed_baseline != isolated.baseline_data_fingerprint
+        configuration = V4EvaluationConfiguration(
+            agent_model="scripted",
+            agent_timeout_seconds=60,
+            agent_max_attempts=1,
+            trusted_evaluation_date=V4_DEVELOPMENT_BUSINESS_DATE,
+            corpus_documents=EXPECTED_DOCUMENTS,
+            corpus_chunks=EXPECTED_CHUNKS,
+            holiday_rows=EXPECTED_HOLIDAYS,
+            calendar_version="AU-VIC-2026-v1",
+            fingerprints=matching,
+        )
+        previous = V4ProductEvaluationReport(
+            generated_at=datetime.now(UTC),
+            branch="feature/v4-workflow-foundation",
+            commit="b" * 40,
+            dataset_fingerprint=gold,
+            configuration=configuration,
+            summary=build_summary((), cases),
+            cases=(),
+        )
+        runner = V4ProductEvaluationRunner.__new__(V4ProductEvaluationRunner)
+        runner._configuration = configuration
+        runner._fingerprints = matching.model_copy(update={"baseline_data": changed_baseline})
+        with pytest.raises(V4ResumeCompatibilityError, match="baseline-data"):
+            runner._validate_resume(previous, cases=cases, dataset_fingerprint=gold)

@@ -166,7 +166,8 @@ class V4ModelObservation(V4EvaluationModel):
     citation_count: int = 0
     citation_doc_codes: tuple[str, ...] = ()
     latency_ms: int | None = None
-    tool_names: tuple[str, ...] = ()
+    tool_trace_available: Literal[False] = False
+    tool_names: tuple[str, ...] | None = None
 
 
 class V4ProductObservation(V4EvaluationModel):
@@ -234,17 +235,22 @@ class V4ProductCaseResult(V4EvaluationModel):
 
 class V4EvaluationFingerprints(V4EvaluationModel):
     development_set: Sha256Fingerprint
-    agent_policy: Sha256Fingerprint
-    product_code: Sha256Fingerprint
+    evaluation_subject: Sha256Fingerprint
+    provider_config: Sha256Fingerprint
+    baseline_data: Sha256Fingerprint
+    business_clock: Sha256Fingerprint
 
 
 class V4EvaluationConfiguration(V4EvaluationModel):
     evaluator_version: Literal["v4-product-eval-1"] = V4_EVALUATOR_VERSION
     development_set_version: Literal["v4-product-dev-1"] = V4_DEVELOPMENT_SET_VERSION
     agent_model: NonEmptyString
+    thinking_level: Literal["MINIMAL"] = "MINIMAL"
     agent_timeout_seconds: Annotated[int, Field(ge=1, le=120)]
     agent_max_attempts: Annotated[int, Field(ge=1, le=3)]
     trusted_evaluation_date: date
+    business_clock_timezone: Literal["Australia/Melbourne"] = "Australia/Melbourne"
+    business_clock_version: Literal["v4-product-dev-1"] = V4_DEVELOPMENT_SET_VERSION
     corpus_documents: Annotated[int, Field(ge=0)]
     corpus_chunks: Annotated[int, Field(ge=0)]
     holiday_rows: Annotated[int, Field(ge=0)]
@@ -272,6 +278,7 @@ class V4EvaluationSummary(V4EvaluationModel):
     duplicate_live_action_violation_rate: float | None
     duplicate_business_mutation_violation_rate: float | None
     non_executable_action_creation_violation_rate: float | None
+    wrong_owner_authority_violation_rate: float | None
     prompt_injection_or_action_authority_violation_rate: float | None
     full_e2e_success_rate: float | None
     safety_gate_failed: bool

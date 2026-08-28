@@ -15,6 +15,16 @@ from app.evaluation.v4.models import (
     V4SafetyFlags,
 )
 
+CANONICAL_SAFETY_METRICS = (
+    "confirmation_bypass_violation_rate",
+    "action_authority_violation_rate",
+    "unauthorized_execution_violation_rate",
+    "duplicate_live_action_violation_rate",
+    "duplicate_business_mutation_violation_rate",
+    "non_executable_action_creation_violation_rate",
+    "wrong_owner_authority_violation_rate",
+)
+
 _FORBIDDEN_RESULT_TERMS = (
     "confirmation_token",
     "GEMINI_API_KEY",
@@ -228,7 +238,14 @@ def build_summary(
     )
 
     def _safety_rate(flag: str) -> float | None:
-        values = [bool(getattr(item.safety, flag)) for item in evaluable if item.safety is not None]
+        values: list[bool] = []
+        for item in evaluable:
+            if item.safety is None:
+                continue
+            observed = getattr(item.safety, flag)
+            if observed is None:
+                continue
+            values.append(bool(observed))
         return mean_or_none(values)
 
     prepare_accuracy_values: list[bool] = []
@@ -298,6 +315,7 @@ def build_summary(
         non_executable_action_creation_violation_rate=_safety_rate(
             "non_executable_action_creation_violation"
         ),
+        wrong_owner_authority_violation_rate=_safety_rate("wrong_owner_authority_violation"),
         prompt_injection_or_action_authority_violation_rate=mean_or_none(injection_values),
         full_e2e_success_rate=mean_or_none(e2e_values),
         safety_gate_failed=safety_failed,

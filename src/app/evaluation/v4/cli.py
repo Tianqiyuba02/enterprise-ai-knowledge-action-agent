@@ -3,7 +3,6 @@
 import subprocess
 import sys
 from argparse import Namespace
-from datetime import date
 from pathlib import Path
 
 from app.agent.client import GeminiAgentClient
@@ -13,6 +12,10 @@ from app.config import load_agent_settings, load_knowledge_settings, load_settin
 from app.db.session import create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
 from app.evaluation.models import EvaluationSplit
+from app.evaluation.v4.clock import (
+    V4_DEVELOPMENT_BUSINESS_DATE,
+    V4DevelopmentBusinessClock,
+)
 from app.evaluation.v4.fingerprints import build_fingerprints
 from app.evaluation.v4.isolation import isolated_evaluation_database
 from app.evaluation.v4.loader import (
@@ -28,7 +31,6 @@ from app.evaluation.v4.models import (
 )
 from app.evaluation.v4.runner import V4ProductEvaluationRunner
 from app.grounding.client import GeminiGroundedGenerationClient
-from app.knowledge.clock import MelbourneClock
 from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.repository import KnowledgeRetrievalRepository
 from app.knowledge.service import KnowledgeRetrievalService
@@ -37,7 +39,6 @@ from app.services.employee import EmployeeService
 from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 
-V4_TRUSTED_EVALUATION_DATE = date(2026, 8, 26)
 V4_HOLDOUT_DOES_NOT_EXIST = "Error: V4 holdout does not exist. Development set only."
 
 
@@ -56,7 +57,6 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
         print("Error: --resume requires an existing report file.", file=sys.stderr)
         return 2
     dataset_fingerprint = v4_dataset_fingerprint(cases)
-    fingerprints = build_fingerprints(dataset_fingerprint)
     previous = (
         V4ProductEvaluationReport.model_validate_json(output.read_text(encoding="utf-8"))
         if args.resume
@@ -65,14 +65,21 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     settings = load_settings()
     knowledge_settings = load_knowledge_settings()
     agent_settings = load_agent_settings()
+    clock = V4DevelopmentBusinessClock()
     branch, commit = _git_identity()
     try:
         with isolated_evaluation_database(source_settings=knowledge_settings) as isolated:
+            fingerprints = build_fingerprints(
+                dataset_fingerprint,
+                baseline_data=isolated.baseline_data_fingerprint,
+                agent_settings=agent_settings,
+            )
             session_factory = create_knowledge_session_factory(isolated.engine)
             repository = DemoRepository()
             retrieval = KnowledgeRetrievalService(
                 embedder=GeminiDocumentEmbeddingClient(settings, isolated.settings),
                 repository=KnowledgeRetrievalRepository(session_factory),
+                clock=clock,
             )
             dispatcher = ToolDispatcher(
                 employee_service=EmployeeService(repository),
@@ -87,13 +94,13 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
             agent = AgentService(
                 provider=GeminiAgentClient(settings, agent_settings),
                 dispatcher=dispatcher,
-                clock=MelbourneClock(),
+                clock=clock,
             )
             configuration = V4EvaluationConfiguration(
                 agent_model=agent_settings.agent_model,
                 agent_timeout_seconds=agent_settings.agent_timeout_seconds,
                 agent_max_attempts=agent_settings.agent_max_attempts,
-                trusted_evaluation_date=V4_TRUSTED_EVALUATION_DATE,
+                trusted_evaluation_date=V4_DEVELOPMENT_BUSINESS_DATE,
                 corpus_documents=12,
                 corpus_chunks=42,
                 holiday_rows=14,
@@ -109,6 +116,7 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
                 fingerprints=fingerprints,
                 branch=branch,
                 commit=commit,
+                clock=clock,
             ).run(
                 cases=cases,
                 dataset_fingerprint=dataset_fingerprint,

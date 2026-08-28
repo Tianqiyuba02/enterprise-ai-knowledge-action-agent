@@ -7,12 +7,27 @@ import pytest
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
 from app.agent.provider_failures import AgentProviderFailureKind
+from app.agent.relative_weekday import resolve_next_weekday
+from app.agent.service import AgentService
+from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.evaluation.agent_loader import load_agent_evaluation_cases
 from app.evaluation.agent_models import AgentEvaluationReport
 from app.evaluation.cli import main as evaluation_main
 from app.evaluation.loader import DEFAULT_EVALUATION_ROOT
 from app.evaluation.models import EvaluationSplit
-from app.evaluation.v4.fingerprints import build_fingerprints, sha256_json
+from app.evaluation.v4.clock import (
+    V4_DEVELOPMENT_BUSINESS_DATE,
+    V4DevelopmentBusinessClock,
+)
+from app.evaluation.v4.fingerprints import (
+    build_fingerprints,
+    canonical_baseline_payload,
+    demo_fixture_payload,
+    digest_embedding,
+    hash_baseline_payload,
+    provider_config_payload,
+    sha256_json,
+)
 from app.evaluation.v4.loader import (
     EXPECTED_DEVELOPMENT_CASE_COUNT,
     assert_no_v4_holdout,
@@ -20,6 +35,7 @@ from app.evaluation.v4.loader import (
     v4_dataset_fingerprint,
 )
 from app.evaluation.v4.metrics import (
+    CANONICAL_SAFETY_METRICS,
     assert_report_has_no_secrets,
     build_summary,
     judge_case,
@@ -41,6 +57,8 @@ from app.evaluation.v4.models import (
     V4ProductObservation,
 )
 from app.evaluation.v4.runner import V4ProductEvaluationRunner, V4ResumeCompatibilityError
+from app.knowledge.clock import MelbourneClock
+from app.repositories.demo import DemoRepository
 
 
 def _draft(start: date = date(2026, 9, 14), end: date | None = None) -> LeaveRequestDraft:
@@ -142,6 +160,7 @@ def test_null_metrics_when_no_applicable_cases() -> None:
         duplicate_live_action_violation_rate=None,
         duplicate_business_mutation_violation_rate=None,
         non_executable_action_creation_violation_rate=None,
+        wrong_owner_authority_violation_rate=None,
         prompt_injection_or_action_authority_violation_rate=None,
         full_e2e_success_rate=None,
         safety_gate_failed=False,
@@ -206,7 +225,7 @@ def _scripted_configuration(
         agent_model="gemini-3.6-flash",
         agent_timeout_seconds=60,
         agent_max_attempts=1,
-        trusted_evaluation_date=date(2026, 8, 26),
+        trusted_evaluation_date=V4_DEVELOPMENT_BUSINESS_DATE,
         corpus_documents=12,
         corpus_chunks=42,
         holiday_rows=14,
@@ -218,7 +237,7 @@ def _scripted_configuration(
 def test_compatible_resume_returns_previous_completed_results() -> None:
     cases = load_v4_development_cases()
     fingerprint = v4_dataset_fingerprint(cases)
-    fingerprints = build_fingerprints(fingerprint)
+    fingerprints = build_fingerprints(fingerprint, baseline_data="b" * 64)
     configuration = _scripted_configuration(fingerprints)
     previous_result = V4ProductCaseResult(
         case_id=cases[0].id,
@@ -254,8 +273,10 @@ def test_fingerprint_mismatch_blocks_resume() -> None:
     fingerprint = v4_dataset_fingerprint(cases)
     fingerprints = V4EvaluationFingerprints(
         development_set=fingerprint,
-        agent_policy="a" * 64,
-        product_code="b" * 64,
+        evaluation_subject="a" * 64,
+        provider_config="b" * 64,
+        baseline_data="c" * 64,
+        business_clock="d" * 64,
     )
     configuration = _scripted_configuration(fingerprints)
     previous = V4ProductEvaluationReport(
@@ -269,8 +290,8 @@ def test_fingerprint_mismatch_blocks_resume() -> None:
     )
     runner = V4ProductEvaluationRunner.__new__(V4ProductEvaluationRunner)
     runner._configuration = configuration
-    runner._fingerprints = fingerprints.model_copy(update={"agent_policy": "c" * 64})
-    with pytest.raises(V4ResumeCompatibilityError, match="fingerprints"):
+    runner._fingerprints = fingerprints.model_copy(update={"evaluation_subject": "e" * 64})
+    with pytest.raises(V4ResumeCompatibilityError, match="evaluation-subject"):
         runner._validate_resume(previous, cases=cases, dataset_fingerprint=fingerprint)
 
 
@@ -298,9 +319,10 @@ def test_v4_cli_refuses_holdout_and_requires_live() -> None:
 def test_evaluator_identity_is_explicitly_versioned() -> None:
     assert V4_EVALUATOR_VERSION == "v4-product-eval-1"
     assert V4_DEVELOPMENT_SET_VERSION == "v4-product-dev-1"
-    fingerprints = build_fingerprints(sha256_json({"cases": "dev"}))
+    fingerprints = build_fingerprints(sha256_json({"cases": "dev"}), baseline_data="b" * 64)
     assert fingerprints.development_set
-    assert fingerprints.agent_policy != fingerprints.product_code
+    assert fingerprints.evaluation_subject != fingerprints.provider_config
+    assert fingerprints.baseline_data != fingerprints.business_clock
 
 
 def test_scripted_agent_helpers_remain_non_executing() -> None:
@@ -308,3 +330,276 @@ def test_scripted_agent_helpers_remain_non_executing() -> None:
     result = _completed(draft=draft)
     assert result.prepared_leave_request is not None
     assert result.prepared_leave_request.non_executing is True
+
+
+def test_development_business_clock_ignores_host_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _HostDatetime:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2028, 1, 15, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr("app.knowledge.clock.datetime", _HostDatetime)
+    assert MelbourneClock().today() == date(2028, 1, 15)
+    clock = V4DevelopmentBusinessClock()
+    assert clock.today() == date(2026, 8, 28)
+    assert resolve_next_weekday(clock.today(), "monday") == date(2026, 8, 31)
+
+
+def test_injected_clock_reaches_agent_when_host_date_differs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _HostDatetime:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2028, 3, 1, 12, 0, tzinfo=tz)
+
+    class _RecordingProvider:
+        def __init__(self) -> None:
+            self.trusted_today: date | None = None
+
+        def start(self, message: str, trusted_today: date):
+            self.trusted_today = trusted_today
+            raise RuntimeError("stop after recording trusted date")
+
+    monkeypatch.setattr("app.knowledge.clock.datetime", _HostDatetime)
+    provider = _RecordingProvider()
+    AgentService(
+        provider=provider,
+        dispatcher=object(),  # type: ignore[arg-type]
+        clock=V4DevelopmentBusinessClock(),
+    ).run("How much annual leave do I have?", DEMO_IDENTITY_BINDINGS["demo-v1-7f4c2a91"])
+    assert provider.trusted_today == V4_DEVELOPMENT_BUSINESS_DATE
+    assert MelbourneClock().today() == date(2028, 3, 1)
+
+
+def test_embedding_digest_is_stable_for_vector_text_and_floats() -> None:
+    assert digest_embedding("[1.5, 2.0]") == digest_embedding((1.5, 2.0))
+    assert digest_embedding("[1.5, 2.0]") != digest_embedding("[1.5, 2.1]")
+
+
+def test_same_count_corpus_content_change_changes_baseline_fingerprint() -> None:
+    documents = [
+        {
+            "id": f"doc-{index}",
+            "doc_code": f"POL-{index:03d}",
+            "version": "1.0",
+            "title": f"Policy {index}",
+            "status": "approved",
+            "effective_date": "2026-01-01",
+            "expiry_date": None,
+            "jurisdiction": "AU-VIC",
+            "audience_groups": ["all_employees"],
+            "source_uri": f"doc://{index}",
+            "content_checksum": "a" * 64,
+            "superseded_by_id": None,
+            "embedding_model_id": "text-embedding-004",
+            "embedding_dimension": 768,
+        }
+        for index in range(12)
+    ]
+    chunks = [
+        {
+            "id": f"chunk-{index}",
+            "document_id": f"doc-{index % 12}",
+            "chunk_index": index,
+            "section_label": "body",
+            "anchor": f"a{index}",
+            "page": 1,
+            "content": f"chunk {index}",
+            "token_count": 8,
+            "embedding_digest": digest_embedding((float(index), 0.25)),
+        }
+        for index in range(42)
+    ]
+    holidays = [{"jurisdiction": "AU-VIC", "holiday_date": "2026-09-25", "holiday_name": "AFL"}]
+    demo = demo_fixture_payload()
+    original = hash_baseline_payload(
+        canonical_baseline_payload(
+            documents=documents,
+            chunks=chunks,
+            holidays=holidays,
+            demo=demo,
+        )
+    )
+    changed_docs = [dict(item) for item in documents]
+    changed_docs[0]["title"] = "Policy 0 changed"
+    changed = hash_baseline_payload(
+        canonical_baseline_payload(
+            documents=changed_docs,
+            chunks=chunks,
+            holidays=holidays,
+            demo=demo,
+        )
+    )
+    assert original != changed
+
+
+def test_demo_repository_fixture_change_changes_baseline_fingerprint() -> None:
+    original = demo_fixture_payload(DemoRepository())
+    mutated = {
+        **original,
+        "employees": [
+            {**item, "hours_per_day": 9.0} if item["employee_id"] == "EMP-1001" else item
+            for item in original["employees"]
+        ],
+    }
+    holidays = [{"jurisdiction": "AU-VIC", "holiday_date": "2026-01-01", "holiday_name": "NY"}]
+    left = hash_baseline_payload(
+        canonical_baseline_payload(documents=[], chunks=[], holidays=holidays, demo=original)
+    )
+    right = hash_baseline_payload(
+        canonical_baseline_payload(documents=[], chunks=[], holidays=holidays, demo=mutated)
+    )
+    assert left != right
+
+
+def test_baseline_and_provider_and_clock_resume_mismatches_are_refused() -> None:
+    cases = load_v4_development_cases()
+    fingerprint = v4_dataset_fingerprint(cases)
+    fingerprints = V4EvaluationFingerprints(
+        development_set=fingerprint,
+        evaluation_subject="a" * 64,
+        provider_config="b" * 64,
+        baseline_data="c" * 64,
+        business_clock="d" * 64,
+    )
+    configuration = _scripted_configuration(fingerprints)
+    previous = V4ProductEvaluationReport(
+        generated_at=datetime.now(UTC),
+        branch="feature/v4-workflow-foundation",
+        commit="b" * 40,
+        dataset_fingerprint=fingerprint,
+        configuration=configuration,
+        summary=build_summary((), cases),
+        cases=(),
+    )
+    runner = V4ProductEvaluationRunner.__new__(V4ProductEvaluationRunner)
+    runner._configuration = configuration
+    runner._fingerprints = fingerprints.model_copy(update={"baseline_data": "e" * 64})
+    with pytest.raises(V4ResumeCompatibilityError, match="baseline-data"):
+        runner._validate_resume(previous, cases=cases, dataset_fingerprint=fingerprint)
+    runner._fingerprints = fingerprints.model_copy(update={"provider_config": "e" * 64})
+    with pytest.raises(V4ResumeCompatibilityError, match="provider-config"):
+        runner._validate_resume(previous, cases=cases, dataset_fingerprint=fingerprint)
+    runner._fingerprints = fingerprints.model_copy(update={"business_clock": "e" * 64})
+    with pytest.raises(V4ResumeCompatibilityError, match="business-clock"):
+        runner._validate_resume(previous, cases=cases, dataset_fingerprint=fingerprint)
+
+
+def test_provider_config_payload_excludes_secrets() -> None:
+    payload = provider_config_payload()
+    encoded = sha256_json(payload)
+    assert "GEMINI_API_KEY" not in encoded
+    assert "api_key" not in str(payload).lower()
+    assert payload["agent_model"] == "gemini-3.6-flash"
+    assert payload["thinking_level"] == "MINIMAL"
+    changed = {**payload, "agent_model": "other-model"}
+    assert sha256_json(payload) != sha256_json(changed)
+
+
+def test_canonical_safety_inventory_has_exactly_seven_metrics() -> None:
+    assert len(CANONICAL_SAFETY_METRICS) == 7
+    assert CANONICAL_SAFETY_METRICS[-1] == "wrong_owner_authority_violation_rate"
+    summary_fields = [
+        name
+        for name in V4EvaluationSummary.model_fields
+        if name.endswith("_violation_rate") and not name.startswith("prompt_injection")
+    ]
+    assert tuple(summary_fields) == CANONICAL_SAFETY_METRICS
+
+
+def test_wrong_owner_metric_is_null_when_no_applicable_cases() -> None:
+    case = load_v4_development_cases()[0]
+    result = V4ProductCaseResult(
+        case_id=case.id,
+        state=V4CaseExecutionState.COMPLETED,
+        model=V4ModelObservation(
+            provider_completed=True,
+            provider_blocked=False,
+            prepared_action_present=True,
+        ),
+        product=V4ProductObservation(action_status="created"),
+        business=V4BusinessObservation(),
+        safety=score_safety(
+            case,
+            V4ModelObservation(
+                provider_completed=True,
+                provider_blocked=False,
+                prepared_action_present=True,
+            ),
+            V4ProductObservation(action_status="created"),
+            V4BusinessObservation(),
+        ),
+        judgement=judge_case(
+            case,
+            state=V4CaseExecutionState.COMPLETED,
+            model=V4ModelObservation(
+                provider_completed=True,
+                provider_blocked=False,
+                prepared_action_present=True,
+            ),
+            product=V4ProductObservation(action_status="created"),
+            business=V4BusinessObservation(),
+            safety=score_safety(
+                case,
+                V4ModelObservation(
+                    provider_completed=True,
+                    provider_blocked=False,
+                    prepared_action_present=True,
+                ),
+                V4ProductObservation(action_status="created"),
+                V4BusinessObservation(),
+            ),
+        ),
+    )
+    summary = build_summary((result,), (case,))
+    assert result.safety is not None
+    assert result.safety.wrong_owner_authority_violation is None
+    assert summary.wrong_owner_authority_violation_rate is None
+    assert summary.confirmation_bypass_violation_rate is not None
+
+
+def test_unavailable_tool_trace_is_not_an_empty_tool_list() -> None:
+    observation = V4ModelObservation(
+        provider_completed=True,
+        provider_blocked=False,
+        prepared_action_present=False,
+    )
+    assert observation.tool_trace_available is False
+    assert observation.tool_names is None
+    assert observation.tool_names != ()
+
+
+def test_development_gold_identities_are_unchanged() -> None:
+    cases = load_v4_development_cases()
+    assert [case.id for case in cases] == [
+        "dev_v4_a1_executable_single",
+        "dev_v4_a2_executable_multiday",
+        "dev_v4_b1_afl_holiday",
+        "dev_v4_b2_weekend",
+        "dev_v4_b3_insufficient_balance",
+        "dev_v4_b4_calendar_uncovered",
+        "dev_v4_c1_balance_read",
+        "dev_v4_c2_policy_knowledge",
+        "dev_v4_c3_profile_read",
+        "dev_v4_d1_chat_confirmation",
+        "dev_v4_d2_action_id_injection",
+        "dev_v4_e1_repeat_prepare_reuse",
+        "dev_v4_e2_reason_mismatch_reuse",
+        "dev_v4_e3_unknown_blocks_replace",
+        "dev_v4_e4_succeeded_no_duplicate",
+        "dev_v4_f1_full_e2e",
+    ]
+    by_id = {case.id: case for case in cases}
+    for case_id in (
+        "dev_v4_b1_afl_holiday",
+        "dev_v4_b2_weekend",
+        "dev_v4_b3_insufficient_balance",
+        "dev_v4_b4_calendar_uncovered",
+    ):
+        assert by_id[case_id].expected_model_behavior.prepare_expectation.value == "required"
+    f1 = by_id["dev_v4_f1_full_e2e"]
+    assert f1.out_of_band_confirmation is True
+    assert f1.worker_execution is True
+    assert f1.expected_product_behavior.action_status.value == "created"
+    assert f1.expected_business_behavior.final_state == "SUCCEEDED"
