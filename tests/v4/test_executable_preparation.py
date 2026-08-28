@@ -9,6 +9,7 @@ from app.workflow.domain import ActionType, LeaveType
 from app.workflow.errors import WorkflowIntegrityError
 from app.workflow.executable_preparation import (
     READINESS_READY,
+    V4ExecutablePreparationService,
     holiday_adjusted_scheduled_work_days,
     reconstruct_canonical_draft,
     serialize_canonical_draft,
@@ -78,6 +79,35 @@ def test_partial_stored_payload_is_integrity_error_not_stale() -> None:
     )
     with pytest.raises(WorkflowIntegrityError, match="missing canonical fields"):
         verify_persisted_draft_integrity(revision)
+
+
+def test_calendar_version_drift_is_stale_without_mixing_authorities() -> None:
+    draft = _draft()
+    payload = serialize_canonical_draft(draft, scheduled_work_days=1)
+    payload["calendar_version"] = "AU-VIC-2025-v1"
+    drifted = reconstruct_canonical_draft(payload)
+
+    class _Workflow:
+        owner_employee_id = "EMP-1001"
+        owner_subject_id = "sub"
+        jurisdiction = "AU-VIC"
+
+    class _DriftedRevision:
+        draft_payload = serialize_canonical_draft(drifted, scheduled_work_days=1)
+        draft_hash = drifted.fingerprint()
+        authority_snapshot_hash = drifted.authority_snapshot_hash
+        calendar_version = "AU-VIC-2025-v1"
+        ruleset_version = drifted.ruleset_version
+        business_request_key = "unused"
+
+    result = V4ExecutablePreparationService().revalidate_confirmed(
+        None,  # type: ignore[arg-type]
+        _Workflow(),
+        _DriftedRevision(),
+    )
+    assert result.stale is True
+    assert result.preparation is None
+    assert result.persisted_draft.calendar_version == "AU-VIC-2025-v1"
 
 
 def test_hash_payload_mismatch_is_integrity_error() -> None:

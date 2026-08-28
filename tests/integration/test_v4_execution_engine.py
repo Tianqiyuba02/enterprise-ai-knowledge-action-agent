@@ -37,6 +37,7 @@ from app.workflow.executor import (
     BusinessOutcome,
     ExecutorFailpoints,
     LeaveSubmissionExecutor,
+    ResolutionKind,
 )
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.time import database_now
@@ -219,8 +220,7 @@ def test_confirmed_reserves_exactly_one_execution(
     assert first.outcome is ReservationOutcome.RESERVED
     assert first.permit is not None
     assert second.outcome is ReservationOutcome.ALREADY_RESERVED
-    assert second.permit is not None
-    assert first.permit.execution_key == second.permit.execution_key
+    assert second.permit is None
     assert first.permit.lease_generation == 1
     assert _count(engine, "action_execution_ledger") == 1
     with session_factory() as session:
@@ -360,7 +360,7 @@ def test_stale_generation_performs_zero_mutation(
     assert taken.lease_owner_id == WORKER_B
     assert taken.execution_key == stale_permit.execution_key
     blocked = executor.submit(stale_permit)
-    assert blocked.outcome is BusinessOutcome.DEFINITELY_NOT_APPLIED
+    assert blocked.outcome is BusinessOutcome.EXECUTION_AUTHORITY_LOST
     assert blocked.failure_kind == "stale_generation"
     assert _count(engine, "leave_requests") == 0
     applied = executor.submit(taken)
@@ -383,6 +383,8 @@ def test_execution_key_replay_and_cross_action_dedupe(
     replay = executor.submit(first.permit)
     assert first_result.outcome is replay.outcome is BusinessOutcome.APPLIED
     assert first_result.leave_request_id == replay.leave_request_id
+    assert first_result.resolution == ResolutionKind.CREATED.value
+    assert replay.resolution == ResolutionKind.CREATED.value
     assert _count(engine, "leave_requests") == 1
     with session_factory() as session:
         session.execute(
@@ -402,7 +404,18 @@ def test_execution_key_replay_and_cross_action_dedupe(
     adopted = executor.submit(second.permit)
     assert adopted.outcome is BusinessOutcome.APPLIED
     assert adopted.leave_request_id == first_result.leave_request_id
+    assert adopted.resolution == ResolutionKind.ADOPTED_EXISTING.value
     assert _count(engine, "leave_requests") == 1
+    with session_factory() as session:
+        row = LeaveQueryRepository().find_by_business_request_key(
+            session,
+            session.execute(
+                text("SELECT business_request_key FROM action_revisions WHERE action_id = :id"),
+                {"id": first_id},
+            ).scalar_one(),
+        )
+        assert row is not None
+        assert row.source_action_id == first_id
 
 
 def test_overlap_and_insufficient_balance_are_definite_failures(
@@ -547,6 +560,7 @@ def test_reconcile_discovers_applied_and_cross_action_satisfaction(
     assert _count(engine, "leave_requests") == 1
     found = LeaveSubmissionExecutor(session_factory, isolated_settings).reconcile(reserved.permit)
     assert found.outcome is BusinessOutcome.APPLIED
+    assert found.resolution == ResolutionKind.CREATED.value
     with session_factory() as session:
         session.execute(
             text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
@@ -559,7 +573,12 @@ def test_reconcile_discovers_applied_and_cross_action_satisfaction(
     adopted = LeaveSubmissionExecutor(session_factory, isolated_settings).reconcile(second.permit)
     assert adopted.outcome is BusinessOutcome.APPLIED
     assert adopted.leave_request_id == found.leave_request_id
+    assert adopted.resolution == ResolutionKind.ADOPTED_EXISTING.value
     assert _count(engine, "leave_requests") == 1
+    with session_factory() as session:
+        row = LeaveQueryRepository().find_by_execution_key(session, reserved.permit.execution_key)
+        assert row is not None
+        assert row.source_action_id == first_id
 
 
 def test_ambiguous_outcome_is_not_labeled_failure(

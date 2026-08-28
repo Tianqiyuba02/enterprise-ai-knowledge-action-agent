@@ -66,7 +66,7 @@ class ExecutablePreparation:
 
 @dataclass(frozen=True, slots=True)
 class RevalidationResult:
-    preparation: ExecutablePreparation
+    preparation: ExecutablePreparation | None
     persisted_draft: CanonicalDraft
     stale: bool
     integrity_ok: bool
@@ -264,10 +264,29 @@ class V4ExecutablePreparationService:
         revision: ActionRevision,
     ) -> RevalidationResult:
         persisted = verify_persisted_draft_integrity(revision)
+        if (
+            revision.calendar_version != V4_CALENDAR_VERSION
+            or persisted.calendar_version != revision.calendar_version
+            or revision.ruleset_version != V4_RULESET_VERSION
+            or persisted.ruleset_version != revision.ruleset_version
+        ):
+            return RevalidationResult(
+                preparation=None,
+                persisted_draft=persisted,
+                stale=True,
+                integrity_ok=True,
+            )
         context = AuthenticatedEmployeeContext(
             employee_id=workflow.owner_employee_id,
             subject_id=workflow.owner_subject_id,
             jurisdiction=workflow.jurisdiction,
+        )
+        calendar = self._calendar.holidays_for_range(
+            session,
+            jurisdiction=workflow.jurisdiction or "AU-VIC",
+            start_date=persisted.start_date,
+            end_date=persisted.end_date,
+            calendar_version=revision.calendar_version,
         )
         live = self.prepare(
             session,
@@ -282,6 +301,7 @@ class V4ExecutablePreparationService:
             or live.business_request_key != revision.business_request_key
             or live.draft.calendar_version != revision.calendar_version
             or live.draft.ruleset_version != revision.ruleset_version
+            or live.coverage is not calendar.coverage
             or not live.executable
         )
         return RevalidationResult(

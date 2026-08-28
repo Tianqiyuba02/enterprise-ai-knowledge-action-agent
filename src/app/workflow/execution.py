@@ -23,7 +23,11 @@ from app.workflow.domain import (
     ExecutionOperation,
     WorkflowState,
 )
-from app.workflow.errors import WorkflowIntegrityError, WorkflowRowNotFoundError
+from app.workflow.errors import (
+    ExecutionFenceError,
+    WorkflowIntegrityError,
+    WorkflowRowNotFoundError,
+)
 from app.workflow.executable_preparation import V4ExecutablePreparationService
 from app.workflow.execution_repository import ExecutionLedgerRepository, NewExecutionReservation
 from app.workflow.locks import acquire_business_request_lock
@@ -89,6 +93,16 @@ def permit_from_ledger(row: ActionExecutionLedger) -> ExecutionPermit:
     )
 
 
+def permit_for_caller(row: ActionExecutionLedger, worker_id: str) -> ExecutionPermit:
+    """Return a permit only when the caller already owns the ledger lease."""
+
+    if not worker_id or not worker_id.strip():
+        raise WorkflowIntegrityError("worker_id is required to load an execution permit")
+    if row.lease_owner_id != worker_id:
+        raise ExecutionFenceError("caller does not own the execution lease")
+    return permit_from_ledger(row)
+
+
 class ExecutionReservationService:
     """Reserve exactly one executable attempt after deterministic revalidation."""
 
@@ -144,10 +158,13 @@ class ExecutionReservationService:
                     ),
                 )
                 session.commit()
+                owned_permit = None
+                if existing.lease_owner_id == worker_id:
+                    owned_permit = permit_for_caller(existing, worker_id)
                 return ReservationResult(
                     ReservationOutcome.ALREADY_RESERVED,
                     row.state,
-                    permit=permit_from_ledger(existing),
+                    permit=owned_permit,
                 )
             if row.state != WorkflowState.CONFIRMED.value:
                 session.commit()
@@ -230,7 +247,7 @@ class ExecutionReservationService:
             return ReservationResult(
                 ReservationOutcome.RESERVED,
                 WorkflowState.EXECUTING.value,
-                permit=permit_from_ledger(ledger),
+                permit=permit_for_caller(ledger, worker_id),
             )
 
     def takeover_expired_lease(
@@ -250,8 +267,8 @@ class ExecutionReservationService:
             if ledger.lease_expires_at is None or ledger.lease_expires_at > now:
                 if ledger.lease_owner_id == worker_id:
                     session.commit()
-                    return permit_from_ledger(ledger)
-                raise WorkflowRowNotFoundError("execution lease is still owned")
+                    return permit_for_caller(ledger, worker_id)
+                raise ExecutionFenceError("execution lease is still owned")
             previous_owner = ledger.lease_owner_id
             previous_generation = ledger.lease_generation
             ledger.lease_owner_id = worker_id
@@ -278,14 +295,22 @@ class ExecutionReservationService:
                 ),
             )
             session.commit()
-            return permit_from_ledger(ledger)
+            return permit_for_caller(ledger, worker_id)
 
-    def reload_permit(self, *, action_id: UUID, revision: int = V4_REVISION) -> ExecutionPermit:
+    def reload_permit(
+        self,
+        *,
+        action_id: UUID,
+        revision: int = V4_REVISION,
+        worker_id: str,
+    ) -> ExecutionPermit:
+        if not worker_id or not worker_id.strip():
+            raise WorkflowIntegrityError("worker_id is required to reload an execution permit")
         with self._session_factory() as session:
             ledger = self._ledger.get_by_action(session, action_id=action_id, revision=revision)
             if ledger is None:
                 raise WorkflowRowNotFoundError("execution reservation was not found")
-            return permit_from_ledger(ledger)
+            return permit_for_caller(ledger, worker_id)
 
     def _expire_confirmed_if_needed(
         self,

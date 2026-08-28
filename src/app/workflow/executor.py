@@ -1,5 +1,6 @@
 """Same-PostgreSQL demo leave submission executor. No HR provider."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -23,15 +24,30 @@ from app.workflow.execution_repository import ExecutionLedgerRepository
 from app.workflow.holiday_repository import HolidayCalendarRepository
 from app.workflow.leave_command_repository import LeaveCommandRepository, NewLeaveRequest
 from app.workflow.leave_query_repository import LeaveQueryRepository
-from app.workflow.locks import acquire_employee_lock
+from app.workflow.locks import acquire_business_request_lock, acquire_employee_lock
 from app.workflow.time import database_now
 from app.workflow.workflow_repository import WorkflowRepository
 
-MUTABLE_EXECUTION_STATES = frozenset(
+SUBMIT_MUTATION_STATES = frozenset({WorkflowState.EXECUTING.value})
+RECONCILE_PROBE_STATES = frozenset(
     {
         WorkflowState.EXECUTING.value,
         WorkflowState.UNKNOWN_OUTCOME.value,
         WorkflowState.RECONCILING.value,
+    }
+)
+SUBMIT_LEDGER_STATUSES = frozenset(
+    {
+        ExecutionLedgerStatus.RESERVED.value,
+        ExecutionLedgerStatus.LEASED.value,
+    }
+)
+RECONCILE_LEDGER_STATUSES = frozenset(
+    {
+        ExecutionLedgerStatus.RESERVED.value,
+        ExecutionLedgerStatus.LEASED.value,
+        ExecutionLedgerStatus.UNKNOWN.value,
+        ExecutionLedgerStatus.RECONCILING.value,
     }
 )
 
@@ -40,6 +56,12 @@ class BusinessOutcome(StrEnum):
     APPLIED = "APPLIED"
     DEFINITELY_NOT_APPLIED = "DEFINITELY_NOT_APPLIED"
     OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
+    EXECUTION_AUTHORITY_LOST = "EXECUTION_AUTHORITY_LOST"
+
+
+class ResolutionKind(StrEnum):
+    CREATED = "CREATED"
+    ADOPTED_EXISTING = "ADOPTED_EXISTING"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +71,15 @@ class ExecutorResult:
     failure_kind: str | None = None
     execution_key: str | None = None
     business_request_key: str | None = None
+    resolution: str | None = None
 
     @property
     def applied(self) -> bool:
         return self.outcome is BusinessOutcome.APPLIED
+
+    @property
+    def authority_lost(self) -> bool:
+        return self.outcome is BusinessOutcome.EXECUTION_AUTHORITY_LOST
 
 
 @dataclass
@@ -63,10 +90,11 @@ class ExecutorFailpoints:
     raise_after_insert_before_commit: BaseException | None = None
     raise_after_commit: BaseException | None = None
     report_unknown_after_commit: bool = False
+    after_absence_observed: Callable[[], None] | None = None
 
 
 class LeaveSubmissionExecutor:
-    """Idempotent annual-leave submit/reconcile against the same PostgreSQL database."""
+    """Idempotent annual-leave submit against the same PostgreSQL database."""
 
     def __init__(
         self,
@@ -89,6 +117,8 @@ class LeaveSubmissionExecutor:
         return self._run(permit, conclude_absence=False)
 
     def reconcile(self, permit: ExecutionPermit) -> ExecutorResult:
+        """Probe-only. Never inserts a leave request."""
+
         return self._run(permit, conclude_absence=True)
 
     def _run(self, permit: ExecutionPermit, *, conclude_absence: bool) -> ExecutorResult:
@@ -121,39 +151,42 @@ class LeaveSubmissionExecutor:
             session, action_id=permit.action_id, revision=permit.revision
         )
         now = database_now(session)
-        existing = self._find_existing_leave(
-            session, permit.execution_key, revision.business_request_key
+        allowed_states = RECONCILE_PROBE_STATES if conclude_absence else SUBMIT_MUTATION_STATES
+        allowed_ledger = RECONCILE_LEDGER_STATUSES if conclude_absence else SUBMIT_LEDGER_STATUSES
+        fence = self._evaluate_fence(
+            ledger,
+            revision,
+            permit,
+            now,
+            allowed_states=allowed_states,
+            allowed_ledger_statuses=allowed_ledger,
         )
-        if existing is not None:
-            session.commit()
-            return ExecutorResult(
-                BusinessOutcome.APPLIED,
-                leave_request_id=existing.leave_request_id,
-                execution_key=existing.execution_key,
-                business_request_key=existing.business_request_key,
-            )
-        fence = self._evaluate_fence(ledger, revision, permit, now)
         if fence is not None:
             session.commit()
             return fence
-        acquire_employee_lock(session, workflow.owner_employee_id)
+        acquire_business_request_lock(session, revision.business_request_key)
+        if not conclude_absence:
+            acquire_employee_lock(session, workflow.owner_employee_id)
         now = database_now(session)
+        fence = self._evaluate_fence(
+            ledger,
+            revision,
+            permit,
+            now,
+            allowed_states=allowed_states,
+            allowed_ledger_statuses=allowed_ledger,
+        )
+        if fence is not None:
+            session.commit()
+            return fence
         existing = self._find_existing_leave(
             session, permit.execution_key, revision.business_request_key
         )
         if existing is not None:
             session.commit()
-            return ExecutorResult(
-                BusinessOutcome.APPLIED,
-                leave_request_id=existing.leave_request_id,
-                execution_key=existing.execution_key,
-                business_request_key=existing.business_request_key,
-            )
-        fence = self._evaluate_fence(ledger, revision, permit, now)
-        if fence is not None:
-            session.commit()
-            return fence
+            return self._applied_existing(permit, existing)
         if conclude_absence:
+            self._raise_after_absence_observed()
             session.commit()
             return ExecutorResult(
                 BusinessOutcome.DEFINITELY_NOT_APPLIED,
@@ -251,6 +284,7 @@ class LeaveSubmissionExecutor:
                 leave_request_id=created.leave_request_id,
                 execution_key=permit.execution_key,
                 business_request_key=revision.business_request_key,
+                resolution=ResolutionKind.CREATED.value,
             )
         self._raise_failpoint("raise_after_commit", after_commit=True)
         return ExecutorResult(
@@ -258,6 +292,7 @@ class LeaveSubmissionExecutor:
             leave_request_id=created.leave_request_id,
             execution_key=permit.execution_key,
             business_request_key=revision.business_request_key,
+            resolution=ResolutionKind.CREATED.value,
         )
 
     def _evaluate_fence(
@@ -266,54 +301,24 @@ class LeaveSubmissionExecutor:
         revision,
         permit: ExecutionPermit,
         now,
+        *,
+        allowed_states: frozenset[str],
+        allowed_ledger_statuses: frozenset[str],
     ) -> ExecutorResult | None:
         if ledger.execution_key != permit.execution_key:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="execution_key_mismatch",
-                execution_key=permit.execution_key,
-            )
-        if ledger.lease_owner_id != permit.lease_owner_id:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="stale_generation",
-                execution_key=permit.execution_key,
-            )
+            return _authority_lost("execution_key_mismatch", permit)
         if self._ledger.is_stale_generation(ledger.lease_generation, permit.lease_generation):
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="stale_generation",
-                execution_key=permit.execution_key,
-            )
+            return _authority_lost("stale_generation", permit)
         if ledger.lease_generation != permit.lease_generation:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="stale_generation",
-                execution_key=permit.execution_key,
-            )
+            return _authority_lost("stale_generation", permit)
+        if ledger.lease_owner_id != permit.lease_owner_id:
+            return _authority_lost("wrong_lease_owner", permit)
         if ledger.lease_expires_at is None or ledger.lease_expires_at <= now:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="lease_expired",
-                execution_key=permit.execution_key,
-            )
-        if revision.state not in MUTABLE_EXECUTION_STATES:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="revision_not_executable",
-                execution_key=permit.execution_key,
-            )
-        if ledger.status not in {
-            ExecutionLedgerStatus.RESERVED.value,
-            ExecutionLedgerStatus.LEASED.value,
-            ExecutionLedgerStatus.UNKNOWN.value,
-            ExecutionLedgerStatus.RECONCILING.value,
-        }:
-            return ExecutorResult(
-                BusinessOutcome.DEFINITELY_NOT_APPLIED,
-                failure_kind="ledger_not_executable",
-                execution_key=permit.execution_key,
-            )
+            return _authority_lost("lease_expired", permit)
+        if revision.state not in allowed_states:
+            return _authority_lost("revision_not_executable", permit)
+        if ledger.status not in allowed_ledger_statuses:
+            return _authority_lost("ledger_not_executable", permit)
         return None
 
     def _find_existing_leave(
@@ -326,6 +331,25 @@ class LeaveSubmissionExecutor:
         if found is not None:
             return found
         return self._leave_queries.find_by_business_request_key(session, business_request_key)
+
+    def _applied_existing(
+        self,
+        permit: ExecutionPermit,
+        existing: LeaveRequest,
+    ) -> ExecutorResult:
+        resolution = (
+            ResolutionKind.CREATED
+            if existing.execution_key == permit.execution_key
+            and existing.source_action_id == permit.action_id
+            else ResolutionKind.ADOPTED_EXISTING
+        )
+        return ExecutorResult(
+            BusinessOutcome.APPLIED,
+            leave_request_id=existing.leave_request_id,
+            execution_key=existing.execution_key,
+            business_request_key=existing.business_request_key,
+            resolution=resolution.value,
+        )
 
     def _applied_after_conflict(
         self,
@@ -342,12 +366,7 @@ class LeaveSubmissionExecutor:
                     execution_key=permit.execution_key,
                     business_request_key=business_request_key,
                 )
-            return ExecutorResult(
-                BusinessOutcome.APPLIED,
-                leave_request_id=existing.leave_request_id,
-                execution_key=existing.execution_key,
-                business_request_key=existing.business_request_key,
-            )
+            return self._applied_existing(permit, existing)
 
     def _raise_failpoint(self, name: str, *, after_commit: bool = False) -> None:
         if self._failpoints is None:
@@ -358,6 +377,19 @@ class LeaveSubmissionExecutor:
         if after_commit:
             raise _AmbiguousOutcome from error
         raise error
+
+    def _raise_after_absence_observed(self) -> None:
+        if self._failpoints is None or self._failpoints.after_absence_observed is None:
+            return
+        self._failpoints.after_absence_observed()
+
+
+def _authority_lost(failure_kind: str, permit: ExecutionPermit) -> ExecutorResult:
+    return ExecutorResult(
+        BusinessOutcome.EXECUTION_AUTHORITY_LOST,
+        failure_kind=failure_kind,
+        execution_key=permit.execution_key,
+    )
 
 
 class _AmbiguousOutcome(RuntimeError):

@@ -159,7 +159,8 @@ def test_crash_before_business_then_takeover_reconcile(
     assert state == WorkflowState.EXECUTION_FAILED.value
     assert _count(engine, "leave_requests") == 0
     stale = LeaveSubmissionExecutor(session_factory, isolated_settings).submit(reserved.permit)
-    assert stale.outcome is BusinessOutcome.DEFINITELY_NOT_APPLIED
+    assert stale.outcome is BusinessOutcome.EXECUTION_AUTHORITY_LOST
+    assert stale.failure_kind == "stale_generation"
     assert _count(engine, "leave_requests") == 0
 
 
@@ -206,21 +207,11 @@ def test_unknown_schedules_bounded_reconciliation(
     assert state == WorkflowState.UNKNOWN_OUTCOME.value
     assert _count(engine, "workflow_outbox") == 1
 
-    class _UnknownExecutor:
-        def reconcile(self, permit):
-            return unknown_result(permit.execution_key)
-
-        def submit(self, permit):
-            return unknown_result(permit.execution_key)
-
     for _ in range(MAX_AUTOMATIC_RECONCILIATION_ATTEMPTS):
-        runtime = WorkflowExecutionRuntime(
-            session_factory,
-            isolated_settings,
-            worker_id=WORKER_A,
-            executor=_UnknownExecutor(),
+        state = finalizer.finalize(
+            reserved.permit,
+            unknown_result(reserved.permit.execution_key),
         )
-        state = runtime.reconcile(str(action_id), 1)
     assert state == WorkflowState.UNKNOWN_OUTCOME.value
     with session_factory() as session:
         revision = WorkflowRepository().get_revision(session, action_id)
