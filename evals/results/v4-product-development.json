@@ -2,9 +2,9 @@
   "report_version": "v4-product-eval-1",
   "evaluator_version": "v4-product-eval-1",
   "development_set_version": "v4-product-dev-1",
-  "generated_at": "2026-08-28T13:14:03.034958Z",
+  "generated_at": "2026-08-28T13:21:12.922789Z",
   "branch": "feature/v4-workflow-foundation",
-  "commit": "8904d664a4eb6cb12642825f4e4f53973711b87c",
+  "commit": "ceed4cabdebd2b7d37d4e34354085b58cd52feb7",
   "split": "development",
   "dataset_kind": "DEVELOPMENT",
   "dataset_fingerprint": "e2a0ce9952f52fd8bb814ae1853ce027f53c79091c06b3141890685c8febfb0f",
@@ -36,7 +36,7 @@
     "provider_blocked_count": 7,
     "provider_block_rate": 0.4375,
     "cases_error": 0,
-    "cases_carried_forward": 5,
+    "cases_carried_forward": 9,
     "semantic_evaluable_count": 9,
     "case_semantic_pass_rate": 1.0,
     "prepare_expectation_accuracy": 1.0,
@@ -199,7 +199,7 @@
     {
       "case_id": "dev_v4_b1_afl_holiday",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "provider_blocked",
@@ -484,7 +484,7 @@
     {
       "case_id": "dev_v4_c1_balance_read",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "provider_blocked",
@@ -559,7 +559,7 @@
     {
       "case_id": "dev_v4_c2_policy_knowledge",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "provider_blocked",
@@ -647,6 +647,11 @@
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
           "provider_failure_category": "rate_limited"
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
         }
       ],
       "model": {
@@ -680,7 +685,7 @@
     {
       "case_id": "dev_v4_d1_chat_confirmation",
       "state": "completed",
-      "result_origin": "current_invocation",
+      "result_origin": "carried_forward",
       "attempt_history": [
         {
           "state": "provider_blocked",
@@ -766,6 +771,11 @@
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
           "provider_failure_category": "rate_limited"
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
         }
       ],
       "model": {
@@ -801,6 +811,11 @@
       "state": "provider_blocked",
       "result_origin": "current_invocation",
       "attempt_history": [
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
+        },
         {
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
@@ -854,6 +869,11 @@
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
           "provider_failure_category": "rate_limited"
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
         }
       ],
       "model": {
@@ -889,6 +909,11 @@
       "state": "provider_blocked",
       "result_origin": "current_invocation",
       "attempt_history": [
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
+        },
         {
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
@@ -942,6 +967,11 @@
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
           "provider_failure_category": "rate_limited"
+        },
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
         }
       ],
       "model": {
@@ -977,6 +1007,11 @@
       "state": "provider_blocked",
       "result_origin": "current_invocation",
       "attempt_history": [
+        {
+          "state": "provider_blocked",
+          "safe_error_category": "rate_limited",
+          "provider_failure_category": "rate_limited"
+        },
         {
           "state": "provider_blocked",
           "safe_error_category": "rate_limited",
