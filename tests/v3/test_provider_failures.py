@@ -330,6 +330,8 @@ def test_public_mapper_does_not_leak_internal_failure_fields() -> None:
         "citations",
         "message",
         "prepared_action",
+        "action",
+        "action_status",
     }
     assert "provider_failure" not in AssistantQueryResponse.model_fields
     assert "http_status_code" not in AssistantQueryResponse.model_fields

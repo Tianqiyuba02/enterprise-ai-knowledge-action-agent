@@ -53,7 +53,10 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "citations",
         "message",
         "prepared_action",
+        "action",
+        "action_status",
     }
+    assert "AssistantDurableAction" in component_names
     confirm_properties = schema["components"]["schemas"]["ConfirmActionRequest"]["properties"]
     assert set(confirm_properties) == {"challenge_id", "confirmation_token"}
     assistant_parameters = schema["paths"]["/api/v1/assistant/query"]["post"]["parameters"]

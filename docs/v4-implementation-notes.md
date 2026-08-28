@@ -2,10 +2,10 @@
 
 ## Current stage
 
-V4 Stage 4 adds a deterministic submitted-leave execution engine, generation
-fencing, per-employee mutation serialization, cross-action business dedupe, and
-durable UNKNOWN_OUTCOME reconciliation. Persistent LangGraph can orchestrate
-execution after out-of-band confirmation.
+V4 Stage 5B adds deterministic durable action creation from a trusted V3 PREPARE
+result, then additive Assistant API integration. Confirmation remains out-of-band.
+The previously reviewed execution engine can complete submitted leave after
+confirm. This is not a V4 evaluation pass or a release-readiness claim.
 
 Project version remains `0.4.0`. Sealed V3 `v0.4.0` is unchanged.
 
@@ -31,7 +31,14 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
   event-type-specific, a non-owner wake does not consume a reconciliation attempt,
   an unresolved reconciliation wake remains durable and retryable, both Attack-7
   serializations have deterministic evidence, and the dead two-step reconciliation
-  APIs were removed.
+  APIs were removed. Stage 5A review of
+  `c1db79cf5ee60a231bb377da16a52afdf0af6ff8` returned PASS.
+- Stage 5B-1 `ActionCreationService` creates or reuses a confirmation-ready
+  `SUBMIT_ANNUAL_LEAVE` action from trusted identity plus
+  `AgentRunResult.prepared_leave_request`. The persisted draft is the V4
+  holiday-adjusted canonical result, not the V3 preview.
+- Stage 5B-2 Assistant `POST /api/v1/assistant/query` may include an additive
+  `action` field after AgentService returns. The LLM tool protocol is unchanged.
 
 Independent Stage 4 review of `feature/v4-workflow-foundation` at
 `4f093599843a91ab87c3fcc58d5d1c12e7254dae` returned PASS: 0 BLOCKER, 0 HIGH,
@@ -45,8 +52,10 @@ the stranded `UNKNOWN_OUTCOME` wake-settlement defect closed in Stage 5A.
   draft hash, or workflow state.
 - Challenge tokens are 256-bit `secrets.token_hex` values. Only SHA-256 digests are stored
   and compared with `hmac.compare_digest`.
-- Demo TTLs: `V4_CONFIRMATION_CHALLENGE_TTL_SECONDS=600`, `V4_CONFIRMED_TTL_SECONDS=600`,
-  and `V4_EXECUTION_LEASE_TTL_SECONDS=60`. These are not an MFA/security certification claim.
+- Demo TTLs: `V4_ACTION_TTL_SECONDS=1800`, `V4_CONFIRMATION_CHALLENGE_TTL_SECONDS=600`,
+  `V4_CONFIRMED_TTL_SECONDS=600`, and `V4_EXECUTION_LEASE_TTL_SECONDS=60`. Challenge and
+  confirmed TTLs remain capped by `action_expires_at`. These are not an MFA/security
+  certification claim.
 - Chat text and graph `Command(resume=...)` cannot confirm.
 - Cancellation is allowed from `AWAITING_CONFIRMATION` and `CONFIRMED` only.
 - Local cancellation is forbidden after execution begins.
@@ -134,6 +143,53 @@ the submitted row and resolves `SUCCEEDED`.
 
 Checkpoint loss/corruption is an orchestration failure, not authority to guess workflow state.
 
+## Action creation
+
+`ActionCreationService` is a deterministic T1 service. It requires complete trusted V4
+identity (`employee_id`, `subject_id`, `session_id`, `jurisdiction`) at the action
+boundary only. It consumes the trusted structured V3 PREPARE result and runs
+`V4ExecutablePreparationService` before persistence. Non-executable V4 results do not
+create an action.
+
+Identifiers are server-owned (`uuid4` `action_id` and `langgraph_thread_id`).
+`revision` is always 1. Initial state is `AWAITING_CONFIRMATION`. No challenge, token,
+or execution reservation is created at T1. `action_workflows`, `action_revisions`, and
+`ACTION_PREPARED` commit in one transaction.
+
+Reuse is owner-scoped and `business_request_key`-based under a SHA-256 advisory lock:
+
+- live `AWAITING_CONFIRMATION` / `CONFIRMED` → reuse
+- `EXECUTING` / `UNKNOWN_OUTCOME` / `RECONCILING` → return existing, no replacement
+- `SUCCEEDED` → return existing, no new submit action
+- `CANCELLED` / `EXPIRED` / `STALE` / `EXECUTION_FAILED` → a newly recomputed action
+  may be created
+
+LangGraph is not started inside T1. After persistence, Assistant integration and
+challenge issuance call `WorkflowOrchestrationService.ensure_started` to create the
+initial interrupt checkpoint if it is missing. If initialization fails, PostgreSQL
+remains authority and the same action can be reused; the checkpoint step is retryable.
+
+## Assistant integration
+
+Integration lives after `AgentService.run`. `ToolDispatcher` and the LLM tool allowlist
+are unchanged. The model never receives `action_id`, a confirmation token, or an
+execution key. Chat utterances such as "yes" / "submit it" do not confirm or execute.
+
+`POST /api/v1/assistant/query` remains backward compatible. When a V4 action is
+created or reused, the response adds `action` (server-authoritative draft) and
+`action_status` (`created` / `reused`). The conversational `prepared_action` preview
+may still describe V3 hours. If those differ, the persisted V4 `action.draft` is
+authoritative and matches `GET /api/v1/actions/{action_id}`.
+
+If action persistence fails after a successful PREPARE, the assistant answer may still
+be returned, `action` is absent, and `action_status` is `creation_failed`. No
+`action_id` is fabricated.
+
+A complete offline PostgreSQL path exists:
+
+Assistant PREPARE → action create/reuse → challenge → confirm → outbox → worker →
+LangGraph → reservation → `leave_requests` → `SUCCEEDED`.
+
 ## LangGraph role
 
 PostgreSQL remains authority. Resume remains a wake signal only.
@@ -153,11 +209,11 @@ Checkpoint schema remains Alembic 0003 in `public`. Runtime `setup()` remains fo
 
 ## Not implemented
 
-- V3 assistant PREPARE is not integrated into automatic V4 action creation
-- no assistant `action_id` response
-- no LLM execution tool
 - no chat-text confirmation
+- no LLM execution tool
 - no production MFA
 - executor is the same-Postgres demo business system
 - external HR adapters are not implemented
-- leave cancellation is not implemented
+- leave cancellation after submission is not implemented
+- V4 development evaluation has not been run
+- V4 is not release-ready

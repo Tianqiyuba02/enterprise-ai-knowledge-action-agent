@@ -89,6 +89,41 @@ class WorkflowOrchestrationService:
             action_id=action_id,
             owner_subject_id=owner_subject_id,
         )
+        return self._invoke_initial_checkpoint(observation, settings=settings)
+
+    def ensure_started(
+        self,
+        *,
+        action_id: UUID,
+        owner_subject_id: str,
+        settings: KnowledgeSettings | None = None,
+    ) -> dict[str, Any]:
+        """Create the initial interrupt checkpoint if it is missing.
+
+        PostgreSQL action state remains authoritative if this fails. Callers may retry.
+        """
+
+        observation = self.load_owner_action(
+            action_id=action_id,
+            owner_subject_id=owner_subject_id,
+        )
+        config = _thread_config(observation.langgraph_thread_id)
+        with open_postgres_checkpointer(settings) as checkpointer:
+            existing = checkpointer.get(config)
+            if existing is not None:
+                return {
+                    "initialized": False,
+                    "observed_state": observation.state,
+                    "langgraph_thread_id": observation.langgraph_thread_id,
+                }
+        return self._invoke_initial_checkpoint(observation, settings=settings)
+
+    def _invoke_initial_checkpoint(
+        self,
+        observation: AuthoritativeObservation,
+        *,
+        settings: KnowledgeSettings | None,
+    ) -> dict[str, Any]:
         config = _thread_config(observation.langgraph_thread_id)
         with open_postgres_checkpointer(settings) as checkpointer:
             graph = build_workflow_graph(self.reload_observation).compile(checkpointer=checkpointer)

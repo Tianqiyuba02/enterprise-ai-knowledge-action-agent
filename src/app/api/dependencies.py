@@ -8,6 +8,7 @@ from fastapi import Depends, Header, Request
 from app.agent.client import GeminiAgentClient
 from app.agent.dispatcher import ToolDispatcher
 from app.agent.service import AgentService
+from app.api.assistant_application import AssistantApplicationService
 from app.config import load_agent_settings, load_knowledge_settings, load_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
@@ -26,7 +27,9 @@ from app.services.chat import ChatService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
+from app.workflow.action_creation import ActionCreationService
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.orchestration import WorkflowOrchestrationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
 DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
@@ -161,4 +164,37 @@ def get_agent_service(
             clock=clock,
         )
         request.app.state.agent_service = service
+    return service
+
+
+def get_action_creation_service(request: Request):
+    service = getattr(request.app.state, "action_creation_service", None)
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ActionCreationService(factory, settings)
+    request.app.state.action_creation_service = service
+    return service
+
+
+def get_assistant_application_service(request: Request) -> AssistantApplicationService:
+    existing = getattr(request.app.state, "assistant_application_service", None)
+    if existing is not None:
+        return cast(AssistantApplicationService, existing)
+    settings = getattr(request.app.state, "workflow_settings", None)
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    service = AssistantApplicationService(
+        get_agent_service(request),
+        get_action_creation_service(request),
+        session_factory=factory,
+        settings=settings or load_knowledge_settings(),
+        orchestration=WorkflowOrchestrationService(factory) if factory is not None else None,
+    )
+    request.app.state.assistant_application_service = service
     return service

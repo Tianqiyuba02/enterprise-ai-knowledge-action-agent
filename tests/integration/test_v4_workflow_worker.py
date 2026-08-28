@@ -260,6 +260,17 @@ def test_checkpoint_failure_and_awaiting_invariant_do_not_change_business_state(
         confirmation_token=issued.confirmation_token,
         context=ALEX,
     )
+    with session_factory() as session:
+        thread_id = session.execute(
+            text("SELECT langgraph_thread_id FROM action_workflows WHERE action_id = :action_id"),
+            {"action_id": missing_id},
+        ).scalar_one()
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            session.execute(
+                text(f"DELETE FROM {table} WHERE thread_id = :thread_id"),
+                {"thread_id": thread_id},
+            )
+        session.commit()
     worker = WorkflowWorker(session_factory, isolated_settings, worker_id="worker-fail")
     with pytest.raises(OrchestrationAuthorityError):
         worker.run_once()

@@ -8,6 +8,7 @@ from app.agent.loop_models import AgentModelTurn, AgentRequestedToolCall
 from app.agent.models import ToolResultStatus
 from app.agent.service import AgentService
 from app.api.application import create_app
+from app.api.assistant_application import NoOpActionCreationService
 from app.api.knowledge_models import KnowledgeCitation, KnowledgeQueryResponse
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.query_service import KnowledgeQueryService
@@ -17,6 +18,12 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 
 PRIMARY_SESSION = {"X-Demo-Session": "demo-v1-7f4c2a91"}
+
+
+def _app_with_noop_actions(**kwargs):
+    app = create_app(**kwargs)
+    app.state.action_creation_service = NoOpActionCreationService()
+    return app
 
 
 class FixedClock:
@@ -91,10 +98,7 @@ def _client(turns):
     )
     return (
         TestClient(
-            create_app(
-                repository=repository,
-                agent_service=service,
-            ),
+            _app_with_noop_actions(repository=repository, agent_service=service),
             raise_server_exceptions=False,
         ),
         session,
@@ -311,7 +315,7 @@ def test_separate_yes_request_cannot_recover_or_execute_previous_draft() -> None
         clock=clock,
     )
     client = TestClient(
-        create_app(repository=repository, agent_service=service),
+        _app_with_noop_actions(repository=repository, agent_service=service),
         raise_server_exceptions=False,
     )
     context = AuthenticatedEmployeeContext(employee_id="EMP-1001")

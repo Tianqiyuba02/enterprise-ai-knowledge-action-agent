@@ -17,6 +17,7 @@ from app.agent.provider_failures import (
 )
 from app.agent.service import AgentService
 from app.api.application import create_app
+from app.api.assistant_application import NoOpActionCreationService
 from app.api.knowledge_models import KnowledgeCitation
 
 PRIMARY_SESSION = {"X-Demo-Session": "demo-v1-7f4c2a91"}
@@ -27,6 +28,7 @@ SECONDARY_SESSION = {"X-Demo-Session": "demo-v1-3b8e6d50"}
 def assistant_api_client() -> Iterator[tuple[TestClient, Mock]]:
     service = Mock(spec=AgentService)
     app = create_app(agent_service=cast(AgentService, service))
+    app.state.action_creation_service = NoOpActionCreationService()
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client, service
 
@@ -188,6 +190,8 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
         ],
         "message": None,
         "prepared_action": None,
+        "action": None,
+        "action_status": None,
     }
     assert set(response.json()) == {
         "status",
@@ -195,6 +199,8 @@ def test_completed_response_maps_only_public_fields_and_trusted_citations(
         "citations",
         "message",
         "prepared_action",
+        "action",
+        "action_status",
     }
     for forbidden in (
         "tool_calls_attempted",
@@ -281,6 +287,8 @@ def test_bounded_inability_maps_to_one_safe_public_status(
         "citations": [_citation().model_dump(mode="json")],
         "message": "The assistant could not complete the request.",
         "prepared_action": None,
+        "action": None,
+        "action_status": None,
     }
     assert "budget" not in response.text.lower()
     assert "round" not in response.text.lower()
@@ -368,3 +376,55 @@ def test_assistant_route_registration_is_lazy(monkeypatch) -> None:
     assert health.status_code == 200
     assert openapi.status_code == 200
     assert "/api/v1/assistant/query" in openapi.json()["paths"]
+
+
+def test_assistant_request_cannot_supply_action_id(
+    assistant_api_client: tuple[TestClient, Mock],
+) -> None:
+    client, _service = assistant_api_client
+    response = client.post(
+        "/api/v1/assistant/query",
+        headers=PRIMARY_SESSION,
+        json={
+            "message": "Prepare leave",
+            "action_id": "11111111-1111-1111-1111-111111111111",
+        },
+    )
+    assert response.status_code == 422
+    assert "action" not in (response.json().get("error_code") or "")
+
+
+def test_persistence_failure_does_not_fabricate_action() -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.api.assistant_application import AssistantApplicationService
+    from app.api.assistant_models import AssistantActionStatus
+    from app.identity import AuthenticatedEmployeeContext
+
+    class FailingActions:
+        def create_or_reuse(self, context, prepared):
+            raise SQLAlchemyError("disk full")
+
+    agent = Mock(spec=AgentService)
+    agent.run.return_value = AgentRunResult(
+        status=AgentRunStatus.COMPLETED,
+        answer="I prepared a draft.",
+        citations=(),
+        prepared_leave_request=_draft(),
+        tool_calls_attempted=1,
+        model_rounds=1,
+    )
+    service = AssistantApplicationService(agent, FailingActions())
+    response = service.query(
+        "Prepare leave",
+        AuthenticatedEmployeeContext(
+            employee_id="EMP-1001",
+            subject_id="subj",
+            session_id="sess",
+            jurisdiction="AU-VIC",
+        ),
+    )
+    assert response.action is None
+    assert response.action_status is AssistantActionStatus.CREATION_FAILED
+    assert response.prepared_action is not None
+    assert response.answer == "I prepared a draft."
