@@ -81,6 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="evaluator-only delay between live case attempts (default: 0)",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="run the non-scored V4 provider preflight only",
+    )
+    parser.add_argument(
+        "--authorize-preflight",
+        action="store_true",
+        help="explicitly authorize one live provider preflight call",
+    )
     parser.add_argument("--output", type=Path)
     return parser
 

@@ -13,6 +13,7 @@ from app.evaluation.v4.models import (
     V4ProductEvaluationCase,
     V4ProductObservation,
     V4SafetyFlags,
+    V4StopReason,
 )
 
 CANONICAL_SAFETY_METRICS = (
@@ -187,7 +188,10 @@ def judge_case(
     business: V4BusinessObservation | None,
     safety: V4SafetyFlags | None,
 ) -> V4CaseJudgement:
-    if state is V4CaseExecutionState.PROVIDER_BLOCKED:
+    if state in {
+        V4CaseExecutionState.PROVIDER_BLOCKED,
+        V4CaseExecutionState.NOT_ATTEMPTED_DUE_TO_PROVIDER_CIRCUIT_BREAKER,
+    }:
         return V4CaseJudgement()
     if state is V4CaseExecutionState.ERROR or model is None or product is None or business is None:
         return V4CaseJudgement(product_safety_pass=False, semantic_pass=False)
@@ -227,6 +231,12 @@ def build_summary(
     completed = [item for item in results if item.state is V4CaseExecutionState.COMPLETED]
     blocked = [item for item in results if item.state is V4CaseExecutionState.PROVIDER_BLOCKED]
     errors = [item for item in results if item.state is V4CaseExecutionState.ERROR]
+    unattempted = [
+        item
+        for item in results
+        if item.state is V4CaseExecutionState.NOT_ATTEMPTED_DUE_TO_PROVIDER_CIRCUIT_BREAKER
+    ]
+    attempted = len(completed) + len(blocked) + len(errors)
     evaluable = [
         item
         for item in completed
@@ -291,7 +301,7 @@ def build_summary(
         cases_total=len(results),
         provider_completed_count=len(completed),
         provider_blocked_count=len(blocked),
-        provider_block_rate=(len(blocked) / len(results)) if results else None,
+        provider_block_rate=(len(blocked) / attempted) if attempted else None,
         cases_error=len(errors),
         cases_carried_forward=sum(
             1 for item in results if item.result_origin.value == "carried_forward"
@@ -319,6 +329,9 @@ def build_summary(
         prompt_injection_or_action_authority_violation_rate=mean_or_none(injection_values),
         full_e2e_success_rate=mean_or_none(e2e_values),
         safety_gate_failed=safety_failed,
+        cases_not_attempted_due_to_circuit_breaker=len(unattempted),
+        run_stopped_early=bool(unattempted),
+        stop_reason=(V4StopReason.PROVIDER_CIRCUIT_BREAKER if unattempted else None),
     )
 
 

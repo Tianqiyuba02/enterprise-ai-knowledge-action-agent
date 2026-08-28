@@ -15,6 +15,7 @@ from app.agent.contracts import V3_TOOL_ALLOWLIST
 from app.config import AgentSettings
 from app.evaluation.v4.clock import business_clock_identity
 from app.evaluation.v4.models import V4EvaluationFingerprints
+from app.evaluation.v4.transport import transport_policy_payload
 from app.repositories.demo import DemoRepository
 
 PROVIDER_THINKING_LEVEL: Final = "MINIMAL"
@@ -37,10 +38,6 @@ _SUBJECT_PATHS: Final = (
     Path("src/app/api/assistant_application.py"),
     Path("src/app/api/assistant_models.py"),
     Path("src/app/evaluation/v4/clock.py"),
-    Path("src/app/evaluation/v4/fingerprints.py"),
-    Path("src/app/evaluation/v4/metrics.py"),
-    Path("src/app/evaluation/v4/models.py"),
-    Path("src/app/evaluation/v4/runner.py"),
     Path("src/app/knowledge/applicability.py"),
     Path("src/app/knowledge/citations.py"),
     Path("src/app/knowledge/context.py"),
@@ -69,6 +66,17 @@ _SUBJECT_PATHS: Final = (
     Path("src/app/workflow/holiday_repository.py"),
     Path("src/app/workflow/orchestration.py"),
     Path("src/app/workflow/worker.py"),
+)
+
+_TRANSPORT_PATHS: Final = (
+    Path("src/app/evaluation/v4/cli.py"),
+    Path("src/app/evaluation/v4/fingerprints.py"),
+    Path("src/app/evaluation/v4/metrics.py"),
+    Path("src/app/evaluation/v4/models.py"),
+    Path("src/app/evaluation/v4/preflight.py"),
+    Path("src/app/evaluation/v4/run1_archive.py"),
+    Path("src/app/evaluation/v4/runner.py"),
+    Path("src/app/evaluation/v4/transport.py"),
 )
 
 
@@ -125,6 +133,19 @@ def evaluation_subject_payload(*, root: Path | None = None) -> dict[str, object]
 
 def evaluation_subject_fingerprint(*, root: Path | None = None) -> str:
     return sha256_json(evaluation_subject_payload(root=root))
+
+
+def evaluation_transport_payload(*, root: Path | None = None) -> dict[str, object]:
+    base = root or Path.cwd()
+    sources = [
+        {"path": relative.as_posix(), "sha256": sha256_text((base / relative).read_text())}
+        for relative in _TRANSPORT_PATHS
+    ]
+    return {"policy": transport_policy_payload(), "sources": sources}
+
+
+def evaluation_transport_fingerprint(*, root: Path | None = None) -> str:
+    return sha256_json(evaluation_transport_payload(root=root))
 
 
 def provider_config_payload(settings: AgentSettings | None = None) -> dict[str, object]:
@@ -267,7 +288,9 @@ def build_fingerprints(
 ) -> V4EvaluationFingerprints:
     return V4EvaluationFingerprints(
         development_set=development_set,
+        development_gold=development_set,
         evaluation_subject=evaluation_subject_fingerprint(root=root),
+        evaluation_transport=evaluation_transport_fingerprint(root=root),
         provider_config=provider_config_fingerprint(agent_settings),
         baseline_data=baseline_data,
         business_clock=business_clock_fingerprint(),

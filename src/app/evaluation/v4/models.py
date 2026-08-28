@@ -6,12 +6,14 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.agent.loop_models import AgentProviderUsage
 from app.agent.provider_failures import AgentProviderFailureDetail
 from app.evaluation.models import CaseId, DatasetFingerprint, ResultOrigin
-
-V4_EVALUATOR_VERSION: Literal["v4-product-eval-1"] = "v4-product-eval-1"
-V4_DEVELOPMENT_SET_VERSION: Literal["v4-product-dev-1"] = "v4-product-dev-1"
-V4_REPORT_VERSION: Literal["v4-product-eval-1"] = "v4-product-eval-1"
+from app.evaluation.v4.transport import (
+    V4_DEVELOPMENT_SET_VERSION,
+    V4_EVALUATOR_VERSION,
+    V4_REPORT_VERSION,
+)
 
 NonEmptyString = Annotated[
     str,
@@ -72,6 +74,11 @@ class V4CaseExecutionState(StrEnum):
     COMPLETED = "completed"
     PROVIDER_BLOCKED = "provider_blocked"
     ERROR = "error"
+    NOT_ATTEMPTED_DUE_TO_PROVIDER_CIRCUIT_BREAKER = "not_attempted_due_to_provider_circuit_breaker"
+
+
+class V4StopReason(StrEnum):
+    PROVIDER_CIRCUIT_BREAKER = "provider_circuit_breaker"
 
 
 class V4SetupState(V4EvaluationModel):
@@ -168,6 +175,7 @@ class V4ModelObservation(V4EvaluationModel):
     latency_ms: int | None = None
     tool_trace_available: Literal[False] = False
     tool_names: tuple[str, ...] | None = None
+    usage: AgentProviderUsage | None = None
 
 
 class V4ProductObservation(V4EvaluationModel):
@@ -218,6 +226,15 @@ class V4CaseAttempt(V4EvaluationModel):
     state: V4CaseExecutionState
     safe_error_category: str | None = None
     provider_failure_category: str | None = None
+    normalized_category: str | None = None
+    http_status_code: Annotated[int | None, Field(ge=100, le=599)] = None
+    symbolic_status: str | None = None
+    provider_error_code: str | None = None
+    quota_metric: str | None = None
+    quota_limit: str | None = None
+    quota_limit_value: str | None = None
+    quota_location: str | None = None
+    retry_delay_ms: Annotated[int | None, Field(ge=0)] = None
 
 
 class V4ProductCaseResult(V4EvaluationModel):
@@ -235,14 +252,22 @@ class V4ProductCaseResult(V4EvaluationModel):
 
 class V4EvaluationFingerprints(V4EvaluationModel):
     development_set: Sha256Fingerprint
+    development_gold: Sha256Fingerprint
     evaluation_subject: Sha256Fingerprint
+    evaluation_transport: Sha256Fingerprint
     provider_config: Sha256Fingerprint
     baseline_data: Sha256Fingerprint
     business_clock: Sha256Fingerprint
 
+    @model_validator(mode="after")
+    def validate_gold_alias(self) -> Self:
+        if self.development_set != self.development_gold:
+            raise ValueError("development_set and development_gold fingerprints must match")
+        return self
+
 
 class V4EvaluationConfiguration(V4EvaluationModel):
-    evaluator_version: Literal["v4-product-eval-1"] = V4_EVALUATOR_VERSION
+    evaluator_version: Literal["v4-product-eval-2"] = V4_EVALUATOR_VERSION
     development_set_version: Literal["v4-product-dev-1"] = V4_DEVELOPMENT_SET_VERSION
     agent_model: NonEmptyString
     thinking_level: Literal["MINIMAL"] = "MINIMAL"
@@ -282,11 +307,14 @@ class V4EvaluationSummary(V4EvaluationModel):
     prompt_injection_or_action_authority_violation_rate: float | None
     full_e2e_success_rate: float | None
     safety_gate_failed: bool
+    cases_not_attempted_due_to_circuit_breaker: Annotated[int, Field(ge=0)] = 0
+    run_stopped_early: bool = False
+    stop_reason: V4StopReason | None = None
 
 
 class V4ProductEvaluationReport(V4EvaluationModel):
-    report_version: Literal["v4-product-eval-1"] = V4_REPORT_VERSION
-    evaluator_version: Literal["v4-product-eval-1"] = V4_EVALUATOR_VERSION
+    report_version: Literal["v4-product-eval-2"] = V4_REPORT_VERSION
+    evaluator_version: Literal["v4-product-eval-2"] = V4_EVALUATOR_VERSION
     development_set_version: Literal["v4-product-dev-1"] = V4_DEVELOPMENT_SET_VERSION
     generated_at: datetime
     branch: NonEmptyString
@@ -300,3 +328,5 @@ class V4ProductEvaluationReport(V4EvaluationModel):
     llm_judge_used: Literal[False] = False
     holdout_used: Literal[False] = False
     no_tuning_performed: bool = True
+    run_stopped_early: bool = False
+    stop_reason: V4StopReason | None = None

@@ -273,7 +273,9 @@ def test_fingerprint_mismatch_blocks_resume() -> None:
     fingerprint = v4_dataset_fingerprint(cases)
     fingerprints = V4EvaluationFingerprints(
         development_set=fingerprint,
+        development_gold=fingerprint,
         evaluation_subject="a" * 64,
+        evaluation_transport="f" * 64,
         provider_config="b" * 64,
         baseline_data="c" * 64,
         business_clock="d" * 64,
@@ -317,7 +319,7 @@ def test_v4_cli_refuses_holdout_and_requires_live() -> None:
 
 
 def test_evaluator_identity_is_explicitly_versioned() -> None:
-    assert V4_EVALUATOR_VERSION == "v4-product-eval-1"
+    assert V4_EVALUATOR_VERSION == "v4-product-eval-2"
     assert V4_DEVELOPMENT_SET_VERSION == "v4-product-dev-1"
     fingerprints = build_fingerprints(sha256_json({"cases": "dev"}), baseline_data="b" * 64)
     assert fingerprints.development_set
@@ -458,7 +460,9 @@ def test_baseline_and_provider_and_clock_resume_mismatches_are_refused() -> None
     fingerprint = v4_dataset_fingerprint(cases)
     fingerprints = V4EvaluationFingerprints(
         development_set=fingerprint,
+        development_gold=fingerprint,
         evaluation_subject="a" * 64,
+        evaluation_transport="f" * 64,
         provider_config="b" * 64,
         baseline_data="c" * 64,
         business_clock="d" * 64,

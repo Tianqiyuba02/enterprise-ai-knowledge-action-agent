@@ -43,6 +43,10 @@ from app.evaluation.v4.models import (
     V4ProductObservation,
     V4SetupKind,
 )
+from app.evaluation.v4.transport import (
+    CIRCUIT_BREAKER_CATEGORIES,
+    CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD,
+)
 from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.clock import TrustedClock
 from app.workflow.action_creation import ActionCreationService
@@ -125,11 +129,30 @@ class V4ProductEvaluationRunner:
         )
         results: list[V4ProductCaseResult] = []
         attempted = 0
+        consecutive_availability_blocks = 0
+        circuit_open = False
         for case in cases:
             previous = previous_by_id.get(case.id)
             if previous is not None and previous.state is V4CaseExecutionState.COMPLETED:
                 results.append(
                     previous.model_copy(update={"result_origin": ResultOrigin.CARRIED_FORWARD})
+                )
+                continue
+            if circuit_open:
+                results.append(
+                    V4ProductCaseResult(
+                        case_id=case.id,
+                        state=V4CaseExecutionState.NOT_ATTEMPTED_DUE_TO_PROVIDER_CIRCUIT_BREAKER,
+                        result_origin=ResultOrigin.CURRENT_INVOCATION,
+                        judgement=judge_case(
+                            case,
+                            state=V4CaseExecutionState.NOT_ATTEMPTED_DUE_TO_PROVIDER_CIRCUIT_BREAKER,
+                            model=None,
+                            product=None,
+                            business=None,
+                            safety=None,
+                        ),
+                    )
                 )
                 continue
             if attempted and delay_seconds:
@@ -140,6 +163,7 @@ class V4ProductEvaluationRunner:
                 result = self._run_case(case)
             except Exception as exc:
                 cleanup_workflow_state(self._engine)
+                consecutive_availability_blocks = 0
                 results.append(
                     V4ProductCaseResult(
                         case_id=case.id,
@@ -155,33 +179,38 @@ class V4ProductEvaluationRunner:
                     )
                 )
                 continue
+            attempt = _structured_attempt(result)
             result = result.model_copy(
                 update={
-                    "attempt_history": history
-                    + (
-                        V4CaseAttempt(
-                            state=result.state,
-                            safe_error_category=result.safe_error_category,
-                            provider_failure_category=(
-                                result.model.provider_failure_category if result.model else None
-                            ),
-                        ),
-                    ),
+                    "attempt_history": history + (attempt,),
                     "result_origin": ResultOrigin.CURRENT_INVOCATION,
                 }
             )
             results.append(result)
             cleanup_workflow_state(self._engine)
+            if (
+                result.state is V4CaseExecutionState.PROVIDER_BLOCKED
+                and (attempt.normalized_category or attempt.provider_failure_category)
+                in CIRCUIT_BREAKER_CATEGORIES
+            ):
+                consecutive_availability_blocks += 1
+                if consecutive_availability_blocks >= CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD:
+                    circuit_open = True
+            else:
+                consecutive_availability_blocks = 0
 
         result_tuple = tuple(results)
+        summary = build_summary(result_tuple, cases)
         report = V4ProductEvaluationReport(
             generated_at=datetime.now(UTC),
             branch=self._branch,
             commit=self._commit,
             dataset_fingerprint=dataset_fingerprint,
             configuration=self._configuration,
-            summary=build_summary(result_tuple, cases),
+            summary=summary,
             cases=result_tuple,
+            run_stopped_early=summary.run_stopped_early,
+            stop_reason=summary.stop_reason,
         )
         assert_report_has_no_secrets(report.model_dump_json())
         return report
@@ -219,6 +248,7 @@ class V4ProductEvaluationRunner:
                 provider_failure=failure,
                 prepared_action_present=False,
                 latency_ms=last_latency_ms,
+                usage=None if capturing.last is None else capturing.last.usage,
             )
             return V4ProductCaseResult(
                 case_id=case.id,
@@ -381,6 +411,10 @@ class V4ProductEvaluationRunner:
             raise V4ResumeCompatibilityError("development-set fingerprint does not match")
         if previous_prints.evaluation_subject != self._fingerprints.evaluation_subject:
             raise V4ResumeCompatibilityError("evaluation-subject fingerprint does not match")
+        if previous_prints.evaluation_transport != self._fingerprints.evaluation_transport:
+            raise V4ResumeCompatibilityError("evaluation-transport fingerprint does not match")
+        if previous_prints.development_gold != self._fingerprints.development_gold:
+            raise V4ResumeCompatibilityError("development-gold fingerprint does not match")
         if previous_prints.provider_config != self._fingerprints.provider_config:
             raise V4ResumeCompatibilityError("provider-config fingerprint does not match")
         if previous_prints.baseline_data != self._fingerprints.baseline_data:
@@ -428,6 +462,7 @@ def _model_observation(
         latency_ms=latency_ms,
         tool_trace_available=False,
         tool_names=None,
+        usage=None if run is None else run.usage,
     )
 
 
@@ -535,3 +570,24 @@ def _attempt_history(previous: V4ProductCaseResult | None) -> tuple[V4CaseAttemp
     if previous.attempt_history:
         return previous.attempt_history
     return (V4CaseAttempt(state=previous.state, safe_error_category=previous.safe_error_category),)
+
+
+def _structured_attempt(result: V4ProductCaseResult) -> V4CaseAttempt:
+    failure = None if result.model is None else result.model.provider_failure
+    category = result.model.provider_failure_category if result.model is not None else None
+    return V4CaseAttempt(
+        state=result.state,
+        safe_error_category=result.safe_error_category,
+        provider_failure_category=category,
+        normalized_category=None if failure is None else failure.kind.value,
+        http_status_code=None if failure is None else failure.http_status_code,
+        symbolic_status=None
+        if failure is None
+        else (None if failure.symbolic_status is None else failure.symbolic_status.value),
+        provider_error_code=None if failure is None else failure.provider_error_code,
+        quota_metric=None if failure is None else failure.quota_metric,
+        quota_limit=None if failure is None else failure.quota_limit,
+        quota_limit_value=None if failure is None else failure.quota_limit_value,
+        quota_location=None if failure is None else failure.quota_location,
+        retry_delay_ms=None if failure is None else failure.retry_delay_ms,
+    )

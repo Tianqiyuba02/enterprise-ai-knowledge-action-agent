@@ -1,14 +1,21 @@
 import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, text
 
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import AgentRunResult, AgentRunStatus
+from app.agent.provider_failures import (
+    AgentProviderExceptionClass,
+    AgentProviderFailureDetail,
+    AgentProviderFailureKind,
+    AgentProviderSymbolicStatus,
+)
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
-from app.config import load_knowledge_settings
+from app.config import AgentSettings, Settings, load_knowledge_settings
 from app.evaluation.v4.clock import V4_DEVELOPMENT_BUSINESS_DATE
 from app.evaluation.v4.fingerprints import baseline_data_fingerprint, build_fingerprints
 from app.evaluation.v4.isolation import (
@@ -25,6 +32,7 @@ from app.evaluation.v4.models import (
     V4EvaluationConfiguration,
     V4ProductEvaluationReport,
 )
+from app.evaluation.v4.preflight import ProviderPreflight
 from app.evaluation.v4.runner import V4ProductEvaluationRunner, V4ResumeCompatibilityError
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
@@ -255,3 +263,49 @@ def test_resume_refuses_same_count_corpus_content_change() -> None:
         runner._fingerprints = matching.model_copy(update={"baseline_data": changed_baseline})
         with pytest.raises(V4ResumeCompatibilityError, match="baseline-data"):
             runner._validate_resume(previous, cases=cases, dataset_fingerprint=gold)
+
+
+def test_circuit_breaker_does_not_count_unattempted_as_blocked() -> None:
+    cases = load_v4_development_cases()[:3]
+    failure = AgentProviderFailureDetail(
+        kind=AgentProviderFailureKind.RATE_LIMITED,
+        exception_class=AgentProviderExceptionClass.CLIENT_ERROR,
+        http_status_code=429,
+        symbolic_status=AgentProviderSymbolicStatus.RESOURCE_EXHAUSTED,
+    )
+    blocked = AgentRunResult(
+        status=AgentRunStatus.PROVIDER_RATE_LIMITED,
+        citations=(),
+        safe_message="The assistant provider is busy. Please try again later.",
+        tool_calls_attempted=0,
+        model_rounds=1,
+        provider_failure=failure,
+    )
+    agent = ScriptedAgent([blocked, blocked, blocked])
+    with isolated_evaluation_database() as isolated:
+        report = _runner(isolated, agent).run(
+            cases=cases,
+            dataset_fingerprint=v4_dataset_fingerprint(load_v4_development_cases()),
+        )
+        assert report.summary.provider_blocked_count == 2
+        assert report.summary.cases_not_attempted_due_to_circuit_breaker == 1
+        assert report.cases[2].state.value == "not_attempted_due_to_provider_circuit_breaker"
+        assert report.summary.semantic_evaluable_count == 0
+        assert workflow_counts(isolated.engine)["action_workflows"] == 0
+
+
+def test_preflight_cannot_create_workflow_rows() -> None:
+    class _Models:
+        def generate_content(self, **_kwargs):
+            return SimpleNamespace(candidates=[SimpleNamespace(content="READY")])
+
+    with isolated_evaluation_database() as isolated:
+        before = workflow_counts(isolated.engine)
+        result = ProviderPreflight(
+            Settings(gemini_api_key="test-only-key", _env_file=None),
+            AgentSettings(_env_file=None),
+            sdk_client=SimpleNamespace(models=_Models()),
+        ).run()
+        assert result.completed is True
+        assert result.v4_action_created is False
+        assert workflow_counts(isolated.engine) == before

@@ -1,5 +1,6 @@
 """Live CLI for V4 development evaluation. Holdout does not exist."""
 
+import json
 import subprocess
 import sys
 from argparse import Namespace
@@ -29,7 +30,14 @@ from app.evaluation.v4.models import (
     V4EvaluationConfiguration,
     V4ProductEvaluationReport,
 )
+from app.evaluation.v4.preflight import (
+    FailedPreflightBlocksDevelopmentRun,
+    ProviderPreflight,
+    require_successful_preflight,
+)
+from app.evaluation.v4.run1_archive import is_closed_run1_report, refuse_eval2_write_over_run1
 from app.evaluation.v4.runner import V4ProductEvaluationRunner
+from app.evaluation.v4.transport import DEFAULT_EVAL2_OUTPUT, DEFAULT_PREFLIGHT_OUTPUT
 from app.grounding.client import GeminiGroundedGenerationClient
 from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.repository import KnowledgeRetrievalRepository
@@ -52,22 +60,51 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     except Exception as exc:
         print(f"Error: {type(exc).__name__}.", file=sys.stderr)
         return 2
-    output: Path = args.output or Path("evals/results/v4-product-development.json")
+    preflight_only = bool(getattr(args, "preflight", False))
+    authorize_preflight = bool(getattr(args, "authorize_preflight", False))
+    if not authorize_preflight:
+        print(
+            "Error: v4-product-eval-2 live provider use requires --authorize-preflight.",
+            file=sys.stderr,
+        )
+        return 2
+    output = Path(
+        args.output or (DEFAULT_PREFLIGHT_OUTPUT if preflight_only else DEFAULT_EVAL2_OUTPUT)
+    )
+    if args.resume and preflight_only:
+        print("Error: --resume cannot be combined with --preflight.", file=sys.stderr)
+        return 2
     if args.resume and not output.is_file():
         print("Error: --resume requires an existing report file.", file=sys.stderr)
         return 2
     dataset_fingerprint = v4_dataset_fingerprint(cases)
-    previous = (
-        V4ProductEvaluationReport.model_validate_json(output.read_text(encoding="utf-8"))
-        if args.resume
-        else None
-    )
+    previous = None
+    if args.resume:
+        existing = output.read_text(encoding="utf-8")
+        if is_closed_run1_report(json.loads(existing)):
+            print("Error: closed Run 1 evidence cannot be resumed as eval-2.", file=sys.stderr)
+            return 2
+        previous = V4ProductEvaluationReport.model_validate_json(existing)
+    if output.is_file() and not args.resume:
+        try:
+            refuse_eval2_write_over_run1(output, output.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            print(f"Error: {exc}.", file=sys.stderr)
+            return 2
     settings = load_settings()
     knowledge_settings = load_knowledge_settings()
     agent_settings = load_agent_settings()
     clock = V4DevelopmentBusinessClock()
     branch, commit = _git_identity()
     try:
+        preflight = ProviderPreflight(settings, agent_settings).run()
+        if preflight_only:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(preflight.model_dump_json(indent=2), encoding="utf-8")
+            print(f"mode=v4-product kind=provider_preflight scored={preflight.scored}")
+            print(f"completed={preflight.completed} report={output}")
+            return 0 if preflight.completed else 3
+        require_successful_preflight(preflight)
         with isolated_evaluation_database(source_settings=knowledge_settings) as isolated:
             fingerprints = build_fingerprints(
                 dataset_fingerprint,
@@ -123,8 +160,22 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
                 previous_report=previous,
                 delay_seconds=args.delay_seconds,
             )
+        try:
+            refuse_eval2_write_over_run1(
+                output,
+                output.read_text(encoding="utf-8") if output.is_file() else None,
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}.", file=sys.stderr)
+            return 2
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    except FailedPreflightBlocksDevelopmentRun:
+        print(
+            "Error: failed provider preflight prevents automatic development run start.",
+            file=sys.stderr,
+        )
+        return 3
     except Exception as exc:
         print(
             f"Error: V4 development evaluation failed safely ({type(exc).__name__}).",
@@ -137,13 +188,14 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     print(
         f"completed={report.summary.provider_completed_count}/{report.summary.cases_total} "
         f"blocked={report.summary.provider_blocked_count} "
+        f"unattempted={report.summary.cases_not_attempted_due_to_circuit_breaker} "
         f"errors={report.summary.cases_error}"
     )
     print(f"report={output}")
     if report.summary.safety_gate_failed:
         print("status=safety_gate_failed")
         return 4
-    if report.summary.provider_blocked_count:
+    if report.summary.provider_blocked_count or report.run_stopped_early:
         print("status=provider_blocked")
         return 3
     return 0

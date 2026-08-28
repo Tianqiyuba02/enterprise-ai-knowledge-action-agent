@@ -41,15 +41,48 @@ closure plus independent pre-holdout review.
 
 ## Evaluator
 
-- Evaluator version: `v4-product-eval-1`
-- Development-set version: `v4-product-dev-1`
+- Current evaluator version: `v4-product-eval-2`
+- Development-set version: `v4-product-dev-1` (gold unchanged)
 - Subject: Assistant request → AgentService → trusted tool result →
   deterministic V4 action behavior, plus out-of-band confirmation/worker/business
   outcome on explicitly marked E2E cases
 - Scoring is deterministic. There is no LLM judge.
+- Transport: circuit breaker, structured attempt-history diagnostics, non-scored
+  provider preflight, and safe usage metadata. These are evaluation-transport
+  mechanics, not product behavior.
 
-Stage 6A created the harness and the 16 DEVELOPMENT cases. There has been no
-first development exposure yet. This is not a development-evaluation pass.
+## Closed Run 1
+
+Run 1 is **closed**. It remains truthfully:
+
+**PARTIAL / PROVIDER-LIMITED**
+
+- Evaluator: `v4-product-eval-1`
+- Development set: `v4-product-dev-1`
+- Evidence commit: `d2092d367504eb6c9e83e0c212015641335ba1e6`
+- Artifact: `evals/results/v4-product-development.json`
+- Immutable archive: `evals/results/archive/v4-product-dev-1-eval-1-run-1.json`
+- 9/16 provider-completed
+- 7/16 provider-blocked
+- 9/9 semantic PASS among evaluable cases
+- no observed MODEL / PRODUCT / BUSINESS semantic miss
+- `safety_gate_failed = false`
+- D2, E1–E4, and F1 remain unobserved
+- prompt-injection and full-E2E metrics remain N/A
+
+It is **not** a Development PASS and **not** a holdout.
+
+The seven unobserved cases were blocked by normalized provider HTTP 429 +
+symbolic `RESOURCE_EXHAUSTED` (`rate_limited`). That does **not** prove visible
+Gemini RPM, TPM, or RPD exhaustion. The project stopped further resume cycles
+and changed the diagnosis/execution layer. No provider root cause is claimed.
+
+Future Run 2 must use `v4-product-eval-2` and a separate artifact
+(`evals/results/v4-product-development-eval-2.json`). Do not overwrite Run 1
+or combine the two runs into one denominator.
+
+Stage 6A created the harness and the 16 DEVELOPMENT cases. Run 1 was the first
+live development exposure. It did not close development.
 
 Three observation layers are stored separately:
 
@@ -67,25 +100,71 @@ treated as automatic semantic failures.
 
 ## Evaluation identities and resume
 
-Resume is allowed only when all of these match:
+`v4-product-eval-2` resume is allowed only when all of these match:
 
-- `evaluator_version`
-- `development_set_version`
-- development gold / dataset fingerprint
-- `evaluation_subject_fingerprint` (agent instruction, tool allowlist,
-  Agent/orchestration/provider/dispatcher/tool/Assistant/V4 product, and
-  evaluator scoring code)
+- `evaluator_version` (`v4-product-eval-2`)
+- `development_set_version` (`v4-product-dev-1`)
+- `development_gold_fingerprint` / `development_set` (same gold bytes)
+- `evaluation_subject_fingerprint` — material model/product behavior: agent
+  instruction, tool allowlist, Agent/orchestration/provider/dispatcher,
+  Assistant, V4 workflow/product, and the injected business-clock class
+- `evaluation_transport_fingerprint` — runner pacing/circuit-break policy,
+  safe diagnostics schema, attempt-history mechanics, preflight behavior
 - `provider_config_fingerprint` (safe model, thinking level, timeout, attempts)
 - `baseline_data_fingerprint` (isolated corpus, holiday rows, DemoRepository
   fixtures; embeddings are stored only as digests)
-- evaluation business-clock identity (`v4-product-dev-1`, `2026-08-28`,
+- `business_clock_fingerprint` (`v4-product-dev-1`, `2026-08-28`,
   `Australia/Melbourne`)
 
-A docs-only change does not invalidate resume. A material Agent/product code
-change, provider-config change, or baseline-content change does.
+A docs-only change does not change either fingerprint. A diagnostic-only
+transport change must not be described as a product-behavior change, but it
+does change `evaluation_transport_fingerprint` and therefore blocks resume
+onto a different evaluator/transport identity.
+
+Closed Run 1 (`v4-product-eval-1`) is not resume-compatible with eval-2.
 
 Secrets (`GEMINI_API_KEY`, credentials, confirmation tokens) are never
 fingerprinted or written into result JSON.
+
+## Broad `rate_limited` taxonomy
+
+`rate_limited` is a broad normalized application category for provider 429 /
+`RESOURCE_EXHAUSTED` behavior. It does **not** prove RPM, TPM, RPD, or spend
+exhaustion, and it does not distinguish `rate_limit_exceeded` from
+`quota_exceeded`, unless a specific structured provider field identifies that
+condition. HTTP 429 alone never infers a quota subtype. Missing structured
+detail stays `null`.
+
+Eval-2 attempt history retains those safe fields so a later success cannot
+erase an earlier blocked attempt. Raw bodies, messages, headers, keys, and
+tokens are never persisted.
+
+If the provider returns usage metadata, eval-2 records prompt/output/total/
+cached token counts. Missing counts stay `null`. Usage is diagnostic, not
+semantic scoring.
+
+## Circuit breaker and preflight
+
+The evaluator-runner circuit breaker is frozen at **2 consecutive** development
+cases that end provider-blocked with the same broad availability category
+(`rate_limited`). The threshold is not adaptive. Remaining cases are
+`not_attempted_due_to_provider_circuit_breaker`. They are not
+`provider_blocked`, not semantic failures, and not model failures. The run
+persists with `run_stopped_early=true` and
+`stop_reason=provider_circuit_breaker`.
+
+A later resume/run decision belongs to the Project Controller. The runner does
+not sleep for hours and continue.
+
+Provider preflight is a separate, non-scored connectivity probe. It is not one
+of the 16 development cases, not holdout evidence, and it cannot create a V4
+action or business mutation. A failed preflight prevents automatic launch of a
+new eval-2 development run. Live preflight requires explicit
+`--authorize-preflight`. Stage 6P did not authorize or execute a live
+preflight.
+
+V4 product evaluation does not use the Gemini Batch API. The evaluated product
+is an interactive native function-calling loop.
 
 ## Evaluation business clock vs database operational clock
 
@@ -138,11 +217,11 @@ evaluator memory and is never written to result JSON or sent back to the model.
 
 ## Running
 
-The CLI exists but Stage 6A must not execute the live 16-case set:
+Eval-2 live development evaluation is not authorized by Stage 6P:
 
-`enterprise-ai-eval --mode v4-product --split development --live`
+`enterprise-ai-eval --mode v4-product --split development --live --authorize-preflight --output evals/results/v4-product-development-eval-2.json`
 
 `--split holdout` is rejected. A V4 holdout does not exist.
 
-This document does not claim a V4 development pass. No first development run
-has been executed.
+This document does not claim a V4 development pass. Run 1 is closed as
+PARTIAL / PROVIDER-LIMITED. Run 2 has not been executed.

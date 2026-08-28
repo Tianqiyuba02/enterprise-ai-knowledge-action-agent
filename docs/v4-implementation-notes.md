@@ -2,10 +2,10 @@
 
 ## Current stage
 
-V4 Stage 6A added a versioned product-evaluation harness and a 16-case
-DEVELOPMENT set. Stage 6A.1 hardens evaluation reproducibility. The
-development set has not been run. This is not a V4 development-evaluation
-pass, holdout, or release-readiness claim.
+V4 Stage 6P hardens provider/evaluation transport after closed Run 1. Run 1 is
+PARTIAL / PROVIDER-LIMITED: 9/16 provider-completed, 7 provider-blocked, 9/9
+semantic PASS among evaluable cases. It is not a Development PASS. Stage 6P
+does not call Gemini, does not start Resume #3, and does not run Run 2.
 
 Project version remains `0.4.0`. Sealed V3 `v0.4.0` is unchanged.
 
@@ -47,12 +47,19 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
   `b3857d22bba7a392bcf5fd87fb98f55a7bd8336f`: 4/4 completed, 0 provider blocks.
   That run is not evaluation evidence.
 - Stage 6A `v4-product-eval-1` / `v4-product-dev-1`: 16 DEVELOPMENT cases and an
-  isolated-database harness. Harness/design created. No first development
-  exposure yet. No V4 holdout exists. See
+  isolated-database harness. No V4 holdout exists. See
   [`docs/v4-product-evaluation.md`](v4-product-evaluation.md).
 - Stage 6A.1 evaluation reproducibility: frozen evaluator business clock
   `2026-08-28` `Australia/Melbourne`; resume requires matching gold, subject,
   provider-config, baseline-data, and business-clock fingerprints.
+- Closed Run 1 evidence: `d2092d367504eb6c9e83e0c212015641335ba1e6`, archived at
+  `evals/results/archive/v4-product-dev-1-eval-1-run-1.json`. Status remains
+  PARTIAL / PROVIDER-LIMITED. The `rate_limited` labels are normalized 429 /
+  `RESOURCE_EXHAUSTED`, not proven visible RPM/TPM/RPD exhaustion.
+- Stage 6P `v4-product-eval-2` transport hardening: safe structured provider
+  diagnostics, attempt-history preservation, usage metadata, a 2-consecutive
+  circuit breaker, and a non-scored provider preflight. Development gold is
+  unchanged. Batch API is not used.
 
 Independent Stage 4 review of `feature/v4-workflow-foundation` at
 `4f093599843a91ab87c3fcc58d5d1c12e7254dae` returned PASS: 0 BLOCKER, 0 HIGH,
@@ -253,6 +260,6 @@ Checkpoint schema remains Alembic 0003 in `public`. Runtime `setup()` remains fo
 - executor is the same-Postgres demo business system
 - external HR adapters are not implemented
 - leave cancellation after submission is not implemented
-- V4 development evaluation harness exists but the 16-case set has not been run
+- V4 development Run 1 is closed as PARTIAL / PROVIDER-LIMITED; Run 2 is not run
 - V4 holdout does not exist
 - V4 is not release-ready
