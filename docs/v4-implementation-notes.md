@@ -2,11 +2,9 @@
 
 ## Current stage
 
-V4 Stage 5C hardens Assistant product truth after Stage 5B integration: preview
-versus authoritative draft, reused persisted truth, explicit action-status
-semantics, and stronger chat-confirmation / graph-init failure contracts.
-Confirmation remains out-of-band. This is not a V4 evaluation pass or a
-release-readiness claim.
+V4 Stage 6A adds a versioned product-evaluation harness and a 16-case
+DEVELOPMENT set. The development set has not been run. This is not a V4
+development-evaluation pass, holdout, or release-readiness claim.
 
 Project version remains `0.4.0`. Sealed V3 `v0.4.0` is unchanged.
 
@@ -44,6 +42,12 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
   `action.draft` is the only confirmable/executable payload, reused actions
   return the persisted draft, and `action_status` distinguishes no-PREPARE,
   non-executable PREPARE, created, reused, and T1 creation failure.
+- Controlled live-provider validation (observation only) at
+  `b3857d22bba7a392bcf5fd87fb98f55a7bd8336f`: 4/4 completed, 0 provider blocks.
+  That run is not evaluation evidence.
+- Stage 6A `v4-product-eval-1` / `v4-product-dev-1`: 16 DEVELOPMENT cases and an
+  isolated-database harness. No V4 holdout exists. See
+  [`docs/v4-product-evaluation.md`](v4-product-evaluation.md).
 
 Independent Stage 4 review of `feature/v4-workflow-foundation` at
 `4f093599843a91ab87c3fcc58d5d1c12e7254dae` returned PASS: 0 BLOCKER, 0 HIGH,
@@ -244,5 +248,6 @@ Checkpoint schema remains Alembic 0003 in `public`. Runtime `setup()` remains fo
 - executor is the same-Postgres demo business system
 - external HR adapters are not implemented
 - leave cancellation after submission is not implemented
-- V4 development evaluation has not been run
+- V4 development evaluation harness exists but the 16-case set has not been run
+- V4 holdout does not exist
 - V4 is not release-ready
