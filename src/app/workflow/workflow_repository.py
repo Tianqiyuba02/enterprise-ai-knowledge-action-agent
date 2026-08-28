@@ -158,6 +158,28 @@ class WorkflowRepository:
         ).scalars()
         return tuple(rows)
 
+    def lock_owner_revisions_for_business_request(
+        self,
+        session: Session,
+        *,
+        owner_employee_id: str,
+        owner_subject_id: str,
+        business_request_key: str,
+    ) -> tuple[tuple[ActionWorkflow, ActionRevision], ...]:
+        rows = session.execute(
+            select(ActionWorkflow, ActionRevision)
+            .join(ActionRevision, ActionRevision.action_id == ActionWorkflow.action_id)
+            .where(
+                ActionWorkflow.owner_employee_id == owner_employee_id,
+                ActionWorkflow.owner_subject_id == owner_subject_id,
+                ActionRevision.business_request_key == business_request_key,
+                ActionRevision.revision == V4_REVISION,
+            )
+            .with_for_update()
+            .order_by(ActionRevision.created_at.asc())
+        ).all()
+        return tuple((workflow, revision) for workflow, revision in rows)
+
     def lock_revision_statement(
         self,
         *,

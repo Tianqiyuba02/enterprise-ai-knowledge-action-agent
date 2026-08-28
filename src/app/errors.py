@@ -53,3 +53,10 @@ class ActionConflictError(ApplicationError):
 
     error_code = "action_conflict"
     public_message = "The action cannot be changed in its current state."
+
+
+class ActionCreationIdentityError(ApplicationError):
+    """Raised when trusted V4 identity bindings are incomplete at the action boundary."""
+
+    error_code = "action_identity_incomplete"
+    public_message = "A complete trusted identity is required to create an action."

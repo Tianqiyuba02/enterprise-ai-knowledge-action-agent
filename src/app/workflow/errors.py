@@ -39,3 +39,7 @@ class WorkflowIntegrityError(WorkflowError):
 
 class ExecutionFenceError(WorkflowError):
     """Raised when a stale or unauthorized worker may not mutate business state."""
+
+
+class ActionCreationError(WorkflowError):
+    """Base class for deterministic V4 action-creation failures."""
