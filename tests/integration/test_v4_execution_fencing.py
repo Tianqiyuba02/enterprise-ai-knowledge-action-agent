@@ -491,3 +491,48 @@ def test_reconciling_window_cannot_admit_a_late_insert(
     assert _count(engine, "leave_requests") == 0
     assert submit_result == [BusinessOutcome.EXECUTION_AUTHORITY_LOST]
     assert _workflow_state(engine, action_id) == WorkflowState.EXECUTION_FAILED.value
+
+
+def test_attack7_reconcile_absence_cannot_finalize_failed_after_concurrent_insert(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    """Historical interleaving: observe absence, concurrent insert, then fail.
+
+    After the Stage 4C fix this committed pair is unreachable:
+    leave_request exists AND workflow == EXECUTION_FAILED.
+    """
+
+    reservation = ExecutionReservationService(session_factory, isolated_settings)
+    action_id, permit = _reserve(reservation, session_factory, start=date(2026, 10, 8))
+    ExecutionFinalizationService(session_factory, isolated_settings).begin_reconciliation(
+        permit, WORKER_A
+    )
+    start = threading.Barrier(2)
+    finished = threading.Barrier(2)
+
+    def classify() -> None:
+        start.wait()
+        ExecutionFinalizationService(session_factory, isolated_settings).classify_and_finalize(
+            permit, WORKER_A
+        )
+        finished.wait()
+
+    def delayed_submit() -> None:
+        start.wait()
+        LeaveSubmissionExecutor(session_factory, isolated_settings).submit(permit)
+        finished.wait()
+
+    workers = [threading.Thread(target=classify), threading.Thread(target=delayed_submit)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    state = _workflow_state(engine, action_id)
+    leave_count = _count(engine, "leave_requests")
+    assert not (leave_count > 0 and state == WorkflowState.EXECUTION_FAILED.value)
+    if leave_count > 0:
+        assert state == WorkflowState.SUCCEEDED.value
+    if state == WorkflowState.EXECUTION_FAILED.value:
+        assert leave_count == 0

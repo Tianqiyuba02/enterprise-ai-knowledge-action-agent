@@ -23,6 +23,10 @@ Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-archite
   reservation, immutable execution keys, same-Postgres leave submission, and fencing.
 - Stage 4B worker/graph integration: reservation, business execution, T5 finalization,
   and at most three automatic reconciliation attempts.
+- Stage 4C fencing and single-entry corrections: RECONCILING is probe-only, only
+  `EXECUTING` may attempt an initial leave INSERT, reconciliation observation plus
+  terminal classification is one transaction, and there is exactly one normal submit
+  path. This does not claim a Fable review has passed.
 
 ## Confirmation control plane
 
@@ -55,15 +59,29 @@ Transaction lock order for confirmation:
 - The worker `worker_id` is the lease owner. Employee subject/session identity is not reused.
 - The same-Postgres `LeaveSubmissionExecutor` is the only business system. There is no
   external HR adapter.
-- Final mutation locks the ledger `FOR UPDATE`, takes a per-employee advisory lock, and
-  rechecks fencing, business-key dedupe, overlap, effective balance, and calendar coverage
-  before `INSERT leave_requests`.
-- Exact `execution_key` replay and cross-action `business_request_key` matches are APPLIED
-  without a second row.
+- The only workflow state that may attempt a new leave INSERT is `EXECUTING`.
+  `RECONCILING`, `UNKNOWN_OUTCOME`, and all terminal states are submit-ineligible.
+- Submit validates current caller ownership, generation, and lease first, then evaluates
+  exact `execution_key` dedupe, `business_request_key` dedupe, overlap, balance, calendar,
+  and mutation.
+- Reconciliation is probe-only. It never authorizes or performs a leave INSERT. Absence
+  observation and terminal classification (`SUCCEEDED` / `EXECUTION_FAILED` /
+  `UNKNOWN_OUTCOME`) commit in one transaction under the ledger `FOR UPDATE` plus the
+  `business_request_key` advisory lock.
+- Caller `worker_id` must already own the lease. Reloading a permit never manufactures
+  the current owner's authority for a different caller.
+- Stale generation, expired lease, wrong owner, and other fence failures are
+  `EXECUTION_AUTHORITY_LOST`. They stop this caller; they do not finalize
+  `EXECUTION_FAILED`.
+- Exact `execution_key` replay resolves `CREATED`. A later action that adopts the same
+  `business_request_key` resolves `ADOPTED_EXISTING`. `leave_requests.source_action_id`
+  stays on the creating action.
+- Revalidation uses the persisted revision calendar authority. If the currently trusted
+  calendar/ruleset version no longer matches the revision, reservation fails closed as
+  `STALE`.
 - `OUTCOME_UNKNOWN` persists before reconciliation scheduling. Recovery uses the original
   key plus business key. After three automatic attempts the revision stays
   `UNKNOWN_OUTCOME` with `manual_review_required=true`.
-- Stale lease generations perform zero mutation.
 
 ## Worker
 
@@ -71,9 +89,13 @@ The worker is an internal system actor. It does not manufacture employee authori
 outbox metadata. It loads `action_id` / revision from PostgreSQL and uses the persisted
 `action_workflows.langgraph_thread_id`.
 
-A confirmation wake may proceed into execution. The event is marked delivered only after a
-settled terminal or persisted `UNKNOWN_OUTCOME`. If reservation is blocked by another
-unresolved attempt for the same business key, the event is released for retry.
+A confirmation wake may proceed into execution through the graph only. After a successful
+graph run the worker reloads authoritative PostgreSQL state and settles the outbox; it
+does not call submit again. If the checkpoint is already `END` while PostgreSQL is still
+`EXECUTING` / `UNKNOWN_OUTCOME` / `RECONCILING`, recovery may fence, take over, and
+reconcile, but it must not submit. The event is marked delivered only after a settled
+terminal or persisted `UNKNOWN_OUTCOME`. If reservation is blocked by another unresolved
+attempt for the same business key, the event is released for retry.
 
 `reconcile_requested` events are a separate outbox identity and use independent backoff.
 
@@ -83,9 +105,15 @@ Checkpoint loss/corruption is an orchestration failure, not authority to guess w
 
 PostgreSQL remains authority. Resume remains a wake signal only.
 
-The graph keeps an observable confirmed barrier, then continues to reserve / execute /
-finalize when a worker execution port is present. Employee `start` / `resume` compile the
-same topology without that port and therefore cannot submit leave.
+The graph keeps an observable confirmed barrier. Worker compilation includes reserve /
+execute / reconcile / finalize nodes. The only normal submit path is:
+
+`WorkflowWorker` → LangGraph `execute_business_action` →
+`WorkflowExecutionRuntime.execute` → `LeaveSubmissionExecutor.submit`.
+
+`ExecutionFinalizationService.finalize` persists a supplied outcome only. It never
+invokes the executor. Employee `start` / `resume` compile without execution nodes, so
+they cannot select a side-effect-capable execution node.
 
 Pinned versions remain `langgraph==1.2.11` and `langgraph-checkpoint-postgres==3.1.2`.
 Checkpoint schema remains Alembic 0003 in `public`. Runtime `setup()` remains forbidden.

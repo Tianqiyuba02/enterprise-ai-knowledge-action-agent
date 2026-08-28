@@ -5,6 +5,7 @@ from langgraph.types import Command
 
 from app.workflow.domain import WorkflowState
 from app.workflow.graph import (
+    EXECUTION_NODE_NAMES,
     WAITING_FOR_CONFIRMATION,
     AuthoritativeObservation,
     build_workflow_graph,
@@ -64,15 +65,25 @@ def test_interrupt_payload_is_json_safe_and_has_no_secrets() -> None:
 
 def test_route_uses_postgres_observation_not_cached_graph_state() -> None:
     assert (
-        route_authoritative_state(_observation(WorkflowState.CONFIRMED.value))
+        route_authoritative_state(
+            _observation(WorkflowState.CONFIRMED.value),
+            execution_enabled=True,
+        )
         == "confirmed_barrier"
     )
     assert (
-        route_authoritative_state(_observation(WorkflowState.AWAITING_CONFIRMATION.value))
+        route_authoritative_state(
+            _observation(WorkflowState.AWAITING_CONFIRMATION.value),
+            execution_enabled=False,
+        )
         == "await_confirmation"
     )
     assert (
-        route_authoritative_state(_observation(WorkflowState.CANCELLED.value)) == "terminal_barrier"
+        route_authoritative_state(
+            _observation(WorkflowState.CANCELLED.value),
+            execution_enabled=True,
+        )
+        == "terminal_barrier"
     )
     assert (
         route_authoritative_state(
@@ -82,7 +93,10 @@ def test_route_uses_postgres_observation_not_cached_graph_state() -> None:
         == "terminal_barrier"
     )
     assert (
-        route_authoritative_state(_observation(WorkflowState.EXECUTING.value))
+        route_authoritative_state(
+            _observation(WorkflowState.EXECUTING.value),
+            execution_enabled=True,
+        )
         == "reconcile_execution"
     )
     assert (
@@ -229,6 +243,30 @@ def test_threads_do_not_share_checkpointed_interrupt_state() -> None:
         .values["action_id"]
         .endswith("1111")
     )
+
+
+def test_employee_graph_capability_excludes_execution_nodes() -> None:
+    employee = build_workflow_graph(lambda state: _observation(WorkflowState.CONFIRMED.value))
+    worker = build_workflow_graph(
+        lambda state: _observation(WorkflowState.CONFIRMED.value),
+        execution=_FakeExecution(),
+    )
+    assert EXECUTION_NODE_NAMES.isdisjoint(employee.nodes)
+    assert set(worker.nodes) >= EXECUTION_NODE_NAMES
+
+
+class _FakeExecution:
+    def reserve(self, action_id: str, revision: int) -> str:
+        return "RESERVED"
+
+    def execute(self, action_id: str, revision: int) -> str:
+        return "EXECUTING"
+
+    def reconcile(self, action_id: str, revision: int) -> str:
+        return "RECONCILING"
+
+    def finalize(self, action_id: str, revision: int) -> str:
+        return "SUCCEEDED"
 
 
 def test_graph_source_has_no_provider_or_execution_surface() -> None:

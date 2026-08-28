@@ -8,14 +8,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings
 from app.workflow.checkpointing import open_postgres_checkpointer
-from app.workflow.domain import V4_REVISION, WorkflowState
+from app.workflow.domain import UNRESOLVED_EXECUTION_STATES, V4_REVISION
 from app.workflow.errors import (
     OrchestrationAuthorityError,
     ThreadBindingError,
     WorkflowOwnershipError,
     WorkflowRowNotFoundError,
 )
-from app.workflow.execution import ReservationOutcome
 from app.workflow.graph import AuthoritativeObservation, WorkflowGraphState, build_workflow_graph
 from app.workflow.runtime import WorkflowExecutionRuntime
 from app.workflow.workflow_repository import WorkflowRepository
@@ -142,9 +141,7 @@ class WorkflowOrchestrationService:
             settings=settings,
             execution=runtime,
         )
-        if runtime is not None:
-            result = self._advance_execution(action_id, runtime, result)
-        return result
+        return self._observe_authoritative_state(action_id, result)
 
     def _load_system_action(self, action_id: UUID) -> AuthoritativeObservation:
         with self._session_factory() as session:
@@ -161,24 +158,11 @@ class WorkflowOrchestrationService:
                 state=row.state,
             )
 
-    def _advance_execution(
+    def _observe_authoritative_state(
         self,
         action_id: UUID,
-        runtime: WorkflowExecutionRuntime,
         result: dict[str, Any],
     ) -> dict[str, Any]:
-        observation = self._load_system_action(action_id)
-        state = observation.state
-        if state == WorkflowState.CONFIRMED.value:
-            outcome = runtime.reserve(observation.action_id, observation.revision)
-            if outcome in {ReservationOutcome.RESERVED, ReservationOutcome.ALREADY_RESERVED}:
-                runtime.execute(observation.action_id, observation.revision)
-        elif state in {
-            WorkflowState.EXECUTING.value,
-            WorkflowState.UNKNOWN_OUTCOME.value,
-            WorkflowState.RECONCILING.value,
-        }:
-            runtime.reconcile(observation.action_id, observation.revision)
         observation = self._load_system_action(action_id)
         updated = dict(result)
         updated["observed_state"] = observation.state
@@ -186,6 +170,17 @@ class WorkflowOrchestrationService:
         updated["revision"] = observation.revision
         updated["langgraph_thread_id"] = observation.langgraph_thread_id
         return updated
+
+    def _recover_ended_checkpoint(
+        self,
+        action_id: UUID,
+        runtime: WorkflowExecutionRuntime,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        observation = self._load_system_action(action_id)
+        if observation.state in {state.value for state in UNRESOLVED_EXECUTION_STATES}:
+            runtime.reconcile(observation.action_id, observation.revision)
+        return self._observe_authoritative_state(action_id, result)
 
     def _resume_observation(
         self,
@@ -207,7 +202,12 @@ class WorkflowOrchestrationService:
             ).compile(checkpointer=checkpointer)
             snapshot = graph.get_state(config)
             if snapshot.next == ():
-                return dict(snapshot.values)
+                values = dict(snapshot.values)
+                if execution is not None:
+                    return self._recover_ended_checkpoint(
+                        UUID(observation.action_id), execution, values
+                    )
+                return values
             if snapshot.next == ("await_confirmation",):
                 return graph.invoke(Command(resume=_wake_payload(resume_payload)), config=config)
             return graph.invoke(None, config=config)

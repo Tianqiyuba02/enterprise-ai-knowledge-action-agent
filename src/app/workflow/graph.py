@@ -20,6 +20,14 @@ RouteName = Literal[
     "terminal_barrier",
     "reconcile_execution",
 ]
+EXECUTION_NODE_NAMES = frozenset(
+    {
+        "reserve_execution",
+        "execute_business_action",
+        "finalize_execution",
+        "reconcile_execution",
+    }
+)
 
 
 class WorkflowGraphState(TypedDict):
@@ -67,12 +75,12 @@ def observation_update(observation: AuthoritativeObservation) -> WorkflowGraphSt
 def route_authoritative_state(
     observation: AuthoritativeObservation,
     *,
-    execution_enabled: bool = True,
+    execution_enabled: bool,
 ) -> RouteName:
     """Route from PostgreSQL state only. Cached graph observations never authorize.
 
-    Employee start/resume compile the same topology but pass no execution port, so
-    reserve/execute/reconcile nodes only reload Postgres and do not mutate.
+    Employee start/resume compile without an execution capability, so execution
+    routes are unavailable even if a later node would otherwise continue.
     """
 
     if observation.state == WorkflowState.CONFIRMED.value:
@@ -94,10 +102,9 @@ def build_workflow_graph(
     reload_observation: ReloadObservation,
     execution: WorkflowExecutionPort | None = None,
 ) -> StateGraph:
-    """Compile-ready graph with a stable Stage-4 topology.
+    """Compile-ready graph. Execution nodes exist only for worker capability."""
 
-    Execution mutations run only when an execution port is supplied (worker).
-    """
+    execution_enabled = execution is not None
 
     def load_authoritative_revision(state: WorkflowGraphState) -> WorkflowGraphState:
         return observation_update(reload_observation(state))
@@ -110,33 +117,34 @@ def build_workflow_graph(
         return observation_update(reload_observation(state))
 
     def choose_route(state: WorkflowGraphState) -> RouteName:
-        return route_authoritative_state(reload_observation(state), execution_enabled=True)
+        return route_authoritative_state(
+            reload_observation(state),
+            execution_enabled=execution_enabled,
+        )
 
     def confirmed_barrier(state: WorkflowGraphState) -> WorkflowGraphState:
         return observation_update(reload_observation(state))
 
     def reserve_execution(state: WorkflowGraphState) -> WorkflowGraphState:
         observation = reload_observation(state)
-        if execution is not None and observation.state == WorkflowState.CONFIRMED.value:
+        if observation.state == WorkflowState.CONFIRMED.value:
             execution.reserve(observation.action_id, observation.revision)
         return observation_update(reload_observation(state))
 
     def execute_business_action(state: WorkflowGraphState) -> WorkflowGraphState:
         observation = reload_observation(state)
-        if execution is not None and observation.state == WorkflowState.EXECUTING.value:
+        if observation.state == WorkflowState.EXECUTING.value:
             execution.execute(observation.action_id, observation.revision)
         return observation_update(reload_observation(state))
 
     def finalize_execution(state: WorkflowGraphState) -> WorkflowGraphState:
         observation = reload_observation(state)
-        if execution is not None:
-            execution.finalize(observation.action_id, observation.revision)
+        execution.finalize(observation.action_id, observation.revision)
         return observation_update(reload_observation(state))
 
     def reconcile_execution(state: WorkflowGraphState) -> WorkflowGraphState:
         observation = reload_observation(state)
-        if execution is not None:
-            execution.reconcile(observation.action_id, observation.revision)
+        execution.reconcile(observation.action_id, observation.revision)
         return observation_update(reload_observation(state))
 
     def terminal_barrier(state: WorkflowGraphState) -> WorkflowGraphState:
@@ -147,28 +155,28 @@ def build_workflow_graph(
     graph.add_node("await_confirmation", await_confirmation)
     graph.add_node("reload_after_wake", reload_after_wake)
     graph.add_node("confirmed_barrier", confirmed_barrier)
-    graph.add_node("reserve_execution", reserve_execution)
-    graph.add_node("execute_business_action", execute_business_action)
-    graph.add_node("finalize_execution", finalize_execution)
-    graph.add_node("reconcile_execution", reconcile_execution)
     graph.add_node("terminal_barrier", terminal_barrier)
     graph.add_edge(START, "load_authoritative_revision")
     graph.add_edge("load_authoritative_revision", "await_confirmation")
     graph.add_edge("await_confirmation", "reload_after_wake")
-    graph.add_conditional_edges(
-        "reload_after_wake",
-        choose_route,
-        {
-            ROUTE_CONFIRMED: "confirmed_barrier",
-            ROUTE_AWAIT: "await_confirmation",
-            ROUTE_TERMINAL: "terminal_barrier",
-            ROUTE_RECONCILE: "reconcile_execution",
-        },
-    )
-    graph.add_edge("confirmed_barrier", "reserve_execution")
-    graph.add_edge("reserve_execution", "execute_business_action")
-    graph.add_edge("execute_business_action", "finalize_execution")
-    graph.add_edge("reconcile_execution", "finalize_execution")
-    graph.add_edge("finalize_execution", END)
+    routes: dict[str, str] = {
+        ROUTE_CONFIRMED: "confirmed_barrier",
+        ROUTE_AWAIT: "await_confirmation",
+        ROUTE_TERMINAL: "terminal_barrier",
+    }
+    if execution_enabled:
+        graph.add_node("reserve_execution", reserve_execution)
+        graph.add_node("execute_business_action", execute_business_action)
+        graph.add_node("finalize_execution", finalize_execution)
+        graph.add_node("reconcile_execution", reconcile_execution)
+        routes[ROUTE_RECONCILE] = "reconcile_execution"
+        graph.add_edge("confirmed_barrier", "reserve_execution")
+        graph.add_edge("reserve_execution", "execute_business_action")
+        graph.add_edge("execute_business_action", "finalize_execution")
+        graph.add_edge("reconcile_execution", "finalize_execution")
+        graph.add_edge("finalize_execution", END)
+    else:
+        graph.add_edge("confirmed_barrier", END)
+    graph.add_conditional_edges("reload_after_wake", choose_route, routes)
     graph.add_edge("terminal_barrier", END)
     return graph

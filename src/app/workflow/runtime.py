@@ -82,21 +82,9 @@ class WorkflowExecutionRuntime:
             return self._current_state(action_id, revision)
 
     def finalize(self, action_id: str, revision: int) -> str:
-        state = self._current_state(action_id, revision)
-        if state != WorkflowState.EXECUTING.value:
-            return state
-        try:
-            permit = self._reservation.reload_permit(
-                action_id=UUID(action_id),
-                revision=revision,
-                worker_id=self.worker_id,
-            )
-        except (ExecutionFenceError, WorkflowRowNotFoundError):
-            return self._current_state(action_id, revision)
-        result = self._executor.submit(permit)
-        if result.authority_lost:
-            return self._current_state(action_id, revision)
-        return self._finalization.finalize(permit, result)
+        """Persist nothing. Execute and reconcile already wrote their outcomes."""
+
+        return self._current_state(action_id, revision)
 
     def _recover_permit(self, action_id: UUID, revision: int):
         try:
