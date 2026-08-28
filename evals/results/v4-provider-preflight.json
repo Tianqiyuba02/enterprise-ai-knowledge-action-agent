@@ -1,0 +1,24 @@
+{
+  "kind": "provider_preflight",
+  "evaluator_version": "v4-product-eval-2",
+  "scored": false,
+  "development_case": false,
+  "holdout_case": false,
+  "v4_action_created": false,
+  "business_mutation": false,
+  "completed": false,
+  "provider_failure": {
+    "kind": "rate_limited",
+    "exception_class": "ClientError",
+    "http_status_code": 429,
+    "symbolic_status": "RESOURCE_EXHAUSTED",
+    "provider_error_code": null,
+    "quota_metric": null,
+    "quota_limit": null,
+    "quota_limit_value": null,
+    "quota_location": null,
+    "retry_delay_ms": 35000
+  },
+  "usage": null,
+  "generated_at": "2026-08-28T13:41:24.470841Z"
+}
