@@ -1,6 +1,7 @@
 """Non-scored provider preflight. Cannot create V4 actions or score development cases."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from google.genai import types
@@ -18,10 +19,13 @@ from app.evaluation.v4.fingerprints import (
     PROVIDER_THINKING_LEVEL,
 )
 from app.evaluation.v4.transport import (
+    DEFAULT_PREFLIGHT_RESULTS_DIR,
+    LAUNCH_PREFLIGHT_FILENAME_PREFIX,
     PREFLIGHT_CREATES_V4_ACTION,
     PREFLIGHT_IS_DEVELOPMENT_CASE,
     PREFLIGHT_IS_HOLDOUT_CASE,
     PREFLIGHT_SCORED,
+    RESERVED_PREFLIGHT_EVIDENCE_PATHS,
     V4_EVALUATOR_VERSION,
 )
 
@@ -126,3 +130,41 @@ def require_successful_preflight(result: ProviderPreflightResult) -> None:
         raise FailedPreflightBlocksDevelopmentRun(
             "failed provider preflight prevents automatic development run start"
         )
+
+
+def _utc_stamp(generated_at: datetime) -> str:
+    moment = generated_at if generated_at.tzinfo is not None else generated_at.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def launch_preflight_artifact_path(
+    generated_at: datetime,
+    *,
+    directory: Path | None = None,
+) -> Path:
+    target_dir = directory if directory is not None else DEFAULT_PREFLIGHT_RESULTS_DIR
+    return target_dir / f"{LAUNCH_PREFLIGHT_FILENAME_PREFIX}{_utc_stamp(generated_at)}.json"
+
+
+def persist_launch_preflight_result(
+    result: ProviderPreflightResult,
+    *,
+    directory: Path | None = None,
+) -> Path:
+    """Write the existing safe preflight result. Does not call the provider."""
+
+    path = launch_preflight_artifact_path(result.generated_at, directory=directory)
+    reserved = {item.resolve() for item in RESERVED_PREFLIGHT_EVIDENCE_PATHS}
+    reserved_names = {item.name for item in RESERVED_PREFLIGHT_EVIDENCE_PATHS}
+    if path.resolve() in reserved or path.name in reserved_names:
+        raise ValueError("refusing to overwrite reserved evaluation evidence")
+    suffix = 2
+    candidate = path
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
+        if candidate.resolve() in reserved or candidate.name in reserved_names:
+            raise ValueError("refusing to overwrite reserved evaluation evidence")
+        suffix += 1
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    return candidate

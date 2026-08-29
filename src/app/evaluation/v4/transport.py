@@ -1,5 +1,6 @@
 """Evaluator-transport policy for v4-product-eval-2. Not product behavior."""
 
+from pathlib import Path
 from typing import Final
 
 from app.agent.provider_failures import AgentProviderFailureKind
@@ -26,9 +27,19 @@ RUN1_SEMANTIC_PASS_AMONG_EVALUABLE: Final = "9/9"
 
 DEFAULT_EVAL2_OUTPUT: Final = "evals/results/v4-product-development-eval-2.json"
 DEFAULT_PREFLIGHT_OUTPUT: Final = "evals/results/v4-provider-preflight.json"
+DEFAULT_PREFLIGHT_RESULTS_DIR: Final = Path("evals/results")
+LAUNCH_PREFLIGHT_FILENAME_PREFIX: Final = "v4-provider-preflight-launch-"
+STANDALONE_PREFLIGHT_20260828_PATH: Final = DEFAULT_PREFLIGHT_OUTPUT
+STANDALONE_PREFLIGHT_20260829_PATH: Final = "evals/results/v4-provider-preflight-2026-08-29.json"
 RUN1_LIVE_PATH: Final = "evals/results/v4-product-development.json"
 RUN1_ARCHIVE_PATH: Final = "evals/results/archive/v4-product-dev-1-eval-1-run-1.json"
 RUN1_IDENTITY_PATH: Final = "evals/results/archive/v4-product-dev-1-eval-1-run-1.identity.json"
+RESERVED_PREFLIGHT_EVIDENCE_PATHS: Final = (
+    Path(STANDALONE_PREFLIGHT_20260828_PATH),
+    Path(STANDALONE_PREFLIGHT_20260829_PATH),
+    Path(DEFAULT_EVAL2_OUTPUT),
+    Path(RUN1_LIVE_PATH),
+)
 
 
 def transport_policy_payload() -> dict[str, object]:
@@ -45,6 +56,8 @@ def transport_policy_payload() -> dict[str, object]:
             "development_case": PREFLIGHT_IS_DEVELOPMENT_CASE,
             "holdout_case": PREFLIGHT_IS_HOLDOUT_CASE,
             "required_before_new_development_run": True,
+            "launch_result_persisted": True,
+            "launch_artifact_separate_from_development_result": True,
         },
         "attempt_history": "structured_safe_diagnostics",
         "default_delay_seconds": DEFAULT_CASE_DELAY_SECONDS,

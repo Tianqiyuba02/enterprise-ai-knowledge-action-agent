@@ -33,6 +33,7 @@ from app.evaluation.v4.models import (
 from app.evaluation.v4.preflight import (
     FailedPreflightBlocksDevelopmentRun,
     ProviderPreflight,
+    persist_launch_preflight_result,
     require_successful_preflight,
 )
 from app.evaluation.v4.run1_archive import is_closed_run1_report, refuse_eval2_write_over_run1
@@ -96,6 +97,7 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     agent_settings = load_agent_settings()
     clock = V4DevelopmentBusinessClock()
     branch, commit = _git_identity()
+    launch_preflight_path = None
     try:
         preflight = ProviderPreflight(settings, agent_settings).run()
         if preflight_only:
@@ -104,6 +106,7 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
             print(f"mode=v4-product kind=provider_preflight scored={preflight.scored}")
             print(f"completed={preflight.completed} report={output}")
             return 0 if preflight.completed else 3
+        launch_preflight_path = persist_launch_preflight_result(preflight)
         require_successful_preflight(preflight)
         with isolated_evaluation_database(source_settings=knowledge_settings) as isolated:
             fingerprints = build_fingerprints(
@@ -175,6 +178,8 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
             "Error: failed provider preflight prevents automatic development run start.",
             file=sys.stderr,
         )
+        if launch_preflight_path is not None:
+            print(f"preflight_report={launch_preflight_path}", file=sys.stderr)
         return 3
     except Exception as exc:
         print(
@@ -185,6 +190,8 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     print(f"mode=v4-product split=development evaluator={V4_EVALUATOR_VERSION}")
     print(f"development_set={V4_DEVELOPMENT_SET_VERSION}")
     print(f"dataset_fingerprint={report.dataset_fingerprint}")
+    if launch_preflight_path is not None:
+        print(f"preflight_report={launch_preflight_path}")
     print(
         f"completed={report.summary.provider_completed_count}/{report.summary.cases_total} "
         f"blocked={report.summary.provider_blocked_count} "

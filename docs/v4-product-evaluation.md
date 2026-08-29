@@ -160,8 +160,35 @@ Provider preflight is a separate, non-scored connectivity probe. It is not one
 of the 16 development cases, not holdout evidence, and it cannot create a V4
 action or business mutation. A failed preflight prevents automatic launch of a
 new eval-2 development run. Live preflight requires explicit
-`--authorize-preflight`. Stage 6P did not authorize or execute a live
-preflight.
+`--authorize-preflight`.
+
+Standalone `--preflight` and the automatic Development Run-2 launch preflight
+use the same provider-facing request path. An offline comparison found no
+material local request, configuration, client, or concurrency difference.
+The observed completed standalone preflight (2026-08-29) followed by a failed
+launch-gate preflight is therefore not explained by two different local
+implementations. This document does not claim a provider root cause.
+
+Stage 6P.1 persists that launch-gate observation independently of development
+run evidence. After `ProviderPreflight.run()`, the existing safe
+`ProviderPreflightResult` is written to a dedicated timestamped artifact
+(`evals/results/v4-provider-preflight-launch-<UTC>.json`) for both completed
+and blocked launch preflights. The launch gate then still refuses to start
+development cases when the probe did not complete. A failed launch creates no
+`v4-product-development-eval-2` result and exposes 0 development cases. The
+historical standalone observations remain reserved evidence:
+
+- failed 2026-08-28: `evals/results/v4-provider-preflight.json`
+- completed 2026-08-29: `evals/results/v4-provider-preflight-2026-08-29.json`
+
+This is evaluation-transport observability only. `evaluator_version` remains
+`v4-product-eval-2`. `evaluation_subject_fingerprint` is unchanged from Stage
+6P (`2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1`).
+`evaluation_transport_fingerprint` is now
+`97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54` because
+launch-result persistence is part of transport identity. Development gold,
+provider-config, baseline-data, and business-clock fingerprints are unchanged.
+No Run-2 development case has been exposed.
 
 V4 product evaluation does not use the Gemini Batch API. The evaluated product
 is an interactive native function-calling loop.

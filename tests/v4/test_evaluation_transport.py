@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,14 +15,16 @@ from app.agent.provider_failures import (
     AgentProviderFailureKind,
     AgentProviderSymbolicStatus,
 )
-from app.config import AgentSettings, Settings
+from app.config import AgentSettings, KnowledgeSettings, Settings
 from app.evaluation.cli import main as evaluation_main
 from app.evaluation.loader import DEFAULT_EVALUATION_ROOT
 from app.evaluation.v4.clock import V4_DEVELOPMENT_BUSINESS_DATE
 from app.evaluation.v4.fingerprints import (
     build_fingerprints,
+    business_clock_fingerprint,
     evaluation_subject_fingerprint,
     evaluation_transport_fingerprint,
+    provider_config_fingerprint,
     sha256_json,
 )
 from app.evaluation.v4.loader import (
@@ -46,6 +50,7 @@ from app.evaluation.v4.preflight import (
     FailedPreflightBlocksDevelopmentRun,
     ProviderPreflight,
     ProviderPreflightResult,
+    persist_launch_preflight_result,
     require_successful_preflight,
 )
 from app.evaluation.v4.run1_archive import (
@@ -55,13 +60,21 @@ from app.evaluation.v4.run1_archive import (
 from app.evaluation.v4.runner import V4ProductEvaluationRunner, V4ResumeCompatibilityError
 from app.evaluation.v4.transport import (
     CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD,
+    DEFAULT_EVAL2_OUTPUT,
+    DEFAULT_PREFLIGHT_OUTPUT,
     RUN1_ARCHIVE_PATH,
     RUN1_EVIDENCE_COMMIT,
     RUN1_LIVE_PATH,
     RUN1_STATUS,
+    STANDALONE_PREFLIGHT_20260829_PATH,
 )
 
 FROZEN_DEVELOPMENT_GOLD = "e2a0ce9952f52fd8bb814ae1853ce027f53c79091c06b3141890685c8febfb0f"
+STAGE_6P_SUBJECT = "2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1"
+STAGE_6P_TRANSPORT = "09deed71c2ea17658176c0256cabc3fc23d78c3df6c30b64575038843bd4e782"
+STAGE_6P1_TRANSPORT = "97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54"
+STAGE_6P_PROVIDER_CONFIG = "f38d6d34897133bb4345deef9831d0dd914cc8e369a14dfe31ef4c605a726002"
+STAGE_6P_BUSINESS_CLOCK = "fc995a58cfa205024fb9d91c9eed82ea4e5e0f5446714e67482b8134e81d0a01"
 
 
 def _blocked(case_id: str) -> V4ProductCaseResult:
@@ -391,3 +404,206 @@ def test_subject_and_transport_fingerprints_are_stable_functions() -> None:
     assert transport == evaluation_transport_fingerprint()
     assert subject != transport
     assert sha256_json({"docs_only": True}) != subject
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _blocked_preflight_result() -> ProviderPreflightResult:
+    return ProviderPreflightResult(
+        completed=False,
+        provider_failure=AgentProviderFailureDetail(
+            kind=AgentProviderFailureKind.RATE_LIMITED,
+            exception_class=AgentProviderExceptionClass.CLIENT_ERROR,
+            http_status_code=429,
+            symbolic_status=AgentProviderSymbolicStatus.RESOURCE_EXHAUSTED,
+            provider_error_code="rate_limit_exceeded",
+            quota_metric="generate_content_requests",
+            quota_limit="PerMinute",
+            quota_limit_value="10",
+            quota_location="global",
+            retry_delay_ms=35000,
+        ),
+        generated_at=datetime(2026, 8, 29, 5, 15, 32, 123456, tzinfo=UTC),
+    )
+
+
+def _completed_preflight_result() -> ProviderPreflightResult:
+    return ProviderPreflightResult(
+        completed=True,
+        usage=AgentProviderUsage(
+            prompt_token_count=49,
+            output_token_count=1,
+            total_token_count=50,
+            cached_token_count=None,
+        ),
+        generated_at=datetime(2026, 8, 29, 5, 16, 1, 654321, tzinfo=UTC),
+    )
+
+
+def _install_offline_launch_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    result: ProviderPreflightResult,
+) -> dict[str, object]:
+    calls = {"preflight": 0, "development_started": False}
+
+    class _FakePreflight:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def run(self) -> ProviderPreflightResult:
+            calls["preflight"] += 1
+            return result
+
+    def _fake_isolated(**_kwargs):
+        calls["development_started"] = True
+        raise RuntimeError("authorized launch reached isolated database")
+
+    monkeypatch.setattr(
+        "app.evaluation.v4.cli.load_settings",
+        lambda: Settings(gemini_api_key="test-only-key", _env_file=None),
+    )
+    monkeypatch.setattr(
+        "app.evaluation.v4.cli.load_agent_settings",
+        lambda: AgentSettings(_env_file=None),
+    )
+    monkeypatch.setattr(
+        "app.evaluation.v4.cli.load_knowledge_settings",
+        lambda: KnowledgeSettings(_env_file=None),
+    )
+    monkeypatch.setattr("app.evaluation.v4.cli.ProviderPreflight", _FakePreflight)
+    monkeypatch.setattr("app.evaluation.v4.cli.isolated_evaluation_database", _fake_isolated)
+    monkeypatch.setattr(
+        "app.evaluation.v4.cli.persist_launch_preflight_result",
+        lambda item: persist_launch_preflight_result(item, directory=tmp_path),
+    )
+    return calls
+
+
+def test_launch_preflight_failure_persists_and_does_not_start_run2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    historical_28 = Path(DEFAULT_PREFLIGHT_OUTPUT)
+    historical_29 = Path(STANDALONE_PREFLIGHT_20260829_PATH)
+    before_28 = _sha256_file(historical_28)
+    before_29 = _sha256_file(historical_29)
+    (tmp_path / historical_28.name).write_bytes(historical_28.read_bytes())
+    (tmp_path / historical_29.name).write_bytes(historical_29.read_bytes())
+    result = _blocked_preflight_result()
+    calls = _install_offline_launch_fakes(monkeypatch, tmp_path, result)
+    eval2 = tmp_path / Path(DEFAULT_EVAL2_OUTPUT).name
+
+    code = evaluation_main(
+        [
+            "--mode",
+            "v4-product",
+            "--split",
+            "development",
+            "--live",
+            "--authorize-preflight",
+            "--output",
+            str(eval2),
+        ]
+    )
+
+    written = list(tmp_path.glob("v4-provider-preflight-launch-*.json"))
+    assert code == 3
+    assert calls["preflight"] == 1
+    assert calls["development_started"] is False
+    assert not eval2.exists()
+    assert not Path(DEFAULT_EVAL2_OUTPUT).is_file()
+    assert len(written) == 1
+    payload = json.loads(written[0].read_text(encoding="utf-8"))
+    failure = payload["provider_failure"]
+    assert payload["kind"] == "provider_preflight"
+    assert payload["scored"] is False
+    assert payload["completed"] is False
+    assert failure["kind"] == "rate_limited"
+    assert failure["http_status_code"] == 429
+    assert failure["symbolic_status"] == "RESOURCE_EXHAUSTED"
+    assert failure["provider_error_code"] == "rate_limit_exceeded"
+    assert failure["quota_metric"] == "generate_content_requests"
+    assert failure["quota_limit"] == "PerMinute"
+    assert failure["quota_limit_value"] == "10"
+    assert failure["quota_location"] == "global"
+    assert failure["retry_delay_ms"] == 35000
+    assert "message" not in failure
+    assert "headers" not in failure
+    assert "body" not in failure
+    dumped = written[0].read_text(encoding="utf-8")
+    assert "test-only-key" not in dumped
+    assert "authorization" not in dumped.lower()
+    assert _sha256_file(historical_28) == before_28
+    assert _sha256_file(historical_29) == before_29
+    assert _sha256_file(tmp_path / historical_28.name) == before_28
+    assert _sha256_file(tmp_path / historical_29.name) == before_29
+
+
+def test_launch_preflight_success_persists_once_then_may_start_development(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    historical_28 = Path(DEFAULT_PREFLIGHT_OUTPUT)
+    historical_29 = Path(STANDALONE_PREFLIGHT_20260829_PATH)
+    before_28 = _sha256_file(historical_28)
+    before_29 = _sha256_file(historical_29)
+    result = _completed_preflight_result()
+    calls = _install_offline_launch_fakes(monkeypatch, tmp_path, result)
+    eval2 = tmp_path / Path(DEFAULT_EVAL2_OUTPUT).name
+
+    code = evaluation_main(
+        [
+            "--mode",
+            "v4-product",
+            "--split",
+            "development",
+            "--live",
+            "--authorize-preflight",
+            "--output",
+            str(eval2),
+        ]
+    )
+
+    written = list(tmp_path.glob("v4-provider-preflight-launch-*.json"))
+    assert calls["preflight"] == 1
+    assert calls["development_started"] is True
+    assert code == 1
+    assert not eval2.exists()
+    assert not Path(DEFAULT_EVAL2_OUTPUT).is_file()
+    assert len(written) == 1
+    payload = json.loads(written[0].read_text(encoding="utf-8"))
+    assert payload["completed"] is True
+    assert payload["scored"] is False
+    assert payload["usage"]["prompt_token_count"] == 49
+    assert payload["usage"]["total_token_count"] == 50
+    assert _sha256_file(historical_28) == before_28
+    assert _sha256_file(historical_29) == before_29
+
+
+def test_persist_launch_preflight_leaves_standalone_artifacts_untouched(
+    tmp_path: Path,
+) -> None:
+    standalone = tmp_path / Path(DEFAULT_PREFLIGHT_OUTPUT).name
+    dated = tmp_path / Path(STANDALONE_PREFLIGHT_20260829_PATH).name
+    standalone.write_text("keep-2026-08-28", encoding="utf-8")
+    dated.write_text("keep-2026-08-29", encoding="utf-8")
+    path = persist_launch_preflight_result(_blocked_preflight_result(), directory=tmp_path)
+    assert path.name.startswith("v4-provider-preflight-launch-")
+    assert path != standalone
+    assert path != dated
+    assert standalone.read_text(encoding="utf-8") == "keep-2026-08-28"
+    assert dated.read_text(encoding="utf-8") == "keep-2026-08-29"
+
+
+def test_stage_6p1_is_transport_only_fingerprint_change() -> None:
+    assert V4_EVALUATOR_VERSION == "v4-product-eval-2"
+    assert evaluation_subject_fingerprint() == STAGE_6P_SUBJECT
+    assert evaluation_transport_fingerprint() != STAGE_6P_TRANSPORT
+    assert evaluation_transport_fingerprint() == STAGE_6P1_TRANSPORT
+    assert provider_config_fingerprint() == STAGE_6P_PROVIDER_CONFIG
+    assert business_clock_fingerprint() == STAGE_6P_BUSINESS_CLOCK
+    assert v4_dataset_fingerprint(load_v4_development_cases()) == FROZEN_DEVELOPMENT_GOLD
+    assert_no_v4_holdout()
