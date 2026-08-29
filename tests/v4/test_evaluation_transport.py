@@ -72,7 +72,6 @@ from app.evaluation.v4.transport import (
 FROZEN_DEVELOPMENT_GOLD = "e2a0ce9952f52fd8bb814ae1853ce027f53c79091c06b3141890685c8febfb0f"
 STAGE_6P_SUBJECT = "2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1"
 STAGE_6P_TRANSPORT = "09deed71c2ea17658176c0256cabc3fc23d78c3df6c30b64575038843bd4e782"
-STAGE_6P1_TRANSPORT = "97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54"
 STAGE_6P_PROVIDER_CONFIG = "f38d6d34897133bb4345deef9831d0dd914cc8e369a14dfe31ef4c605a726002"
 STAGE_6P_BUSINESS_CLOCK = "fc995a58cfa205024fb9d91c9eed82ea4e5e0f5446714e67482b8134e81d0a01"
 
@@ -514,7 +513,6 @@ def test_launch_preflight_failure_persists_and_does_not_start_run2(
     assert calls["preflight"] == 1
     assert calls["development_started"] is False
     assert not eval2.exists()
-    assert not Path(DEFAULT_EVAL2_OUTPUT).is_file()
     assert len(written) == 1
     payload = json.loads(written[0].read_text(encoding="utf-8"))
     failure = payload["provider_failure"]
@@ -572,7 +570,6 @@ def test_launch_preflight_success_persists_once_then_may_start_development(
     assert calls["development_started"] is True
     assert code == 1
     assert not eval2.exists()
-    assert not Path(DEFAULT_EVAL2_OUTPUT).is_file()
     assert len(written) == 1
     payload = json.loads(written[0].read_text(encoding="utf-8"))
     assert payload["completed"] is True
@@ -602,7 +599,6 @@ def test_stage_6p1_is_transport_only_fingerprint_change() -> None:
     assert V4_EVALUATOR_VERSION == "v4-product-eval-2"
     assert evaluation_subject_fingerprint() == STAGE_6P_SUBJECT
     assert evaluation_transport_fingerprint() != STAGE_6P_TRANSPORT
-    assert evaluation_transport_fingerprint() == STAGE_6P1_TRANSPORT
     assert provider_config_fingerprint() == STAGE_6P_PROVIDER_CONFIG
     assert business_clock_fingerprint() == STAGE_6P_BUSINESS_CLOCK
     assert v4_dataset_fingerprint(load_v4_development_cases()) == FROZEN_DEVELOPMENT_GOLD

@@ -17,6 +17,10 @@ from app.evaluation.v4.clock import (
     V4_DEVELOPMENT_BUSINESS_DATE,
     V4DevelopmentBusinessClock,
 )
+from app.evaluation.v4.diagnostic import (
+    persist_diagnostic_pair_result,
+    run_mirrored_diagnostic_pair,
+)
 from app.evaluation.v4.fingerprints import build_fingerprints
 from app.evaluation.v4.isolation import isolated_evaluation_database
 from app.evaluation.v4.loader import (
@@ -55,12 +59,16 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     if split is EvaluationSplit.HOLDOUT or bool(getattr(args, "authorize_holdout", False)):
         print(V4_HOLDOUT_DOES_NOT_EXIST, file=sys.stderr)
         return 2
+    diagnostic_pair = bool(getattr(args, "provider_diagnostic_pair", False))
     try:
         assert_no_v4_holdout()
-        cases = load_v4_development_cases()
+        if not diagnostic_pair:
+            cases = load_v4_development_cases()
     except Exception as exc:
         print(f"Error: {type(exc).__name__}.", file=sys.stderr)
         return 2
+    if diagnostic_pair:
+        return _run_diagnostic_pair_cli(args)
     preflight_only = bool(getattr(args, "preflight", False))
     authorize_preflight = bool(getattr(args, "authorize_preflight", False))
     if not authorize_preflight:
@@ -205,6 +213,40 @@ def run_v4_product_cli(args: Namespace, split: EvaluationSplit) -> int:
     if report.summary.provider_blocked_count or report.run_stopped_early:
         print("status=provider_blocked")
         return 3
+    return 0
+
+
+def _run_diagnostic_pair_cli(args: Namespace) -> int:
+    if bool(getattr(args, "preflight", False)) or bool(getattr(args, "resume", False)):
+        print(
+            "Error: --provider-diagnostic-pair cannot be combined with --preflight or --resume.",
+            file=sys.stderr,
+        )
+        return 2
+    if not bool(getattr(args, "authorize_diagnostic_pair", False)):
+        print(
+            "Error: mirrored provider diagnostic pair requires --authorize-diagnostic-pair.",
+            file=sys.stderr,
+        )
+        return 2
+    settings = load_settings()
+    agent_settings = load_agent_settings()
+    try:
+        result = run_mirrored_diagnostic_pair(settings, agent_settings)
+        output = persist_diagnostic_pair_result(result, path=args.output)
+    except Exception as exc:
+        print(
+            f"Error: V4 provider diagnostic pair failed safely ({type(exc).__name__}).",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"mode=v4-product kind=provider_diagnostic_pair scored={result.scored}")
+    print(f"order={result.order[0]},{result.order[1]}")
+    print(
+        f"agent_shaped_completed={result.agent_shaped.completed} "
+        f"minimal_control_completed={result.minimal_control.completed}"
+    )
+    print(f"report={output}")
     return 0
 
 

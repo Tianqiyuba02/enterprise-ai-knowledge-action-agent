@@ -70,6 +70,7 @@ _SUBJECT_PATHS: Final = (
 
 _TRANSPORT_PATHS: Final = (
     Path("src/app/evaluation/v4/cli.py"),
+    Path("src/app/evaluation/v4/diagnostic.py"),
     Path("src/app/evaluation/v4/fingerprints.py"),
     Path("src/app/evaluation/v4/metrics.py"),
     Path("src/app/evaluation/v4/models.py"),

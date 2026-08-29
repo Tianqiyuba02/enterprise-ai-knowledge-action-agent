@@ -91,6 +91,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly authorize one live provider preflight call",
     )
+    parser.add_argument(
+        "--provider-diagnostic-pair",
+        action="store_true",
+        help="run the non-scored V4 mirrored provider diagnostic pair only",
+    )
+    parser.add_argument(
+        "--authorize-diagnostic-pair",
+        action="store_true",
+        help="explicitly authorize the non-scored mirrored provider diagnostic pair",
+    )
     parser.add_argument("--output", type=Path)
     return parser
 

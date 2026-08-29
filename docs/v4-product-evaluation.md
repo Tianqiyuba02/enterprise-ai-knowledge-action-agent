@@ -184,11 +184,27 @@ historical standalone observations remain reserved evidence:
 This is evaluation-transport observability only. `evaluator_version` remains
 `v4-product-eval-2`. `evaluation_subject_fingerprint` is unchanged from Stage
 6P (`2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1`).
-`evaluation_transport_fingerprint` is now
-`97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54` because
-launch-result persistence is part of transport identity. Development gold,
-provider-config, baseline-data, and business-clock fingerprints are unchanged.
-No Run-2 development case has been exposed.
+Launch-preflight persistence changed `evaluation_transport_fingerprint` to
+`97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54`.
+Development gold, provider-config, baseline-data, and business-clock
+fingerprints are unchanged.
+
+Run 2 is closed as STARTED / STOPPED EARLY / PROVIDER-LIMITED. It is not a
+Development PASS and not a holdout.
+
+## Mirrored provider diagnostic
+
+Stage 6P.3 adds a non-scored mirrored provider diagnostic harness. It exists
+only to compare provider behavior between a minimal GenerateContent request and
+an Agent-shaped first-round request within a short observation window.
+
+It is not development evidence, not holdout evidence, and it does not diagnose
+provider root cause by itself. A later Project-Controller-authorized live pair
+would run exactly one Agent-shaped probe and then one existing preflight-shaped
+control, persist a dedicated `v4-provider-diagnostic-pair-<UTC>.json` artifact,
+and execute no tools, V4 actions, or development cases. This document does not
+authorize that live pair. The diagnostic transport identity is
+`caed4a3232fe0e4dd22975c7b97244aec30e1edfea48b71e8beb5f5d5e8b601d`.
 
 V4 product evaluation does not use the Gemini Batch API. The evaluated product
 is an interactive native function-calling loop.
