@@ -22,6 +22,7 @@ from app.workflow.errors import OrchestrationAuthorityError, WorkflowInvariantEr
 from app.workflow.executable_preparation import V4ExecutablePreparationService
 from app.workflow.orchestration import WorkflowOrchestrationService
 from app.workflow.outbox_repository import NewOutboxEvent, OutboxRepository
+from app.workflow.time import database_now
 from app.workflow.worker import WorkflowWorker
 from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowRepository
 
@@ -390,7 +391,7 @@ def test_manual_outbox_without_confirm_is_not_used_to_authorize(
                 event_key=f"confirmation_committed:{action_id}:1",
                 action_id=action_id,
                 event_type=OutboxEventType.CONFIRMATION_COMMITTED,
-                available_at=datetime.now(UTC),
+                available_at=database_now(session),
             ),
         )
         session.commit()

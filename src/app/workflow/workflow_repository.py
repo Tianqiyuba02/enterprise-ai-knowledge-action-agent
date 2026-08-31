@@ -16,6 +16,7 @@ from app.workflow.domain import (
     WorkflowState,
 )
 from app.workflow.errors import WorkflowRowNotFoundError
+from app.workflow.occupancy import TRANSITIONAL_OCCUPANCY_STATES
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +158,28 @@ class WorkflowRepository:
             )
         ).scalars()
         return tuple(rows)
+
+    def lock_occupying_revision_for_business_request(
+        self,
+        session: Session,
+        business_request_key: str,
+    ) -> tuple[ActionWorkflow, ActionRevision] | None:
+        """Lock the occupying revision only. Do not FOR UPDATE action_workflows."""
+
+        revision = session.execute(
+            select(ActionRevision)
+            .where(
+                ActionRevision.business_request_key == business_request_key,
+                ActionRevision.state.in_(TRANSITIONAL_OCCUPANCY_STATES),
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if revision is None:
+            return None
+        workflow = session.get(ActionWorkflow, revision.action_id)
+        if workflow is None:
+            raise WorkflowRowNotFoundError("occupying action workflow was not found")
+        return workflow, revision
 
     def lock_owner_revisions_for_business_request(
         self,

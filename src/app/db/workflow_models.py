@@ -188,6 +188,15 @@ class ActionRevision(Base):
         ),
         Index("ix_action_revisions_state", "state"),
         Index("ix_action_revisions_business_request_key", "business_request_key"),
+        Index(
+            "uq_action_revisions_occupying_business_request_key",
+            "business_request_key",
+            unique=True,
+            postgresql_where=text(
+                "state IN ('AWAITING_CONFIRMATION', 'CONFIRMED', 'EXECUTING', "
+                "'UNKNOWN_OUTCOME', 'RECONCILING', 'SUCCEEDED')"
+            ),
+        ),
     )
 
     revision_id: Mapped[uuid.UUID] = mapped_column(
@@ -497,6 +506,7 @@ class LeaveRequest(Base):
     __table_args__ = (
         UniqueConstraint("execution_key", name="uq_leave_requests_execution_key"),
         UniqueConstraint("business_request_key", name="uq_leave_requests_business_request_key"),
+        UniqueConstraint("source_action_id", name="uq_leave_requests_source_action_id"),
         CheckConstraint(f"leave_type IN ({LEAVE_TYPE_SQL})", name="ck_leave_requests_leave_type"),
         CheckConstraint(f"status IN ({LEAVE_STATUS_SQL})", name="ck_leave_requests_status"),
         CheckConstraint("requested_hours > 0", name="ck_leave_requests_requested_hours_positive"),

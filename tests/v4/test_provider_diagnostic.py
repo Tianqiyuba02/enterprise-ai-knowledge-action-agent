@@ -44,6 +44,8 @@ FROZEN_DEVELOPMENT_GOLD = "e2a0ce9952f52fd8bb814ae1853ce027f53c79091c06b31418906
 STAGE_6P_SUBJECT = "2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1"
 STAGE_6P1_TRANSPORT = "97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64614dc54"
 STAGE_6P3_TRANSPORT = "caed4a3232fe0e4dd22975c7b97244aec30e1edfea48b71e8beb5f5d5e8b601d"
+PHASE_1A_SUBJECT = "7410b097fb1b92581da557eed6b28e76bc5cf387d627eef7c4fa71d679d7f52f"
+PHASE_1A_TRANSPORT = "1d78429a92e263df484497c3807279706489c9716ad3f952eac2cf5c9e8d1209"
 STAGE_6P_PROVIDER_CONFIG = "f38d6d34897133bb4345deef9831d0dd914cc8e369a14dfe31ef4c605a726002"
 STAGE_6P_BUSINESS_CLOCK = "fc995a58cfa205024fb9d91c9eed82ea4e5e0f5446714e67482b8134e81d0a01"
 
@@ -311,9 +313,11 @@ def test_diagnostic_cli_persists_pair_not_run2(
 
 def test_stage_6p3_is_transport_only() -> None:
     assert V4_EVALUATOR_VERSION == "v4-product-eval-2"
-    assert evaluation_subject_fingerprint() == STAGE_6P_SUBJECT
+    assert evaluation_subject_fingerprint() == PHASE_1A_SUBJECT
+    assert evaluation_subject_fingerprint() != STAGE_6P_SUBJECT
+    assert evaluation_transport_fingerprint() == PHASE_1A_TRANSPORT
     assert evaluation_transport_fingerprint() != STAGE_6P1_TRANSPORT
-    assert evaluation_transport_fingerprint() == STAGE_6P3_TRANSPORT
+    assert evaluation_transport_fingerprint() != STAGE_6P3_TRANSPORT
     assert provider_config_fingerprint() == STAGE_6P_PROVIDER_CONFIG
     assert business_clock_fingerprint() == STAGE_6P_BUSINESS_CLOCK
     assert v4_dataset_fingerprint(load_v4_development_cases()) == FROZEN_DEVELOPMENT_GOLD

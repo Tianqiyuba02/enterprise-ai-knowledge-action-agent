@@ -2,13 +2,15 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import date
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import Connection, Engine, inspect, text
+from sqlalchemy import Connection, Engine, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
+from app.config import load_knowledge_settings
 from app.db.models import Document, DocumentChunk
 from app.db.session import create_knowledge_engine
 
@@ -23,16 +25,47 @@ pytestmark = [
 ]
 
 
+def _replace_database(url: str, database: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, f"/{database}", parts.query, parts.fragment))
+
+
 @pytest.fixture(scope="session")
 def migrated_engine() -> Iterator[Engine]:
-    config = AlembicConfig("alembic.ini")
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
-    engine = create_knowledge_engine()
+    live = load_knowledge_settings()
+    admin_url = live.database_url.get_secret_value()
+    database_name = f"knowledge_agent_v2_schema_{uuid.uuid4().hex[:12]}"
+    isolated_url = _replace_database(admin_url, database_name)
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    previous = os.environ.get("APP_DATABASE_URL")
+    engine: Engine | None = None
     try:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        os.environ["APP_DATABASE_URL"] = isolated_url
+        command.upgrade(AlembicConfig("alembic.ini"), "head")
+        engine = create_knowledge_engine(load_knowledge_settings())
         yield engine
     finally:
-        engine.dispose()
+        if previous is None:
+            os.environ.pop("APP_DATABASE_URL", None)
+        else:
+            os.environ["APP_DATABASE_URL"] = previous
+        if engine is not None:
+            engine.dispose()
+        with admin_engine.connect() as connection:
+            connection.execute(
+                text(
+                    """
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = :database_name AND pid <> pg_backend_pid()
+                    """
+                ),
+                {"database_name": database_name},
+            )
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
+        admin_engine.dispose()
 
 
 @pytest.fixture
@@ -110,7 +143,7 @@ def test_empty_database_upgrades_to_expected_head_and_schema(
     )
     assert (
         connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        == "0001_v2_knowledge"
+        == "0004_v4_phase1a_occupancy"
     )
     assert {"documents", "document_chunks"} <= tables
     assert document_columns == {column.name for column in Document.__table__.columns}

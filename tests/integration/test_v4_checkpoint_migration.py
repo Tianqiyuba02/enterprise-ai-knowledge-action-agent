@@ -158,7 +158,7 @@ def test_additive_0003_preserves_live_v2_corpus() -> None:
             documents = connection.execute(text("SELECT count(*) FROM documents")).scalar_one()
             chunks = connection.execute(text("SELECT count(*) FROM document_chunks")).scalar_one()
             holidays = connection.execute(text("SELECT count(*) FROM public_holidays")).scalar_one()
-        assert version == "0003_v4_langgraph_checkpoints"
+        assert version == "0004_v4_phase1a_occupancy"
         assert documents == 12
         assert chunks == 42
         assert holidays == 14

@@ -1,5 +1,7 @@
+import hashlib
 import os
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import date, timedelta
@@ -21,13 +23,15 @@ from app.errors import ActionCreationIdentityError
 from app.identity import AuthenticatedEmployeeContext
 from app.workflow.action_creation import (
     AUDIT_ACTION_PREPARED,
+    PREPARE_CONTENTION_ATTEMPTS,
     ActionCreationDisposition,
     ActionCreationFailpoints,
     ActionCreationService,
 )
 from app.workflow.canonical import business_request_key
-from app.workflow.domain import V4_REVISION, WorkflowState
+from app.workflow.domain import V4_REVISION, ChallengeStatus, WorkflowState
 from app.workflow.executable_preparation import V4ExecutablePreparationService
+from app.workflow.execution import ExecutionReservationService, ReservationOutcome
 from app.workflow.time import database_now
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
@@ -131,13 +135,28 @@ def _force_state(
     session_factory: sessionmaker[Session],
     action_id: UUID,
     state: WorkflowState,
+    *,
+    ttl_expired: bool = False,
 ) -> None:
     with session_factory() as session:
         session.execute(
             text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
             {"state": state.value, "action_id": action_id},
         )
-        if state is WorkflowState.CONFIRMED:
+        if ttl_expired:
+            session.execute(
+                text(
+                    """
+                    UPDATE action_revisions
+                    SET action_expires_at = clock_timestamp() - interval '1 hour',
+                        confirmed_at = clock_timestamp() - interval '2 hours',
+                        confirmed_expires_at = clock_timestamp() - interval '1 hour'
+                    WHERE action_id = :action_id
+                    """
+                ),
+                {"action_id": action_id},
+            )
+        elif state is WorkflowState.CONFIRMED:
             session.execute(
                 text(
                     """
@@ -449,3 +468,273 @@ def test_wrong_employee_cannot_reuse_another_action(
             text("SELECT business_request_key FROM action_revisions")
         ).scalars()
     assert expected_alex in set(keys)
+
+
+def test_occupancy_conflict_loser_uses_fresh_transaction_and_reuses(
+    service: ActionCreationService,
+    engine: Engine,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 6)))
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 6)))
+    assert again.disposition is ActionCreationDisposition.REUSED_EXISTING
+    assert again.action_id == first.action_id
+    assert _count(engine, "action_workflows") == 1
+    assert _count(engine, "action_revisions") == 1
+
+
+def test_loser_locks_authoritative_action_revision(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    created = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
+        ALEX, _draft(start=date(2026, 11, 9))
+    )
+    hold = threading.Event()
+    locked = threading.Event()
+    service = ActionCreationService(
+        session_factory,
+        isolated_settings,
+        failpoints=ActionCreationFailpoints(
+            hold_after_occupying_lock=hold,
+            signal_occupying_lock=locked,
+        ),
+    )
+    results: list = []
+
+    def loser() -> None:
+        results.append(service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 9))))
+
+    thread = threading.Thread(target=loser)
+    thread.start()
+    assert locked.wait(timeout=5)
+    blocked: list[str] = []
+
+    def blocker() -> None:
+        with session_factory() as session:
+            session.execute(
+                text("SELECT state FROM action_revisions WHERE action_id = :id FOR UPDATE"),
+                {"id": created.action_id},
+            )
+            blocked.append("acquired")
+            session.rollback()
+
+    waiter = threading.Thread(target=blocker)
+    waiter.start()
+    deadline = time.monotonic() + 5.0
+    waiting = 0
+    while time.monotonic() < deadline:
+        with engine.connect() as connection:
+            waiting = connection.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                      AND wait_event_type = 'Lock'
+                      AND pid <> pg_backend_pid()
+                    """
+                )
+            ).scalar_one()
+        if waiting:
+            break
+        time.sleep(0.01)
+    hold.set()
+    thread.join(timeout=10)
+    waiter.join(timeout=10)
+    assert waiting
+    assert results[0].disposition is ActionCreationDisposition.REUSED_EXISTING
+    assert blocked == ["acquired"]
+
+
+def test_owner_mismatch_after_conflict_fails_closed(
+    service: ActionCreationService,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 10)))
+    with session_factory() as session:
+        session.execute(
+            text(
+                """
+                UPDATE action_workflows
+                SET owner_employee_id = :employee_id, owner_subject_id = :subject_id
+                WHERE action_id = :action_id
+                """
+            ),
+            {
+                "employee_id": JORDAN.employee_id,
+                "subject_id": JORDAN.subject_id,
+                "action_id": first.action_id,
+            },
+        )
+        session.commit()
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 10)))
+    assert again.disposition is ActionCreationDisposition.NOT_CREATED
+    assert again.action_id is None
+    assert again.ineligibility_reason == "authority_inconsistent"
+    assert _count(engine, "action_workflows") == 1
+
+
+def test_draft_mismatch_after_conflict_fails_closed(
+    service: ActionCreationService,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 11)))
+    with session_factory() as session:
+        session.execute(
+            text(
+                """
+                UPDATE action_revisions
+                SET draft_hash = :draft_hash
+                WHERE action_id = :action_id
+                """
+            ),
+            {
+                "draft_hash": hashlib.sha256(b"tampered-draft").hexdigest(),
+                "action_id": first.action_id,
+            },
+        )
+        session.commit()
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 11)))
+    assert again.disposition is ActionCreationDisposition.NOT_CREATED
+    assert again.action_id is None
+    assert again.ineligibility_reason == "authority_inconsistent"
+    assert _count(engine, "action_workflows") == 1
+
+
+def test_expired_awaiting_is_normalized_and_retried(
+    service: ActionCreationService,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 12)))
+    _force_state(
+        session_factory, first.action_id, WorkflowState.AWAITING_CONFIRMATION, ttl_expired=True
+    )
+    with session_factory() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO confirmation_challenges (
+                    challenge_id, action_id, revision, owner_subject_id,
+                    confirmation_session_id, draft_hash, token_hash, status,
+                    issued_at, expires_at
+                )
+                SELECT :challenge_id, action_id, 1, :subject_id, :session_id,
+                       draft_hash, :token_hash, :status, clock_timestamp(),
+                       clock_timestamp() + interval '10 minutes'
+                FROM action_revisions WHERE action_id = :action_id
+                """
+            ),
+            {
+                "challenge_id": uuid.uuid4(),
+                "subject_id": ALEX.subject_id,
+                "session_id": ALEX.session_id,
+                "token_hash": hashlib.sha256(b"challenge-token").hexdigest(),
+                "status": ChallengeStatus.ACTIVE.value,
+                "action_id": first.action_id,
+            },
+        )
+        session.commit()
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 12)))
+    assert again.disposition is ActionCreationDisposition.CREATED
+    assert again.action_id != first.action_id
+    assert _count(engine, "action_workflows") == 2
+    with session_factory() as session:
+        old_state = session.execute(
+            text("SELECT state FROM action_revisions WHERE action_id = :id"),
+            {"id": first.action_id},
+        ).scalar_one()
+        challenge_status = session.execute(
+            text("SELECT status FROM confirmation_challenges WHERE action_id = :id"),
+            {"id": first.action_id},
+        ).scalar_one()
+    assert old_state == WorkflowState.EXPIRED.value
+    assert challenge_status == ChallengeStatus.SUPERSEDED.value
+
+
+def test_expired_confirmed_is_normalized_and_retried(
+    service: ActionCreationService,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 13)))
+    _force_state(session_factory, first.action_id, WorkflowState.CONFIRMED, ttl_expired=True)
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 13)))
+    assert again.disposition is ActionCreationDisposition.CREATED
+    assert again.action_id != first.action_id
+    with session_factory() as session:
+        old_state = session.execute(
+            text("SELECT state FROM action_revisions WHERE action_id = :id"),
+            {"id": first.action_id},
+        ).scalar_one()
+    assert old_state == WorkflowState.EXPIRED.value
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        WorkflowState.EXECUTING,
+        WorkflowState.UNKNOWN_OUTCOME,
+        WorkflowState.RECONCILING,
+    ],
+)
+def test_legacy_unresolved_expired_ttl_stays_occupying(
+    service: ActionCreationService,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+    state: WorkflowState,
+) -> None:
+    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 16)))
+    _force_state(session_factory, first.action_id, state, ttl_expired=True)
+    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 16)))
+    assert again.disposition is ActionCreationDisposition.RETURNED_IN_FLIGHT
+    assert again.action_id == first.action_id
+    assert again.state == state.value
+    assert _count(engine, "action_workflows") == 1
+    with session_factory() as session:
+        persisted = session.execute(
+            text("SELECT state FROM action_revisions WHERE action_id = :id"),
+            {"id": first.action_id},
+        ).scalar_one()
+    assert persisted == state.value
+
+
+def test_bounded_contention_returns_retryable_conflict(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    first = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
+        ALEX, _draft(start=date(2026, 11, 17))
+    )
+    service = ActionCreationService(
+        session_factory,
+        isolated_settings,
+        failpoints=ActionCreationFailpoints(force_empty_occupant=True),
+    )
+    result = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 17)))
+    assert result.disposition is ActionCreationDisposition.RETRYABLE_CONFLICT
+    assert result.action_id is None
+    assert result.ineligibility_reason == "retryable_conflict"
+    assert PREPARE_CONTENTION_ATTEMPTS >= 1
+    assert _count(engine, "action_workflows") == 1
+    assert first.action_id is not None
+
+
+def test_legacy_reservation_remains_compatible(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    service: ActionCreationService,
+) -> None:
+    created = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 18)))
+    _force_state(session_factory, created.action_id, WorkflowState.CONFIRMED)
+    reserved = ExecutionReservationService(session_factory, isolated_settings).reserve(
+        action_id=created.action_id,
+        revision=V4_REVISION,
+        worker_id="workflow-worker:phase1a",
+    )
+    assert reserved.outcome is ReservationOutcome.RESERVED
+    assert reserved.permit is not None

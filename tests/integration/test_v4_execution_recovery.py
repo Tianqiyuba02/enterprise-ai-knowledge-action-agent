@@ -9,6 +9,7 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
@@ -241,14 +242,20 @@ def test_second_identical_action_blocked_while_unknown(
     finalizer = ExecutionFinalizationService(session_factory, isolated_settings)
     with session_factory() as session:
         first_id = _persist_action(session, start=date(2026, 9, 17))
-        second_id = _persist_action(session, start=date(2026, 9, 17))
         session.commit()
     first = reservation.reserve(action_id=first_id, revision=1, worker_id=WORKER_A)
     assert first.permit is not None
     finalizer.finalize(first.permit, unknown_result(first.permit.execution_key))
-    second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
-    assert second.outcome is ReservationOutcome.BLOCKED_UNRESOLVED
-    assert second.retryable is True
+    with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            _persist_action(session, start=date(2026, 9, 17))
+            session.commit()
+        session.rollback()
+        state = session.execute(
+            text("SELECT state FROM action_revisions WHERE action_id = :action_id"),
+            {"action_id": first_id},
+        ).scalar_one()
+    assert state == WorkflowState.UNKNOWN_OUTCOME.value
 
 
 def test_competing_takeover_has_one_generation_winner(

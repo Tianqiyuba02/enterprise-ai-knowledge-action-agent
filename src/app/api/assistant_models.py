@@ -86,6 +86,7 @@ class AssistantActionNotCreatedReason(StrEnum):
     UNSUPPORTED_LEAVE_TYPE = "unsupported_leave_type"
     INVALID_PREPARATION = "invalid_preparation"
     AUTHORITY_INCONSISTENT = "authority_inconsistent"
+    RETRYABLE_CONFLICT = "retryable_conflict"
 
 
 class AssistantDurableAction(AssistantAPIModel):

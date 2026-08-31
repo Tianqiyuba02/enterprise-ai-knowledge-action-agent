@@ -11,6 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
@@ -378,19 +379,16 @@ def test_cross_action_adopted_existing_preserves_source_action_id(
             text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
             {"action_id": first_id, "state": WorkflowState.SUCCEEDED.value},
         )
-        second_id = _persist_action(session, start=date(2026, 10, 7))
         session.commit()
-    second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
-    assert second.permit is not None
-    adopted = executor.submit(second.permit)
-    assert adopted.outcome is BusinessOutcome.APPLIED
-    assert adopted.resolution == "ADOPTED_EXISTING"
-    assert adopted.leave_request_id == created.leave_request_id
+    with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            _persist_action(session, start=date(2026, 10, 7))
+            session.commit()
+        session.rollback()
     with session_factory() as session:
         row = LeaveQueryRepository().find_by_execution_key(session, first_permit.execution_key)
         assert row is not None
         assert row.source_action_id == first_id
-        assert row.source_action_id != second_id
     assert _count(engine, "leave_requests") == 1
 
 

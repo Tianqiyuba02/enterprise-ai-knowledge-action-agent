@@ -68,7 +68,11 @@ def session(additive_engine: Engine) -> Iterator[Session]:
         connection.close()
 
 
-def _create_action(session: Session) -> tuple[ActionWorkflow, ActionRevision]:
+def _create_action(
+    session: Session,
+    *,
+    start: date = date(2026, 9, 1),
+) -> tuple[ActionWorkflow, ActionRevision]:
     snapshot = AuthoritySnapshot(
         employee_id="EMP-1001",
         jurisdiction="AU-VIC",
@@ -84,8 +88,8 @@ def _create_action(session: Session) -> tuple[ActionWorkflow, ActionRevision]:
     draft = CanonicalDraft(
         action_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
         leave_type=LeaveType.ANNUAL.value,
-        start_date=date(2026, 9, 1),
-        end_date=date(2026, 9, 1),
+        start_date=start,
+        end_date=start,
         requested_hours=Decimal("7.60"),
         projected_balance_hours=Decimal("68.40"),
         readiness="ready",
@@ -108,8 +112,8 @@ def _create_action(session: Session) -> tuple[ActionWorkflow, ActionRevision]:
             business_request_key=business_request_key(
                 employee_id="EMP-1001",
                 leave_type="annual",
-                start_date=date(2026, 9, 1),
-                end_date=date(2026, 9, 1),
+                start_date=start,
+                end_date=start,
             ),
             ruleset_version="v4-annual-leave-1",
             calendar_version=V4_CALENDAR_VERSION,
@@ -204,8 +208,8 @@ def test_outbox_duplicate_identity_and_claim_lock(session: Session) -> None:
 
 
 def test_execution_ledger_duplicate_and_stale_generation(session: Session) -> None:
-    workflow, _revision = _create_action(session)
-    other_workflow, _other_revision = _create_action(session)
+    workflow, _revision = _create_action(session, start=date(2026, 9, 1))
+    other_workflow, _other_revision = _create_action(session, start=date(2026, 9, 2))
     repository = ExecutionLedgerRepository()
     first = repository.create_reservation(
         session,

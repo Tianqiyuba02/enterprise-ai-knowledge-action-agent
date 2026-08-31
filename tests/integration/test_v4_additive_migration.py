@@ -119,10 +119,7 @@ def _insert_action(connection: Connection) -> uuid.UUID:
 def test_alembic_head_includes_applied_v4_migrations(additive_engine: Engine) -> None:
     with additive_engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version in {
-        "0002_v4_action_workflows",
-        "0003_v4_langgraph_checkpoints",
-    }
+    assert version == "0004_v4_phase1a_occupancy"
 
 
 def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: Engine) -> None:
@@ -369,3 +366,178 @@ def test_audit_event_can_be_inserted_in_transaction(connection: Connection) -> N
         {"action_id": action_id},
     ).scalar_one()
     assert count == 1
+
+
+def test_source_action_id_is_unique(connection: Connection) -> None:
+    first = _insert_action(connection)
+    second = _insert_action(connection)
+    now = datetime.now(UTC)
+    payload = {
+        "leave_type": LeaveType.ANNUAL.value,
+        "start_date": date(2026, 9, 1),
+        "end_date": date(2026, 9, 1),
+        "hours": Decimal("7.60"),
+        "status": LeaveRequestStatus.SUBMITTED.value,
+        "submitted_at": now,
+        "calendar_version": V4_CALENDAR_VERSION,
+        "action_id": first,
+    }
+    connection.execute(
+        text(
+            """
+            INSERT INTO leave_requests (
+                leave_request_id, employee_id, leave_type, start_date, end_date,
+                requested_hours, status, submitted_at, execution_key, business_request_key,
+                source_action_id, source_action_revision, calendar_version, ruleset_version
+            ) VALUES (
+                :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
+                :hours, :status, :submitted_at, :execution_key, :business_key,
+                :action_id, 1, :calendar_version, 'v4-annual-leave-1'
+            )
+            """
+        ),
+        {
+            **payload,
+            "leave_request_id": uuid.uuid4(),
+            "execution_key": "leave-source-1",
+            "business_key": "leave-source-a",
+        },
+    )
+    with pytest.raises(IntegrityError):
+        connection.execute(
+            text(
+                """
+                INSERT INTO leave_requests (
+                    leave_request_id, employee_id, leave_type, start_date, end_date,
+                    requested_hours, status, submitted_at, execution_key, business_request_key,
+                    source_action_id, source_action_revision, calendar_version, ruleset_version
+                ) VALUES (
+                    :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
+                    :hours, :status, :submitted_at, :execution_key, :business_key,
+                    :action_id, 1, :calendar_version, 'v4-annual-leave-1'
+                )
+                """
+            ),
+            {
+                **payload,
+                "leave_request_id": uuid.uuid4(),
+                "execution_key": "leave-source-2",
+                "business_key": "leave-source-b",
+                "action_id": first,
+                "start_date": date(2026, 9, 2),
+                "end_date": date(2026, 9, 2),
+            },
+        )
+    assert second
+
+
+def test_transitional_occupancy_index_covers_six_states(
+    additive_engine: Engine, connection: Connection
+) -> None:
+    first = _insert_action(connection)
+    connection.execute(
+        text(
+            """
+            UPDATE action_revisions
+            SET business_request_key = 'shared-occupancy-key'
+            WHERE action_id = :action_id
+            """
+        ),
+        {"action_id": first},
+    )
+    with additive_engine.connect() as inspect_connection:
+        definition = inspect_connection.execute(
+            text(
+                """
+                SELECT pg_get_indexdef(indexrelid)
+                FROM pg_index
+                JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+                WHERE pg_class.relname = 'uq_action_revisions_occupying_business_request_key'
+                """
+            )
+        ).scalar_one()
+    for state in (
+        "AWAITING_CONFIRMATION",
+        "CONFIRMED",
+        "EXECUTING",
+        "UNKNOWN_OUTCOME",
+        "RECONCILING",
+        "SUCCEEDED",
+    ):
+        assert state in definition
+    assert "EXPIRED" not in definition
+    second = _insert_action(connection)
+    with pytest.raises(IntegrityError):
+        connection.execute(
+            text(
+                """
+                UPDATE action_revisions
+                SET business_request_key = 'shared-occupancy-key'
+                WHERE action_id = :action_id
+                """
+            ),
+            {"action_id": second},
+        )
+
+
+def test_final_three_state_occupancy_index_does_not_exist(additive_engine: Engine) -> None:
+    inspector = inspect(additive_engine)
+    index_names = {index["name"] for index in inspector.get_indexes("action_revisions")}
+    assert "uq_action_revisions_occupying_business_request_key" in index_names
+    assert "uq_action_revisions_final_occupying_business_request_key" not in index_names
+    with additive_engine.connect() as connection:
+        definition = connection.execute(
+            text(
+                """
+                SELECT pg_get_indexdef(indexrelid)
+                FROM pg_index
+                JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+                WHERE pg_class.relname = 'uq_action_revisions_occupying_business_request_key'
+                """
+            )
+        ).scalar_one()
+    assert "EXECUTING" in definition
+
+
+def test_phase1a_invariants_halt_nonterminal_with_leave(connection: Connection) -> None:
+    from app.workflow.occupancy import collect_phase1a_invariant_violations
+
+    action_id = _insert_action(connection)
+    now = datetime.now(UTC)
+    connection.execute(
+        text(
+            """
+            INSERT INTO leave_requests (
+                leave_request_id, employee_id, leave_type, start_date, end_date,
+                requested_hours, status, submitted_at, execution_key, business_request_key,
+                source_action_id, source_action_revision, calendar_version, ruleset_version
+            ) VALUES (
+                :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
+                :hours, :status, :submitted_at, :execution_key, :business_key,
+                :action_id, 1, :calendar_version, 'v4-annual-leave-1'
+            )
+            """
+        ),
+        {
+            "leave_request_id": uuid.uuid4(),
+            "leave_type": LeaveType.ANNUAL.value,
+            "start_date": date(2026, 9, 1),
+            "end_date": date(2026, 9, 1),
+            "hours": Decimal("7.60"),
+            "status": LeaveRequestStatus.SUBMITTED.value,
+            "submitted_at": now,
+            "execution_key": "leave-awaiting-contradiction",
+            "business_key": f"business-{action_id}",
+            "action_id": action_id,
+            "calendar_version": V4_CALENDAR_VERSION,
+        },
+    )
+    findings = collect_phase1a_invariant_violations(connection)
+    assert any("AWAITING_CONFIRMATION" in item and "source-linked" in item for item in findings)
+    assert any("same-business-key" in item for item in findings)
+
+
+def test_phase1a_invariants_pass_on_empty_action_tables(connection: Connection) -> None:
+    from app.workflow.occupancy import collect_phase1a_invariant_violations
+
+    assert collect_phase1a_invariant_violations(connection) == ()

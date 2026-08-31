@@ -11,6 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
@@ -315,14 +316,14 @@ def test_unresolved_business_key_blocks_second_reservation(
 ) -> None:
     with session_factory() as session:
         first_id = _persist_action(session, start=date(2026, 9, 1))
-        second_id = _persist_action(session, start=date(2026, 9, 1))
         session.commit()
     first = reservation.reserve(action_id=first_id, revision=1, worker_id=WORKER_A)
-    second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
     assert first.outcome is ReservationOutcome.RESERVED
-    assert second.outcome is ReservationOutcome.BLOCKED_UNRESOLVED
-    assert second.retryable is True
-    assert second.permit is None
+    with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            _persist_action(session, start=date(2026, 9, 1))
+            session.commit()
+        session.rollback()
 
 
 def test_concurrent_same_business_key_has_one_winner(
@@ -330,27 +331,26 @@ def test_concurrent_same_business_key_has_one_winner(
     session_factory: sessionmaker[Session],
 ) -> None:
     with session_factory() as session:
-        first_id = _persist_action(session, start=date(2026, 9, 8))
-        second_id = _persist_action(session, start=date(2026, 9, 8))
+        action_id = _persist_action(session, start=date(2026, 9, 8))
         session.commit()
     barrier = threading.Barrier(2)
     outcomes: list[ReservationOutcome] = []
 
-    def reserve(action_id: UUID, worker_id: str) -> None:
+    def reserve(worker_id: str) -> None:
         barrier.wait()
         result = reservation.reserve(action_id=action_id, revision=1, worker_id=worker_id)
         outcomes.append(result.outcome)
 
     workers = [
-        threading.Thread(target=reserve, args=(first_id, WORKER_A)),
-        threading.Thread(target=reserve, args=(second_id, WORKER_B)),
+        threading.Thread(target=reserve, args=(WORKER_A,)),
+        threading.Thread(target=reserve, args=(WORKER_B,)),
     ]
     for worker in workers:
         worker.start()
     for worker in workers:
         worker.join()
     assert outcomes.count(ReservationOutcome.RESERVED) == 1
-    assert outcomes.count(ReservationOutcome.BLOCKED_UNRESOLVED) == 1
+    assert outcomes.count(ReservationOutcome.ALREADY_RESERVED) == 1
 
 
 def test_stale_generation_performs_zero_mutation(
@@ -419,14 +419,12 @@ def test_execution_key_replay_and_cross_action_dedupe(
             ),
             {"action_id": first_id, "state": WorkflowState.SUCCEEDED.value},
         )
-        second_id = _persist_action(session, start=date(2026, 9, 4))
         session.commit()
-    second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
-    assert second.permit is not None
-    adopted = executor.submit(second.permit)
-    assert adopted.outcome is BusinessOutcome.APPLIED
-    assert adopted.leave_request_id == first_result.leave_request_id
-    assert adopted.resolution == ResolutionKind.ADOPTED_EXISTING.value
+    with session_factory() as session:
+        with pytest.raises(IntegrityError):
+            _persist_action(session, start=date(2026, 9, 4))
+            session.commit()
+        session.rollback()
     assert _count(engine, "leave_requests") == 1
     with session_factory() as session:
         row = LeaveQueryRepository().find_by_business_request_key(
@@ -586,33 +584,14 @@ def test_reconcile_discovers_applied_and_cross_action_satisfaction(
     assert found_state == WorkflowState.SUCCEEDED.value
     assert _count(engine, "leave_requests") == 1
     with session_factory() as session:
-        second_id = _persist_action(session, start=date(2026, 9, 9))
-        session.commit()
-    second = reservation.reserve(action_id=second_id, revision=1, worker_id=WORKER_B)
-    assert second.permit is not None
-    adopted_state = ExecutionFinalizationService(
-        session_factory, isolated_settings
-    ).classify_and_finalize(second.permit, WORKER_B)
-    assert adopted_state == WorkflowState.SUCCEEDED.value
-    assert _count(engine, "leave_requests") == 1
+        with pytest.raises(IntegrityError):
+            _persist_action(session, start=date(2026, 9, 9))
+            session.commit()
+        session.rollback()
     with session_factory() as session:
         row = LeaveQueryRepository().find_by_execution_key(session, reserved.permit.execution_key)
         assert row is not None
         assert row.source_action_id == first_id
-        audits = session.execute(
-            text(
-                """
-                SELECT event_type, safe_metadata
-                FROM action_audit_events
-                WHERE action_id = :action_id AND event_type = 'EXECUTION_SUCCEEDED'
-                """
-            ),
-            {"action_id": second_id},
-        ).all()
-    assert any(
-        audit.safe_metadata.get("resolution") == ResolutionKind.ADOPTED_EXISTING.value
-        for audit in audits
-    )
 
 
 def test_ambiguous_outcome_is_not_labeled_failure(

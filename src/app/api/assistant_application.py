@@ -109,7 +109,10 @@ def _status_for(disposition: ActionCreationDisposition) -> AssistantActionStatus
         return AssistantActionStatus.CREATED
     if disposition in REUSED_DISPOSITIONS:
         return AssistantActionStatus.REUSED
-    if disposition is ActionCreationDisposition.NOT_CREATED:
+    if disposition in {
+        ActionCreationDisposition.NOT_CREATED,
+        ActionCreationDisposition.RETRYABLE_CONFLICT,
+    }:
         return AssistantActionStatus.NOT_CREATED
     return None
 

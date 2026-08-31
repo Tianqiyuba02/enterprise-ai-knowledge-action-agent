@@ -174,7 +174,7 @@ def isolated_evaluation_database(
         previous_app_url = os.environ.get("APP_DATABASE_URL")
         os.environ["APP_DATABASE_URL"] = isolated_url
         try:
-            command.upgrade(AlembicConfig("alembic.ini"), "0003_v4_langgraph_checkpoints")
+            command.upgrade(AlembicConfig("alembic.ini"), "head")
             isolated_settings = load_knowledge_settings()
         finally:
             if previous_app_url is None:
