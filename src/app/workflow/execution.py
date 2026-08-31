@@ -260,6 +260,7 @@ class ExecutionReservationService:
         revision: int,
         worker_id: str,
     ) -> ExecutionPermit:
+        refuse_legacy_execution_scheduling()
         if not worker_id or not worker_id.strip():
             raise WorkflowIntegrityError("worker_id is required for lease takeover")
         with self._session_factory() as session:

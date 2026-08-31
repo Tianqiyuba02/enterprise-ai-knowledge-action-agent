@@ -153,7 +153,6 @@ class ConfirmationService:
                 expires_at=challenge.expires_at,
                 action=_action_view(workflow, revision),
             )
-        self._ensure_initial_checkpoint(action_id, subject_id)
         return issued
 
     def confirm(
@@ -402,18 +401,6 @@ class ConfirmationService:
             ),
         )
         session.flush()
-
-    def _ensure_initial_checkpoint(self, action_id: UUID, owner_subject_id: str) -> None:
-        from app.workflow.orchestration import WorkflowOrchestrationService
-
-        try:
-            WorkflowOrchestrationService(self._session_factory).ensure_started(
-                action_id=action_id,
-                owner_subject_id=owner_subject_id,
-                settings=self._settings,
-            )
-        except Exception:
-            return
 
     def _failed(
         self,

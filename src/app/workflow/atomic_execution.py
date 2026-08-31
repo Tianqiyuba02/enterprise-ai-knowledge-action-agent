@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -24,14 +24,16 @@ from app.workflow.calendar import V4_CALENDAR_VERSION, V4_RULESET_VERSION
 from app.workflow.calendar_service import CalendarCoverage
 from app.workflow.canonical import quantize_hours
 from app.workflow.confirmation import AUDIT_ACTION_EXPIRED
-from app.workflow.domain import ActorType, LeaveType, WorkflowState
-from app.workflow.errors import WorkflowIntegrityError
+from app.workflow.domain import V4_REVISION, ActorType, LeaveType, WorkflowState
+from app.workflow.errors import WorkflowIntegrityError, WorkflowRowNotFoundError
 from app.workflow.executable_preparation import (
     ExecutablePreparation,
     V4ExecutablePreparationService,
+    load_confirmed_stable_authority,
     verify_persisted_draft_integrity,
 )
 from app.workflow.leave_command_repository import LeaveCommandRepository, NewLeaveRequest
+from app.workflow.leave_equivalence import leaves_trusted_equivalent
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.locks import acquire_employee_lock
 from app.workflow.occupancy import is_leave_unique_violation
@@ -89,9 +91,12 @@ class AtomicExecutionFailpoints:
     raise_after_succeeded_update: BaseException | None = None
     raise_on_audit: BaseException | None = None
     raise_transient_before_commit: BaseException | None = None
+    raise_after_claim: Callable[[UUID], BaseException | None] | None = None
     discard_after_commit: bool = False
     hold_after_action_lock: Callable[[], None] | None = None
     hold_before_employee_lock: Callable[[], None] | None = None
+    hold_before_leave_insert: Callable[[], None] | None = None
+    hold_after_lost_ack_lock: Callable[[], None] | None = None
 
 
 @dataclass
@@ -130,11 +135,17 @@ class AtomicConfirmedExecutor:
     def execute_action(self, action_id: UUID) -> AtomicExecutionResult:
         return self._execute(action_id=action_id)
 
+    def note_loop_failure(self) -> None:
+        """Process-level outage backoff after an unexpected poller-loop leak."""
+
+        self._note_outage()
+
     def _execute(self, action_id: UUID | None) -> AtomicExecutionResult:
         now_mono = time.monotonic()
         if now_mono < self._outage_until:
             return AtomicExecutionResult(None, None, AtomicOutcome.TRANSIENT)
         lost_ack_id: UUID | None = None
+        claimed_id: UUID | None = None
         try:
             with self._session_factory() as session:
                 _apply_transaction_timeouts(session)
@@ -143,20 +154,21 @@ class AtomicConfirmedExecutor:
                     session.rollback()
                     self._clear_outage()
                     return AtomicExecutionResult(action_id, None, AtomicOutcome.IDLE)
-                if self._is_cooling(revision.action_id):
+                claimed_id = revision.action_id
+                if self._is_cooling(claimed_id):
                     session.rollback()
                     return AtomicExecutionResult(
-                        revision.action_id, WorkflowState.CONFIRMED.value, AtomicOutcome.SKIPPED
+                        claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.SKIPPED
                     )
                 self._hold("hold_after_action_lock")
+                self._raise_claim_failpoint(claimed_id)
                 result = self._finish_claimed(session, revision)
-                self._raise_failpoint("raise_transient_before_commit")
+                self._raise_failpoint("raise_transient_before_commit", action_id=claimed_id)
                 try:
                     session.commit()
                 except SQLAlchemyError:
                     self._invalidate(session)
-                    return self._observe_after_lost_ack(revision.action_id)
-                claimed_id = revision.action_id
+                    return self._observe_after_lost_ack(claimed_id)
                 self._clear_cooldown(claimed_id)
                 self._clear_outage()
                 if self._failpoints.discard_after_commit:
@@ -165,12 +177,36 @@ class AtomicConfirmedExecutor:
                     return result
         except _IntegrityConflict as exc:
             return self._recover_after_conflict(exc.action_id)
+        except IntegrityError as exc:
+            if claimed_id is not None and is_leave_unique_violation(exc):
+                return self._recover_after_conflict(claimed_id)
+            if claimed_id is not None:
+                self._note_action_cooldown(claimed_id)
+                return AtomicExecutionResult(
+                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
+                )
+            self._note_outage()
+            return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
         except _TransientExecution as exc:
-            self._note_action_cooldown(exc.action_id)
+            cooled = exc.action_id or claimed_id
+            self._note_action_cooldown(cooled)
             return AtomicExecutionResult(
-                exc.action_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
+                cooled, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
             )
         except (OperationalError, SQLAlchemyError):
+            if claimed_id is not None:
+                self._note_action_cooldown(claimed_id)
+                return AtomicExecutionResult(
+                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
+                )
+            self._note_outage()
+            return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
+        except Exception:
+            if claimed_id is not None:
+                self._note_action_cooldown(claimed_id)
+                return AtomicExecutionResult(
+                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
+                )
             self._note_outage()
             return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
         if lost_ack_id is not None:
@@ -213,7 +249,8 @@ class AtomicConfirmedExecutor:
             return self._expire(session, workflow, revision, now)
         if existing is not None:
             return self._succeed(session, workflow, revision, existing, adopted=True)
-        self._raise_failpoint("raise_before_leave_insert")
+        self._hold("hold_before_leave_insert")
+        self._raise_failpoint("raise_before_leave_insert", action_id=workflow.action_id)
         try:
             created = self._leave_commands.persist(
                 session,
@@ -234,6 +271,7 @@ class AtomicConfirmedExecutor:
                 ),
             )
         except IntegrityError as exc:
+            session.rollback()
             if not is_leave_unique_violation(exc):
                 raise
             raise _IntegrityConflict(workflow.action_id) from exc
@@ -280,29 +318,38 @@ class AtomicConfirmedExecutor:
             return result
 
     def _claim_confirmed(self, session: Session, action_id: UUID | None) -> ActionRevision | None:
-        cooling = tuple(
+        cooling = [
             item for item, cooldown in self._cooldowns.items() if time.monotonic() < cooldown.until
-        )
-        stmt = (
-            select(ActionRevision)
-            .where(ActionRevision.state == WorkflowState.CONFIRMED.value)
-            .order_by(ActionRevision.confirmed_at, ActionRevision.action_id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
+        ]
+        params: dict[str, object] = {"confirmed": WorkflowState.CONFIRMED.value}
+        filters = ["state = :confirmed"]
         if action_id is not None:
-            stmt = (
-                select(ActionRevision)
-                .where(
-                    ActionRevision.state == WorkflowState.CONFIRMED.value,
-                    ActionRevision.action_id == action_id,
-                )
-                .with_for_update(skip_locked=True)
-                .limit(1)
-            )
+            filters.append("action_id = :action_id")
+            params["action_id"] = action_id
         elif cooling:
-            stmt = stmt.where(ActionRevision.action_id.notin_(cooling))
-        return session.execute(stmt).scalar_one_or_none()
+            filters.append("action_id NOT IN :cooling")
+            params["cooling"] = cooling
+        statement = text(
+            f"""
+            SELECT action_id
+            FROM action_revisions
+            WHERE {" AND ".join(filters)}
+            ORDER BY confirmed_at, action_id
+            FOR NO KEY UPDATE SKIP LOCKED
+            LIMIT 1
+            """
+        )
+        if cooling and action_id is None:
+            statement = statement.bindparams(bindparam("cooling", expanding=True))
+        locked_id = session.execute(statement, params).scalar_one_or_none()
+        if locked_id is None:
+            return None
+        return session.execute(
+            select(ActionRevision).where(
+                ActionRevision.action_id == locked_id,
+                ActionRevision.revision == V4_REVISION,
+            )
+        ).scalar_one()
 
     def _classify(
         self,
@@ -374,7 +421,7 @@ class AtomicConfirmedExecutor:
         existing = by_source or by_key
         if existing is None:
             return None
-        if not leaves_trusted_equivalent(workflow, revision, persisted, existing):
+        if not action_leave_trusted_equivalent(workflow, revision, persisted, existing):
             raise _AdoptionRejected("ADOPTION_MISMATCH")
         return existing
 
@@ -490,24 +537,39 @@ class AtomicConfirmedExecutor:
 
     def _observe_after_lost_ack(self, action_id: UUID) -> AtomicExecutionResult:
         with self._session_factory() as session:
-            revision = self._workflows.get_revision(session, action_id)
+            try:
+                revision = self._workflows.lock_revision(session, action_id=action_id)
+            except WorkflowRowNotFoundError:
+                session.rollback()
+                return AtomicExecutionResult(action_id, None, AtomicOutcome.LOST_ACK)
+            self._hold("hold_after_lost_ack_lock")
             leave = self._leave_queries.find_by_source_action_id(session, action_id)
-        if revision is None:
-            return AtomicExecutionResult(action_id, None, AtomicOutcome.LOST_ACK)
-        return AtomicExecutionResult(
-            action_id,
-            revision.state,
-            AtomicOutcome.LOST_ACK,
-            leave_request_id=None if leave is None else leave.leave_request_id,
-            adopted=False,
-        )
+            session.commit()
+            return AtomicExecutionResult(
+                action_id,
+                revision.state,
+                AtomicOutcome.LOST_ACK,
+                leave_request_id=None if leave is None else leave.leave_request_id,
+                adopted=False,
+            )
 
-    def _raise_failpoint(self, name: str) -> None:
+    def _raise_failpoint(self, name: str, *, action_id: UUID | None = None) -> None:
         error = getattr(self._failpoints, name)
         if error is None:
             return
         if isinstance(error, OperationalError):
-            raise _TransientExecution(None) from error
+            raise _TransientExecution(action_id) from error
+        raise error
+
+    def _raise_claim_failpoint(self, action_id: UUID) -> None:
+        factory = self._failpoints.raise_after_claim
+        if factory is None:
+            return
+        error = factory(action_id)
+        if error is None:
+            return
+        if isinstance(error, OperationalError):
+            raise _TransientExecution(action_id) from error
         raise error
 
     def _hold(self, name: str) -> None:
@@ -550,20 +612,25 @@ class AtomicConfirmedExecutor:
         self._outage_delay = OUTAGE_BACKOFF_INITIAL_SECONDS
 
 
-def leaves_trusted_equivalent(
+def action_leave_trusted_equivalent(
     workflow: ActionWorkflow,
     revision: ActionRevision,
     persisted: CanonicalDraft,
     leave: LeaveRequest,
 ) -> bool:
-    return (
-        leave.employee_id == workflow.owner_employee_id
-        and leave.source_action_id == workflow.action_id
-        and leave.leave_type == persisted.leave_type
-        and leave.start_date == persisted.start_date
-        and leave.end_date == persisted.end_date
-        and quantize_hours(leave.requested_hours) == persisted.requested_hours
-        and leave.business_request_key == revision.business_request_key
+    return leaves_trusted_equivalent(
+        employee_id=workflow.owner_employee_id,
+        action_id=workflow.action_id,
+        revision=revision.revision,
+        leave_type=persisted.leave_type,
+        start_date=persisted.start_date,
+        end_date=persisted.end_date,
+        requested_hours=persisted.requested_hours,
+        business_request_key=revision.business_request_key,
+        reason=persisted.reason,
+        calendar_version=revision.calendar_version,
+        ruleset_version=revision.ruleset_version,
+        leave=leave,
     )
 
 
@@ -573,9 +640,22 @@ def _stable_authority_changed(
     persisted: CanonicalDraft,
     live: ExecutablePreparation,
 ) -> bool:
+    if not isinstance(revision.draft_payload, dict):
+        return True
+    confirmed = load_confirmed_stable_authority(revision.draft_payload)
+    if confirmed is None:
+        return True
+    snapshot = live.snapshot
     return (
-        live.snapshot.employee_id != workflow.owner_employee_id
-        or live.snapshot.jurisdiction != workflow.jurisdiction
+        snapshot.employee_id != confirmed["employee_id"]
+        or snapshot.jurisdiction != confirmed["jurisdiction"]
+        or snapshot.work_days != confirmed["work_days"]
+        or snapshot.hours_per_day != confirmed["hours_per_day"]
+        or snapshot.timezone != confirmed["timezone"]
+        or snapshot.calendar_version != confirmed["calendar_version"]
+        or snapshot.ruleset_version != confirmed["ruleset_version"]
+        or snapshot.employee_id != workflow.owner_employee_id
+        or snapshot.jurisdiction != workflow.jurisdiction
         or live.draft.leave_type != persisted.leave_type
         or live.draft.start_date != persisted.start_date
         or live.draft.end_date != persisted.end_date

@@ -29,7 +29,6 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 from app.workflow.action_creation import ActionCreationService
 from app.workflow.confirmation import ConfirmationService
-from app.workflow.orchestration import WorkflowOrchestrationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
 DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
@@ -187,14 +186,9 @@ def get_assistant_application_service(request: Request) -> AssistantApplicationS
     existing = getattr(request.app.state, "assistant_application_service", None)
     if existing is not None:
         return cast(AssistantApplicationService, existing)
-    settings = getattr(request.app.state, "workflow_settings", None)
-    factory = getattr(request.app.state, "workflow_session_factory", None)
     service = AssistantApplicationService(
         get_agent_service(request),
         get_action_creation_service(request),
-        session_factory=factory,
-        settings=settings or load_knowledge_settings(),
-        orchestration=WorkflowOrchestrationService(factory) if factory is not None else None,
     )
     request.app.state.assistant_application_service = service
     return service

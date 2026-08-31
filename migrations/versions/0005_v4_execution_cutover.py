@@ -4,6 +4,13 @@ Revision ID: 0005_v4_execution_cutover
 Revises: 0004_v4_phase1a_occupancy
 Create Date: 2026-08-31
 
+Maintenance-mode only. Do not attempt an online old-binary/new-binary hot
+cutover. The supported procedure is: stop every old application/worker
+process, prevent automatic restart, confirm no old execution transaction
+remains, enter a no-write window, run this preflight + migration, then start
+ONLY the new binary. Process quiescence is a deployment precondition; this
+revision does not treat pg_stat_activity SQL-text matching as proof.
+
 Does not drop LangGraph, checkpoint, outbox, ledger, lease, or fencing tables.
 Does not drop execution_key or langgraph_thread_id columns.
 """

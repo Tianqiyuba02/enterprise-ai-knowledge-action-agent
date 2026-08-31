@@ -67,6 +67,7 @@ _SUBJECT_PATHS: Final = (
     Path("src/app/workflow/finalization.py"),
     Path("src/app/workflow/graph.py"),
     Path("src/app/workflow/holiday_repository.py"),
+    Path("src/app/workflow/leave_equivalence.py"),
     Path("src/app/workflow/occupancy.py"),
     Path("src/app/workflow/orchestration.py"),
     Path("src/app/workflow/worker.py"),

@@ -61,7 +61,11 @@ class ExecutablePreparation:
         )
 
     def payload(self) -> dict[str, Any]:
-        return serialize_canonical_draft(self.draft, scheduled_work_days=self.scheduled_work_days)
+        return serialize_canonical_draft(
+            self.draft,
+            scheduled_work_days=self.scheduled_work_days,
+            snapshot=self.snapshot,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,10 +76,58 @@ class RevalidationResult:
     integrity_ok: bool
 
 
+STABLE_AUTHORITY_PAYLOAD_KEY = "stable_authority"
+STABLE_AUTHORITY_FIELDS = frozenset(
+    {
+        "employee_id",
+        "jurisdiction",
+        "work_days",
+        "hours_per_day",
+        "timezone",
+        "calendar_version",
+        "ruleset_version",
+    }
+)
+
+
+def serialize_stable_authority(snapshot: AuthoritySnapshot) -> dict[str, Any]:
+    return {
+        "employee_id": snapshot.employee_id,
+        "jurisdiction": snapshot.jurisdiction,
+        "work_days": list(snapshot.work_days),
+        "hours_per_day": format(snapshot.hours_per_day, "f"),
+        "timezone": snapshot.timezone,
+        "calendar_version": snapshot.calendar_version,
+        "ruleset_version": snapshot.ruleset_version,
+    }
+
+
+def load_confirmed_stable_authority(payload: dict[str, Any]) -> dict[str, Any] | None:
+    raw = payload.get(STABLE_AUTHORITY_PAYLOAD_KEY)
+    if not isinstance(raw, dict) or STABLE_AUTHORITY_FIELDS - set(raw):
+        return None
+    try:
+        work_days = raw["work_days"]
+        if not isinstance(work_days, (list, tuple)):
+            return None
+        return {
+            "employee_id": str(raw["employee_id"]),
+            "jurisdiction": str(raw["jurisdiction"]),
+            "work_days": tuple(str(day).lower() for day in work_days),
+            "hours_per_day": quantize_hours(_as_decimal(raw["hours_per_day"])),
+            "timezone": str(raw["timezone"]),
+            "calendar_version": str(raw["calendar_version"]),
+            "ruleset_version": str(raw["ruleset_version"]),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
 def serialize_canonical_draft(
     draft: CanonicalDraft,
     *,
     scheduled_work_days: int | None = None,
+    snapshot: AuthoritySnapshot | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "action_type": draft.action_type,
@@ -92,6 +144,8 @@ def serialize_canonical_draft(
     }
     if scheduled_work_days is not None:
         payload["scheduled_work_days"] = scheduled_work_days
+    if snapshot is not None:
+        payload[STABLE_AUTHORITY_PAYLOAD_KEY] = serialize_stable_authority(snapshot)
     return payload
 
 

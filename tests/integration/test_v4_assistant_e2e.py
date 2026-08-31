@@ -687,22 +687,13 @@ def test_action_id_in_chat_is_not_workflow_authority(
     assert _count(engine, "action_workflows") == 1
 
 
-def test_ensure_started_failure_returns_persisted_action_not_creation_failed(
+def test_action_creation_does_not_initialize_langgraph_checkpoint(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,
 ) -> None:
-    class FailingOrchestration:
-        def ensure_started(self, **kwargs):
-            raise RuntimeError("checkpoint store unavailable")
-
     agent = ScriptedAgent(_completed(draft=_draft(start=date(2026, 11, 16))))
-    client = _client(
-        isolated_settings,
-        session_factory,
-        agent,
-        orchestration=FailingOrchestration(),  # type: ignore[arg-type]
-    )
+    client = _client(isolated_settings, session_factory, agent)
     first = client.post(
         "/api/v1/assistant/query",
         headers=ALEX_HEADERS,

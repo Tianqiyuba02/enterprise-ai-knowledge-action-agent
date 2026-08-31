@@ -1,14 +1,34 @@
-"""Freeze 2.2 legacy execution quiescence and one-time state normalization."""
+"""Freeze 2.2 maintenance-mode execution cutover.
+
+Supported 0005 procedure:
+
+1. stop ALL old application / worker processes
+2. prevent automatic restart
+3. confirm no old application execution transaction remains
+4. enter maintenance/no-write cutover window
+5. run authoritative invariant scan + normalization + 0005 migration
+6. start ONLY the new binary
+
+Operational process quiescence is a deployment precondition. This module does
+not inspect pg_stat_activity or treat SQL-text markers as proof that old
+binaries have stopped. An old binary is controlled by that procedure, not by
+new fencing machinery.
+
+The migration fails closed on contradictory persisted evidence. The new binary
+hard-refuses leftover legacy execution mutation entrypoints.
+"""
 
 from __future__ import annotations
+
+from typing import Final
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from app.workflow.canonical import quantize_hours
-from app.workflow.domain import WorkflowState
+from app.workflow.domain import V4_REVISION, ChallengeStatus, WorkflowState
 from app.workflow.errors import WorkflowIntegrityError
 from app.workflow.executable_preparation import reconstruct_canonical_draft
+from app.workflow.leave_equivalence import leaves_trusted_equivalent
 from app.workflow.occupancy import (
     CONTRADICTORY_TERMINAL_WITH_LEAVE,
     LEGACY_UNRESOLVED_STATES,
@@ -18,12 +38,15 @@ from app.workflow.occupancy import (
 )
 
 AUDIT_CUTOVER_NORMALIZED = "CUTOVER_NORMALIZED"
+AUDIT_CHALLENGE_SUPERSEDED = "CHALLENGE_SUPERSEDED"
 
-_LEGACY_ACTIVITY_MARKERS = (
-    "%action_execution_ledger%",
-    "%reserve_execution%",
-    "%execute_business_action%",
-    "%finalize_execution%",
+MAINTENANCE_CUTOVER_PROCEDURE: Final[tuple[str, ...]] = (
+    "stop ALL old application / worker processes",
+    "prevent automatic restart",
+    "confirm no old application execution transaction remains",
+    "enter maintenance/no-write cutover window",
+    "run authoritative invariant scan + normalization + 0005 migration",
+    "start ONLY the new binary",
 )
 
 
@@ -48,37 +71,6 @@ def refuse_legacy_execution_scheduling() -> None:
     raise LegacyExecutionQuiescedError()
 
 
-def assert_legacy_execution_quiesced(connection: Connection) -> None:
-    """Fail closed if a live session still appears to be running legacy execution."""
-
-    clauses = " OR ".join(
-        f"query ILIKE :marker_{index}" for index in range(len(_LEGACY_ACTIVITY_MARKERS))
-    )
-    params = {f"marker_{index}": marker for index, marker in enumerate(_LEGACY_ACTIVITY_MARKERS)}
-    rows = list(
-        connection.execute(
-            text(
-                f"""
-                SELECT pid, state, left(query, 180) AS query
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND pid <> pg_backend_pid()
-                  AND state IN ('active', 'idle in transaction')
-                  AND ({clauses})
-                """
-            ),
-            params,
-        ).mappings()
-    )
-    if rows:
-        raise CutoverHaltError(
-            tuple(
-                f"legacy execution session still active pid={row['pid']} state={row['state']}"
-                for row in rows
-            )
-        )
-
-
 def normalize_legacy_execution_states(connection: Connection) -> int:
     """Normalize leftover Phase 1A states using authoritative DB evidence only."""
 
@@ -89,6 +81,7 @@ def normalize_legacy_execution_states(connection: Connection) -> int:
                 """
                 SELECT ar.action_id, ar.state, ar.confirmed_at, ar.confirmed_expires_at,
                        ar.action_expires_at, ar.draft_payload, ar.business_request_key,
+                       ar.calendar_version, ar.ruleset_version, ar.revision,
                        aw.owner_employee_id
                 FROM action_revisions ar
                 JOIN action_workflows aw ON aw.action_id = ar.action_id
@@ -112,6 +105,11 @@ def normalize_legacy_execution_states(connection: Connection) -> int:
             ),
             {"state": target, "action_id": row["action_id"]},
         )
+        if (
+            row["state"] == WorkflowState.AWAITING_CONFIRMATION.value
+            and target == WorkflowState.EXPIRED.value
+        ):
+            _supersede_active_challenges(connection, row["action_id"], now)
         connection.execute(
             text(
                 """
@@ -137,9 +135,12 @@ def normalize_legacy_execution_states(connection: Connection) -> int:
 
 
 def run_execution_cutover_preflight(connection: Connection) -> int:
-    """Quiesce-check, invariant-check, normalize, then re-check final invariants."""
+    """Invariant-check, normalize, then re-check final invariants.
 
-    assert_legacy_execution_quiesced(connection)
+    Does not attempt to prove that old application processes have stopped.
+    That is a maintenance-window deployment precondition.
+    """
+
     assert_phase1a_invariants(connection)
     changed = normalize_legacy_execution_states(connection)
     assert_cutover_invariants(connection)
@@ -188,10 +189,12 @@ def _normalized_state(connection: Connection, row, now) -> str | None:
                 "and must not be auto-repaired",
             ),
         )
-    if state == WorkflowState.SUCCEEDED.value and not leaves:
-        raise CutoverHaltError(
-            (f"SUCCEEDED action {row['action_id']} has no valid corresponding leave result",)
-        )
+    if state == WorkflowState.SUCCEEDED.value:
+        if len(leaves) != 1 or not _trusted_equivalent_leave(row, leaves[0]):
+            raise CutoverHaltError(
+                (f"SUCCEEDED action {row['action_id']} has no valid corresponding leave result",)
+            )
+        return None
     if state == WorkflowState.AWAITING_CONFIRMATION.value:
         return (
             WorkflowState.EXPIRED.value
@@ -248,7 +251,9 @@ def _matching_leaves(connection: Connection, action_id, business_request_key: st
             text(
                 """
                 SELECT leave_request_id, employee_id, leave_type, start_date, end_date,
-                       requested_hours, business_request_key, source_action_id
+                       requested_hours, reason, status, business_request_key,
+                       source_action_id, source_action_revision, calendar_version,
+                       ruleset_version
                 FROM leave_requests
                 WHERE source_action_id = :action_id
                    OR business_request_key = :business_request_key
@@ -268,12 +273,59 @@ def _trusted_equivalent_leave(row, leave) -> bool:
         draft = reconstruct_canonical_draft(payload)
     except (WorkflowIntegrityError, TypeError, ValueError):
         return False
-    return (
-        leave["employee_id"] == row["owner_employee_id"]
-        and leave["source_action_id"] == row["action_id"]
-        and leave["leave_type"] == draft.leave_type
-        and leave["start_date"] == draft.start_date
-        and leave["end_date"] == draft.end_date
-        and quantize_hours(leave["requested_hours"]) == draft.requested_hours
-        and leave["business_request_key"] == row["business_request_key"]
+    return leaves_trusted_equivalent(
+        employee_id=row["owner_employee_id"],
+        action_id=row["action_id"],
+        revision=int(row["revision"] or V4_REVISION),
+        leave_type=draft.leave_type,
+        start_date=draft.start_date,
+        end_date=draft.end_date,
+        requested_hours=draft.requested_hours,
+        business_request_key=row["business_request_key"],
+        reason=draft.reason,
+        calendar_version=row["calendar_version"],
+        ruleset_version=row["ruleset_version"],
+        leave=leave,
     )
+
+
+def _supersede_active_challenges(connection: Connection, action_id, now) -> None:
+    challenges = list(
+        connection.execute(
+            text(
+                """
+                UPDATE confirmation_challenges
+                SET status = :superseded, superseded_at = :now
+                WHERE action_id = :action_id AND status = :active
+                RETURNING challenge_id
+                """
+            ),
+            {
+                "action_id": action_id,
+                "now": now,
+                "superseded": ChallengeStatus.SUPERSEDED.value,
+                "active": ChallengeStatus.ACTIVE.value,
+            },
+        ).mappings()
+    )
+    for challenge in challenges:
+        connection.execute(
+            text(
+                """
+                INSERT INTO action_audit_events (
+                    event_id, action_id, revision, event_type, actor_type,
+                    from_state, to_state, safe_metadata
+                ) VALUES (
+                    gen_random_uuid(), :action_id, 1, :event_type, 'system',
+                    :from_state, :to_state, CAST(:metadata AS jsonb)
+                )
+                """
+            ),
+            {
+                "action_id": action_id,
+                "event_type": AUDIT_CHALLENGE_SUPERSEDED,
+                "from_state": WorkflowState.AWAITING_CONFIRMATION.value,
+                "to_state": WorkflowState.EXPIRED.value,
+                "metadata": f'{{"challenge_id":"{challenge["challenge_id"]}"}}',
+            },
+        )

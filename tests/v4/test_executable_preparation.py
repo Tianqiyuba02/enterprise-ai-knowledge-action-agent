@@ -64,10 +64,30 @@ def test_melbourne_cup_is_removed_from_scheduled_workdays() -> None:
 
 def test_canonical_payload_round_trip_preserves_draft_hash() -> None:
     draft = _draft()
-    payload = serialize_canonical_draft(draft, scheduled_work_days=1)
+    snapshot = AuthoritySnapshot(
+        employee_id="EMP-1001",
+        jurisdiction="AU-VIC",
+        work_days=("monday", "tuesday", "wednesday", "thursday", "friday"),
+        hours_per_day=Decimal("7.60"),
+        timezone="Australia/Melbourne",
+        trusted_base_balance_hours=Decimal("76.00"),
+        committed_submitted_hours=Decimal("0.00"),
+        effective_available_hours=Decimal("76.00"),
+        calendar_version=V4_CALENDAR_VERSION,
+        ruleset_version="v4-annual-leave-1",
+    )
+    payload = serialize_canonical_draft(draft, scheduled_work_days=1, snapshot=snapshot)
     reconstructed = reconstruct_canonical_draft(payload)
     assert reconstructed.fingerprint() == draft.fingerprint()
     assert payload["scheduled_work_days"] == 1
+    assert payload["stable_authority"]["timezone"] == "Australia/Melbourne"
+    assert payload["stable_authority"]["work_days"] == [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+    ]
 
 
 def test_partial_stored_payload_is_integrity_error_not_stale() -> None:

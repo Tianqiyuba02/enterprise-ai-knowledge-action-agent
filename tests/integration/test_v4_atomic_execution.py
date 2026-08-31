@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from collections.abc import Iterator
@@ -28,6 +29,7 @@ from app.workflow.atomic_execution import (
     AtomicOutcome,
 )
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.confirmed_poller import ConfirmedActionPoller
 from app.workflow.domain import LeaveType, WorkflowState
 from app.workflow.leave_command_repository import LeaveCommandRepository, NewLeaveRequest
 from app.workflow.locks import acquire_employee_lock
@@ -145,6 +147,51 @@ def _executor(
     return AtomicConfirmedExecutor(session_factory, settings, failpoints=failpoints)
 
 
+def _revision_payload(session_factory: sessionmaker[Session], action_id: UUID) -> dict:
+    with session_factory() as session:
+        return dict(
+            session.execute(
+                text(
+                    """
+                    SELECT business_request_key, calendar_version, ruleset_version, draft_payload
+                    FROM action_revisions WHERE action_id = :action_id
+                    """
+                ),
+                {"action_id": action_id},
+            )
+            .mappings()
+            .one()
+        )
+
+
+def _mutate_stable_authority(
+    session_factory: sessionmaker[Session],
+    action_id: UUID,
+    **fields: object,
+) -> None:
+    with session_factory() as session:
+        payload = dict(
+            session.execute(
+                text("SELECT draft_payload FROM action_revisions WHERE action_id = :action_id"),
+                {"action_id": action_id},
+            ).scalar_one()
+        )
+        stable = dict(payload["stable_authority"])
+        stable.update(fields)
+        payload["stable_authority"] = stable
+        session.execute(
+            text(
+                """
+                UPDATE action_revisions
+                SET draft_payload = CAST(:payload AS jsonb)
+                WHERE action_id = :action_id
+                """
+            ),
+            {"action_id": action_id, "payload": json.dumps(payload)},
+        )
+        session.commit()
+
+
 def _assert_no_forbidden_leave_pairs(engine: Engine) -> None:
     with engine.connect() as connection:
         rows = connection.execute(
@@ -186,21 +233,43 @@ def test_two_workers_same_action(
     engine: Engine,
 ) -> None:
     action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 22))
-    barrier = threading.Barrier(2)
-    results: list[AtomicOutcome] = []
+    held = threading.Event()
+    release = threading.Event()
+    second_done = threading.Event()
+    results: dict[str, AtomicOutcome] = {}
 
-    def run() -> None:
-        barrier.wait()
-        outcome = _executor(session_factory, isolated_settings).execute_action(action_id).outcome
-        results.append(outcome)
+    def hold() -> None:
+        held.set()
+        assert release.wait(timeout=5)
 
-    workers = [threading.Thread(target=run) for _ in range(2)]
+    def first() -> None:
+        results["holder"] = (
+            _executor(
+                session_factory,
+                isolated_settings,
+                AtomicExecutionFailpoints(hold_after_action_lock=hold),
+            )
+            .execute_action(action_id)
+            .outcome
+        )
+
+    def second() -> None:
+        assert held.wait(timeout=5)
+        results["waiter"] = (
+            _executor(session_factory, isolated_settings).execute_action(action_id).outcome
+        )
+        second_done.set()
+
+    workers = [threading.Thread(target=first), threading.Thread(target=second)]
     for worker in workers:
         worker.start()
+    assert second_done.wait(timeout=5)
+    assert results["waiter"] is AtomicOutcome.IDLE
+    release.set()
     for worker in workers:
         worker.join()
-    assert results.count(AtomicOutcome.SUCCEEDED) == 1
-    assert AtomicOutcome.EXECUTION_FAILED not in results
+    assert results["holder"] is AtomicOutcome.SUCCEEDED
+    assert AtomicOutcome.EXECUTION_FAILED not in results.values()
     assert _leave_count_for(engine, action_id) == 1
     assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
 
@@ -216,8 +285,8 @@ def test_worker_dies_before_leave_insert(
         isolated_settings,
         AtomicExecutionFailpoints(raise_before_leave_insert=RuntimeError("die-before-insert")),
     )
-    with pytest.raises(RuntimeError, match="die-before-insert"):
-        failing.execute_action(action_id)
+    died = failing.execute_action(action_id)
+    assert died.outcome is AtomicOutcome.TRANSIENT
     assert _state(engine, action_id) == WorkflowState.CONFIRMED.value
     assert _leave_count_for(engine, action_id) == 0
     retry = _executor(session_factory, isolated_settings).execute_action(action_id)
@@ -250,8 +319,8 @@ def test_mid_transaction_failure_rolls_back_all(
         isolated_settings,
         AtomicExecutionFailpoints(**{failpoint: RuntimeError(failpoint)}),
     )
-    with pytest.raises(RuntimeError, match=failpoint):
-        failing.execute_action(action_id)
+    died = failing.execute_action(action_id)
+    assert died.outcome is AtomicOutcome.TRANSIENT
     assert _state(engine, action_id) == WorkflowState.CONFIRMED.value
     assert _leave_count_for(engine, action_id) == 0
     retry = _executor(session_factory, isolated_settings).execute_action(action_id)
@@ -308,12 +377,18 @@ def test_two_different_same_employee_requests_jointly_exceed_balance(
     second_id = _prepare_confirmed(
         session_factory, isolated_settings, ALEX, date(2026, 11, 16), date(2026, 11, 24)
     )
-    barrier = threading.Barrier(2)
+    entered = threading.Barrier(2)
     results: dict[UUID, str] = {}
 
+    def hold() -> None:
+        entered.wait(timeout=5)
+
     def run(action_id: UUID) -> None:
-        barrier.wait()
-        result = _executor(session_factory, isolated_settings).execute_action(action_id)
+        result = _executor(
+            session_factory,
+            isolated_settings,
+            AtomicExecutionFailpoints(hold_before_employee_lock=hold),
+        ).execute_action(action_id)
         results[action_id] = result.observed_state or result.outcome.value
 
     workers = [
@@ -342,12 +417,18 @@ def test_two_different_same_employee_requests_overlap(
     second_id = _prepare_confirmed(
         session_factory, isolated_settings, ALEX, date(2026, 11, 18), date(2026, 11, 19)
     )
-    barrier = threading.Barrier(2)
+    entered = threading.Barrier(2)
     results: dict[UUID, str] = {}
 
+    def hold() -> None:
+        entered.wait(timeout=5)
+
     def run(action_id: UUID) -> None:
-        barrier.wait()
-        result = _executor(session_factory, isolated_settings).execute_action(action_id)
+        result = _executor(
+            session_factory,
+            isolated_settings,
+            AtomicExecutionFailpoints(hold_before_employee_lock=hold),
+        ).execute_action(action_id)
         results[action_id] = result.observed_state or result.outcome.value
 
     workers = [
@@ -704,3 +785,286 @@ def test_atomic_commit_invariant_holds_after_failures(
             )
         ).scalar_one()
     assert leftover == 0
+
+
+def test_reason_mismatch_cannot_adopt(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 21))
+    revision = _revision_payload(session_factory, action_id)
+    payload = revision["draft_payload"]
+    with session_factory() as session:
+        LeaveCommandRepository().persist(
+            session,
+            NewLeaveRequest(
+                employee_id=ALEX.employee_id,
+                leave_type=LeaveType.ANNUAL,
+                start_date=date.fromisoformat(payload["start_date"]),
+                end_date=date.fromisoformat(payload["end_date"]),
+                requested_hours=Decimal(payload["requested_hours"]),
+                reason="tampered-reason",
+                submitted_at=database_now(session),
+                execution_key=None,
+                business_request_key=revision["business_request_key"],
+                source_action_id=action_id,
+                calendar_version=revision["calendar_version"],
+                ruleset_version=revision["ruleset_version"],
+            ),
+        )
+        session.commit()
+    result = _executor(session_factory, isolated_settings).execute_action(action_id)
+    assert result.outcome is AtomicOutcome.EXECUTION_FAILED
+    assert result.failure_kind == "ADOPTION_MISMATCH"
+    assert _state(engine, action_id) == WorkflowState.EXECUTION_FAILED.value
+    assert _state(engine, action_id) != WorkflowState.SUCCEEDED.value
+
+
+def test_work_days_drift_is_stale(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 22))
+    _mutate_stable_authority(
+        session_factory,
+        action_id,
+        work_days=["monday", "tuesday", "wednesday", "thursday"],
+    )
+    result = _executor(session_factory, isolated_settings).execute_action(action_id)
+    assert result.outcome is AtomicOutcome.STALE
+    assert result.failure_kind == "AUTHORITY_CHANGED"
+    assert _leave_count_for(engine, action_id) == 0
+
+
+def test_hours_per_day_drift_is_stale(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 23))
+    _mutate_stable_authority(session_factory, action_id, hours_per_day="6.00")
+    result = _executor(session_factory, isolated_settings).execute_action(action_id)
+    assert result.outcome is AtomicOutcome.STALE
+    assert result.failure_kind == "AUTHORITY_CHANGED"
+    assert _leave_count_for(engine, action_id) == 0
+
+
+def test_timezone_and_jurisdiction_drift_is_stale(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    timezone_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 24))
+    _mutate_stable_authority(session_factory, timezone_id, timezone="Australia/Sydney")
+    timezone_result = _executor(session_factory, isolated_settings).execute_action(timezone_id)
+    assert timezone_result.outcome is AtomicOutcome.STALE
+    jurisdiction_id = _prepare_confirmed(
+        session_factory, isolated_settings, ALEX, date(2026, 12, 29)
+    )
+    _mutate_stable_authority(session_factory, jurisdiction_id, jurisdiction="AU-NSW")
+    jurisdiction_result = _executor(session_factory, isolated_settings).execute_action(
+        jurisdiction_id
+    )
+    assert jurisdiction_result.outcome is AtomicOutcome.STALE
+    assert _leave_count_for(engine, timezone_id) == 0
+    assert _leave_count_for(engine, jurisdiction_id) == 0
+
+
+def test_sufficient_balance_drift_is_not_stale(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    prior_id = _prepare_confirmed(
+        session_factory, isolated_settings, ALEX, date(2026, 9, 21), date(2026, 9, 22)
+    )
+    later_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 30))
+    prior = _executor(session_factory, isolated_settings).execute_action(prior_id)
+    assert prior.outcome is AtomicOutcome.SUCCEEDED
+    later = _executor(session_factory, isolated_settings).execute_action(later_id)
+    assert later.outcome is AtomicOutcome.SUCCEEDED
+    assert later.outcome is not AtomicOutcome.STALE
+    assert _leave_count_for(engine, later_id) == 1
+
+
+def test_poison_action_does_not_kill_poller(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    older = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 5))
+    younger = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 6))
+
+    def poison(action_id: UUID) -> BaseException | None:
+        if action_id == older:
+            return RuntimeError("poison-action")
+        return None
+
+    poller = ConfirmedActionPoller(
+        session_factory,
+        isolated_settings,
+        executor=_executor(
+            session_factory,
+            isolated_settings,
+            AtomicExecutionFailpoints(raise_after_claim=poison),
+        ),
+    )
+    first = poller.run_once()
+    second = poller.run_once()
+    poller.run_loop(once=True)
+    assert first is not None
+    assert first.action_id == older
+    assert first.outcome is AtomicOutcome.TRANSIENT
+    assert second is not None
+    assert second.action_id == younger
+    assert second.outcome is AtomicOutcome.SUCCEEDED
+    assert _state(engine, older) == WorkflowState.CONFIRMED.value
+    assert _state(engine, younger) == WorkflowState.SUCCEEDED.value
+
+
+def test_action_specific_transient_enters_process_local_cooldown(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    cooling = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 7))
+    other = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 8))
+
+    def transient(action_id: UUID) -> BaseException | None:
+        if action_id == cooling:
+            return OperationalError("SELECT 1", {}, Exception("action-lock-timeout"))
+        return None
+
+    executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(raise_after_claim=transient),
+    )
+    first = executor.execute_action(cooling)
+    skipped = executor.execute_action(cooling)
+    progressed = executor.execute_one()
+    assert first.outcome is AtomicOutcome.TRANSIENT
+    assert skipped.outcome is AtomicOutcome.SKIPPED
+    assert progressed.action_id == other
+    assert progressed.outcome is AtomicOutcome.SUCCEEDED
+    assert _state(engine, cooling) == WorkflowState.CONFIRMED.value
+
+
+def test_lost_ack_uses_fresh_locked_observation(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 9))
+    held = threading.Event()
+    release = threading.Event()
+    blocked = threading.Event()
+    results: list[AtomicOutcome] = []
+
+    def after_lock() -> None:
+        held.set()
+        assert release.wait(timeout=5)
+
+    def observe() -> None:
+        results.append(
+            _executor(
+                session_factory,
+                isolated_settings,
+                AtomicExecutionFailpoints(
+                    discard_after_commit=True,
+                    hold_after_lost_ack_lock=after_lock,
+                ),
+            )
+            .execute_action(action_id)
+            .outcome
+        )
+
+    worker = threading.Thread(target=observe)
+    worker.start()
+    assert held.wait(timeout=5)
+
+    def contend() -> None:
+        with session_factory() as session:
+            session.execute(text("SET LOCAL lock_timeout = '1s'"))
+            try:
+                session.execute(
+                    text("SELECT state FROM action_revisions WHERE action_id = :id FOR UPDATE"),
+                    {"id": action_id},
+                )
+            except OperationalError:
+                blocked.set()
+                session.rollback()
+                return
+            session.rollback()
+
+    contender = threading.Thread(target=contend)
+    contender.start()
+    contender.join(timeout=5)
+    assert blocked.is_set()
+    release.set()
+    worker.join(timeout=5)
+    assert results == [AtomicOutcome.LOST_ACK]
+    assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
+    assert _leave_count_for(engine, action_id) == 1
+
+
+def test_uniqueness_conflict_recovers_via_fresh_locked_probe(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 10, 12))
+    revision = _revision_payload(session_factory, action_id)
+    payload = revision["draft_payload"]
+    held = threading.Event()
+    inserted = threading.Event()
+    results: list = []
+
+    def hold_insert() -> None:
+        held.set()
+        assert inserted.wait(timeout=5)
+
+    def insert_equivalent() -> None:
+        assert held.wait(timeout=5)
+        with session_factory() as session:
+            LeaveCommandRepository().persist(
+                session,
+                NewLeaveRequest(
+                    employee_id=ALEX.employee_id,
+                    leave_type=LeaveType.ANNUAL,
+                    start_date=date.fromisoformat(payload["start_date"]),
+                    end_date=date.fromisoformat(payload["end_date"]),
+                    requested_hours=Decimal(payload["requested_hours"]),
+                    reason=payload["reason"],
+                    submitted_at=database_now(session),
+                    execution_key=None,
+                    business_request_key=revision["business_request_key"],
+                    source_action_id=action_id,
+                    calendar_version=revision["calendar_version"],
+                    ruleset_version=revision["ruleset_version"],
+                ),
+            )
+            session.commit()
+        inserted.set()
+
+    def execute() -> None:
+        results.append(
+            _executor(
+                session_factory,
+                isolated_settings,
+                AtomicExecutionFailpoints(hold_before_leave_insert=hold_insert),
+            ).execute_action(action_id)
+        )
+
+    inserter = threading.Thread(target=insert_equivalent)
+    worker = threading.Thread(target=execute)
+    inserter.start()
+    worker.start()
+    inserter.join(timeout=5)
+    worker.join(timeout=5)
+    assert results[0].outcome is AtomicOutcome.SUCCEEDED
+    assert results[0].adopted is True
+    assert _leave_count_for(engine, action_id) == 1
+    assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value

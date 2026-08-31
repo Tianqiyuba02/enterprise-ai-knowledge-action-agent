@@ -46,4 +46,5 @@ def test_tool_registry_has_no_action_or_execution_tools() -> None:
     assert "action_id" not in service
     assert "AgentService.run" in application or "self._agent.run" in application
     assert "create_or_reuse" in application
-    assert "ensure_started" in application
+    assert "ensure_started" not in application
+    assert "_ensure_checkpoint" not in application

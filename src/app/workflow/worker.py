@@ -101,6 +101,7 @@ class WorkflowWorker:
             time.sleep(poll_seconds)
 
     def claim_one(self) -> ClaimedWake | None:
+        refuse_legacy_execution_scheduling()
         with self._session_factory() as session:
             now = database_now(session)
             rows = self._outbox.claim_ready(
@@ -115,6 +116,7 @@ class WorkflowWorker:
             return _claimed(rows[0])
 
     def deliver(self, claimed: ClaimedWake, *, mark_delivered: bool) -> WorkerResult:
+        refuse_legacy_execution_scheduling()
         try:
             observed = self._wake(claimed)
             should_deliver = mark_delivered and self._event_settled(claimed, observed)

@@ -36,7 +36,10 @@ class ConfirmedActionPoller:
 
     def run_loop(self, *, poll_seconds: float = 1.0, once: bool = False) -> None:
         while True:
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                self._executor.note_loop_failure()
             if once:
                 return
             time.sleep(poll_seconds)

@@ -13,6 +13,7 @@ from app.db.workflow_models import ActionExecutionLedger, LeaveRequest
 from app.identity import AuthenticatedEmployeeContext
 from app.workflow.calendar_service import CalendarCoverage, TrustedHolidayCalendarService
 from app.workflow.canonical import quantize_hours
+from app.workflow.cutover import refuse_legacy_execution_scheduling
 from app.workflow.domain import ExecutionLedgerStatus, LeaveType, WorkflowState
 from app.workflow.executable_preparation import (
     READINESS_NOT_EXECUTABLE,
@@ -99,6 +100,7 @@ class LeaveSubmissionExecutor:
         self._calendar = TrustedHolidayCalendarService(HolidayCalendarRepository())
 
     def submit(self, permit: ExecutionPermit) -> ExecutorResult:
+        refuse_legacy_execution_scheduling()
         try:
             with self._session_factory() as session:
                 return self._run_in_session(session, permit)

@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings, load_knowledge_settings
+from app.workflow.cutover import refuse_legacy_execution_scheduling
 from app.workflow.domain import WorkflowState
 from app.workflow.errors import ExecutionFenceError, WorkflowRowNotFoundError
 from app.workflow.execution import ExecutionReservationService, ReservationOutcome
@@ -46,6 +47,7 @@ class WorkflowExecutionRuntime:
         return result.outcome
 
     def execute(self, action_id: str, revision: int) -> str:
+        refuse_legacy_execution_scheduling()
         state = self._current_state(action_id, revision)
         if state != WorkflowState.EXECUTING.value:
             return state
@@ -63,6 +65,7 @@ class WorkflowExecutionRuntime:
         return self._finalization.finalize(permit, result)
 
     def reconcile(self, action_id: str, revision: int) -> str:
+        refuse_legacy_execution_scheduling()
         state = self._current_state(action_id, revision)
         if state in {
             WorkflowState.SUCCEEDED.value,

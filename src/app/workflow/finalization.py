@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings, load_knowledge_settings
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
+from app.workflow.cutover import refuse_legacy_execution_scheduling
 from app.workflow.domain import (
     ActorType,
     ExecutionLedgerStatus,
@@ -93,6 +94,7 @@ class ExecutionFinalizationService:
     def finalize(self, permit: ExecutionPermit, result: ExecutorResult) -> str:
         """Persist a supplied execute-path outcome. Never invokes the executor."""
 
+        refuse_legacy_execution_scheduling()
         with self._session_factory() as session:
             self._workflows.lock_workflow(session, permit.action_id)
             revision = self._workflows.lock_revision(
@@ -197,6 +199,7 @@ class ExecutionFinalizationService:
     def classify_and_finalize(self, permit: ExecutionPermit, worker_id: str) -> str:
         """Probe business state and persist the terminal classification in one transaction."""
 
+        refuse_legacy_execution_scheduling()
         with self._session_factory() as session:
             self._workflows.lock_workflow(session, permit.action_id)
             revision = self._workflows.lock_revision(
