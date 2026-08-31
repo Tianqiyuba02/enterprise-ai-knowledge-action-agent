@@ -25,6 +25,13 @@ TRANSITIONAL_OCCUPANCY_STATES: Final = (
     WorkflowState.RECONCILING.value,
     WorkflowState.SUCCEEDED.value,
 )
+FINAL_OCCUPANCY_STATES: Final = (
+    WorkflowState.AWAITING_CONFIRMATION.value,
+    WorkflowState.CONFIRMED.value,
+    WorkflowState.SUCCEEDED.value,
+)
+OCCUPYING_STATES: Final = FINAL_OCCUPANCY_STATES
+LEAVE_BUSINESS_KEY_UNIQUE_CONSTRAINT: Final = "uq_leave_requests_business_request_key"
 PREPARE_NORMALIZABLE_STATES: Final = frozenset(
     {
         WorkflowState.AWAITING_CONFIRMATION.value,
@@ -62,15 +69,27 @@ class Phase1AInvariantError(RuntimeError):
         super().__init__("Phase 1A invariant gate failed:\n" + "\n".join(findings))
 
 
-def occupancy_where_sql() -> str:
-    quoted = ", ".join(f"'{state}'" for state in TRANSITIONAL_OCCUPANCY_STATES)
+def occupancy_where_sql(states: tuple[str, ...] | None = None) -> str:
+    quoted = ", ".join(f"'{state}'" for state in (states or TRANSITIONAL_OCCUPANCY_STATES))
     return f"state IN ({quoted})"
 
 
-def is_occupancy_unique_violation(exc: BaseException) -> bool:
-    """Return True only for the named transitional occupancy unique conflict."""
+def final_occupancy_where_sql() -> str:
+    return occupancy_where_sql(FINAL_OCCUPANCY_STATES)
 
-    return _named_unique_violation(exc, OCCUPANCY_UNIQUE_INDEX)
+
+def is_occupancy_unique_violation(exc: BaseException) -> bool:
+    """Return True for the transitional or final occupancy unique conflict."""
+
+    return _named_unique_violation(exc, OCCUPANCY_UNIQUE_INDEX) or _named_unique_violation(
+        exc, FINAL_OCCUPANCY_UNIQUE_INDEX
+    )
+
+
+def is_leave_unique_violation(exc: BaseException) -> bool:
+    return _named_unique_violation(exc, SOURCE_ACTION_UNIQUE_CONSTRAINT) or _named_unique_violation(
+        exc, LEAVE_BUSINESS_KEY_UNIQUE_CONSTRAINT
+    )
 
 
 def _named_unique_violation(exc: BaseException, constraint_name: str) -> bool:
@@ -109,6 +128,57 @@ def assert_phase1a_invariants(connection: Connection) -> None:
     findings = collect_phase1a_invariant_violations(connection)
     if findings:
         raise Phase1AInvariantError(findings)
+
+
+def collect_cutover_invariant_violations(connection: Connection) -> tuple[str, ...]:
+    """Post-normalization invariants for the final occupancy cutover."""
+
+    findings: list[str] = []
+    findings.extend(collect_phase1a_invariant_violations(connection))
+    findings.extend(_leftover_legacy_unresolved(connection))
+    findings.extend(_multiple_final_occupants(connection))
+    return tuple(findings)
+
+
+def assert_cutover_invariants(connection: Connection) -> None:
+    findings = collect_cutover_invariant_violations(connection)
+    if findings:
+        raise Phase1AInvariantError(findings)
+
+
+def _leftover_legacy_unresolved(connection: Connection) -> list[str]:
+    rows = _rows(
+        connection,
+        """
+        SELECT action_id, state
+        FROM action_revisions
+        WHERE state IN (:executing, :unknown, :reconciling)
+        """,
+        executing=WorkflowState.EXECUTING.value,
+        unknown=WorkflowState.UNKNOWN_OUTCOME.value,
+        reconciling=WorkflowState.RECONCILING.value,
+    )
+    return [
+        f"legacy unresolved state {row['state']} remains on action {row['action_id']}"
+        for row in rows
+    ]
+
+
+def _multiple_final_occupants(connection: Connection) -> list[str]:
+    rows = _rows(
+        connection,
+        f"""
+        SELECT business_request_key, count(*) AS occupant_count
+        FROM action_revisions
+        WHERE {final_occupancy_where_sql()}
+        GROUP BY business_request_key
+        HAVING count(*) > 1
+        """,
+    )
+    return [
+        f"multiple final occupants for business_request_key={row['business_request_key']}"
+        for row in rows
+    ]
 
 
 def _rows(connection: Connection, sql: str, **params: object) -> list:

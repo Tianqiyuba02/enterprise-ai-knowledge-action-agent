@@ -102,7 +102,7 @@ def test_empty_database_upgrades_to_expected_head_and_schema(
     )
     assert (
         connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        == "0004_v4_phase1a_occupancy"
+        == "0005_v4_execution_cutover"
     )
     assert {"documents", "document_chunks"} <= tables
     assert document_columns == {column.name for column in Document.__table__.columns}

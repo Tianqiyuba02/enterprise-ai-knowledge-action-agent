@@ -5,8 +5,10 @@ Transaction lock order for overlapping T2 / issue / cancel rows:
 1. action_workflows
 2. action_revisions
 3. confirmation_challenges
-4. workflow_outbox insert
-5. action_audit_events insert
+4. action_audit_events insert
+
+CONFIRMED is durable work for the internal poller. Confirmation does not
+enqueue outbox events, wake LangGraph, or create legacy execution authority.
 """
 
 from dataclasses import dataclass
@@ -26,11 +28,9 @@ from app.workflow.domain import (
     V4_REVISION,
     ActorType,
     ChallengeStatus,
-    OutboxEventType,
     WorkflowState,
 )
 from app.workflow.errors import WorkflowRowNotFoundError
-from app.workflow.outbox_repository import NewOutboxEvent, OutboxRepository
 from app.workflow.time import database_now
 from app.workflow.tokens import (
     confirmation_tokens_match,
@@ -89,7 +89,6 @@ class ConfirmationService:
         self._settings = settings or load_knowledge_settings()
         self._workflows = WorkflowRepository()
         self._challenges = ChallengeRepository()
-        self._outbox = OutboxRepository()
         self._audits = AuditRepository()
 
     def get_action(self, *, action_id: UUID, context: AuthenticatedEmployeeContext) -> ActionView:
@@ -235,16 +234,6 @@ class ConfirmationService:
                 revision.action_expires_at,
                 now + timedelta(seconds=self._settings.v4_confirmed_ttl_seconds),
             )
-            event = self._outbox.enqueue(
-                session,
-                NewOutboxEvent(
-                    event_key=confirmation_outbox_event_key(workflow.action_id, revision.revision),
-                    action_id=workflow.action_id,
-                    event_type=OutboxEventType.CONFIRMATION_COMMITTED,
-                    available_at=now,
-                    revision=revision.revision,
-                ),
-            )
             self._audits.insert(
                 session,
                 NewAuditEvent(
@@ -255,19 +244,6 @@ class ConfirmationService:
                     from_state=WorkflowState.AWAITING_CONFIRMATION.value,
                     to_state=WorkflowState.CONFIRMED.value,
                     safe_metadata={"challenge_id": str(challenge.challenge_id)},
-                    revision=revision.revision,
-                ),
-            )
-            self._audits.insert(
-                session,
-                NewAuditEvent(
-                    action_id=workflow.action_id,
-                    event_type=AUDIT_OUTBOX_ENQUEUED,
-                    actor_type=ActorType.EMPLOYEE,
-                    actor_subject_id=subject_id,
-                    from_state=WorkflowState.CONFIRMED.value,
-                    to_state=WorkflowState.CONFIRMED.value,
-                    safe_metadata={"event_key": event.event_key},
                     revision=revision.revision,
                 ),
             )

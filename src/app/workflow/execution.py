@@ -15,6 +15,7 @@ from app.db.workflow_models import ActionExecutionLedger, ActionRevision, Action
 from app.identity import AuthenticatedEmployeeContext
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
 from app.workflow.confirmation import AUDIT_ACTION_EXPIRED
+from app.workflow.cutover import refuse_legacy_execution_scheduling
 from app.workflow.domain import (
     UNRESOLVED_EXECUTION_STATES,
     V4_REVISION,
@@ -128,6 +129,7 @@ class ExecutionReservationService:
         revision: int,
         worker_id: str,
     ) -> ReservationResult:
+        refuse_legacy_execution_scheduling()
         if revision != V4_REVISION:
             raise WorkflowIntegrityError("only V4 revision=1 may be reserved")
         if not worker_id or not worker_id.strip():

@@ -39,6 +39,15 @@ TERMINAL_WORKFLOW_STATES: Final = frozenset(
     }
 )
 ALL_WORKFLOW_STATES: Final = NON_TERMINAL_WORKFLOW_STATES | TERMINAL_WORKFLOW_STATES
+FINAL_TARGET_WORKFLOW_STATES: Final = (
+    WorkflowState.AWAITING_CONFIRMATION,
+    WorkflowState.CONFIRMED,
+    WorkflowState.SUCCEEDED,
+    WorkflowState.EXECUTION_FAILED,
+    WorkflowState.STALE,
+    WorkflowState.CANCELLED,
+    WorkflowState.EXPIRED,
+)
 UNRESOLVED_EXECUTION_STATES: Final = frozenset(
     {
         WorkflowState.EXECUTING,

@@ -52,8 +52,8 @@ from app.knowledge.clock import TrustedClock
 from app.workflow.action_creation import ActionCreationService
 from app.workflow.canonical import business_request_key
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.confirmed_poller import ConfirmedActionPoller
 from app.workflow.domain import LeaveType, WorkflowState
-from app.workflow.worker import WorkflowWorker
 
 _FIXTURE_SESSIONS = {
     "alex": DEMO_IDENTITY_BINDINGS["demo-v1-7f4c2a91"],
@@ -363,19 +363,19 @@ class V4ProductEvaluationRunner:
             confirmation_token=token,
             context=context,
         )
-        worker = WorkflowWorker(
+        poller = ConfirmedActionPoller(
             self._session_factory,
             self._settings,
-            worker_id="v4-eval-worker",
+            worker_id="v4-eval-poller",
         )
-        first = worker.run_once()
+        first = poller.run_once()
         self._confirmation.confirm(
             action_id=action_id,
             challenge_id=issued.challenge_id,
             confirmation_token=token,
             context=context,
         )
-        worker.run_once()
+        poller.run_once()
         if case.assistant_prompts:
             application.query(case.assistant_prompts[0], context)
         del token

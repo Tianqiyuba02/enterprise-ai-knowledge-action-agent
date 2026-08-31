@@ -38,6 +38,9 @@ from app.evaluation.v4.runner import V4ProductEvaluationRunner, V4ResumeCompatib
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
 pytestmark = [
+    pytest.mark.skip(
+        reason="retired after simplified execution cutover; historical UNKNOWN_OUTCOME subject"
+    ),
     pytest.mark.postgres,
     pytest.mark.skipif(
         not POSTGRES_ENABLED,

@@ -20,7 +20,7 @@ class NewLeaveRequest:
     requested_hours: Decimal
     reason: str | None
     submitted_at: datetime
-    execution_key: str
+    execution_key: str | None
     business_request_key: str
     source_action_id: UUID
     calendar_version: str

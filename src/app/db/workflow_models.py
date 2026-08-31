@@ -25,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.workflow.calendar import V4_CALENDAR_JURISDICTION, V4_CALENDAR_VERSION
 from app.workflow.domain import (
+    FINAL_TARGET_WORKFLOW_STATES,
     V4_REVISION,
     ActionType,
     ActorType,
@@ -34,12 +35,11 @@ from app.workflow.domain import (
     LeaveRequestStatus,
     LeaveType,
     OutboxEventType,
-    WorkflowState,
     sql_in_clause,
 )
 
 SHA256_HEX_PATTERN = r"^[0-9a-f]{64}$"
-WORKFLOW_STATE_SQL = sql_in_clause(WorkflowState)
+WORKFLOW_STATE_SQL = sql_in_clause(FINAL_TARGET_WORKFLOW_STATES)
 CHALLENGE_STATUS_SQL = sql_in_clause(ChallengeStatus)
 ACTION_TYPE_SQL = sql_in_clause(ActionType)
 OUTBOX_EVENT_TYPE_SQL = sql_in_clause(OutboxEventType)
@@ -120,7 +120,7 @@ class ActionWorkflow(Base):
             name="ck_action_workflows_jurisdiction_nonempty",
         ),
         CheckConstraint(
-            "btrim(langgraph_thread_id) <> ''",
+            "langgraph_thread_id IS NULL OR btrim(langgraph_thread_id) <> ''",
             name="ck_action_workflows_langgraph_thread_id_nonempty",
         ),
         Index("ix_action_workflows_owner_subject_id", "owner_subject_id"),
@@ -141,7 +141,7 @@ class ActionWorkflow(Base):
         nullable=False,
         server_default=text(str(V4_REVISION)),
     )
-    langgraph_thread_id: Mapped[str] = mapped_column(Text, nullable=False)
+    langgraph_thread_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -189,13 +189,10 @@ class ActionRevision(Base):
         Index("ix_action_revisions_state", "state"),
         Index("ix_action_revisions_business_request_key", "business_request_key"),
         Index(
-            "uq_action_revisions_occupying_business_request_key",
+            "uq_action_revisions_final_occupying_business_request_key",
             "business_request_key",
             unique=True,
-            postgresql_where=text(
-                "state IN ('AWAITING_CONFIRMATION', 'CONFIRMED', 'EXECUTING', "
-                "'UNKNOWN_OUTCOME', 'RECONCILING', 'SUCCEEDED')"
-            ),
+            postgresql_where=text("state IN ('AWAITING_CONFIRMATION', 'CONFIRMED', 'SUCCEEDED')"),
         ),
     )
 
@@ -516,7 +513,7 @@ class LeaveRequest(Base):
             name="ck_leave_requests_employee_id_nonempty",
         ),
         CheckConstraint(
-            "btrim(execution_key) <> ''",
+            "execution_key IS NULL OR btrim(execution_key) <> ''",
             name="ck_leave_requests_execution_key_nonempty",
         ),
         CheckConstraint(
@@ -554,7 +551,7 @@ class LeaveRequest(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    execution_key: Mapped[str] = mapped_column(Text, nullable=False)
+    execution_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     business_request_key: Mapped[str] = mapped_column(Text, nullable=False)
     source_action_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_action_revision: Mapped[int] = mapped_column(Integer, nullable=False)

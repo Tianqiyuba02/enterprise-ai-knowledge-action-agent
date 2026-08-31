@@ -11,6 +11,7 @@ from app.config import KnowledgeSettings, load_knowledge_settings
 from app.db.workflow_models import WorkflowOutbox
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.cutover import refuse_legacy_execution_scheduling
 from app.workflow.domain import ActorType, OutboxEventType, WorkflowState
 from app.workflow.errors import (
     OrchestrationAuthorityError,
@@ -86,6 +87,7 @@ class WorkflowWorker:
         self._orchestration = WorkflowOrchestrationService(session_factory)
 
     def run_once(self) -> WorkerResult | None:
+        refuse_legacy_execution_scheduling()
         claimed = self.claim_one()
         if claimed is None:
             return None

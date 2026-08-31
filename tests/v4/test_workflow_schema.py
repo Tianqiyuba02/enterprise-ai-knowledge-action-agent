@@ -16,6 +16,7 @@ from app.db.workflow_models import (
 )
 from app.workflow.domain import (
     ALL_WORKFLOW_STATES,
+    FINAL_TARGET_WORKFLOW_STATES,
     NON_TERMINAL_WORKFLOW_STATES,
     TERMINAL_WORKFLOW_STATES,
     V4_REVISION,
@@ -84,10 +85,16 @@ def test_revision_one_is_enforced_on_workflow_and_revision_tables() -> None:
     assert "revision = 1" in revision_sql
 
 
-def test_revision_state_constraint_covers_frozen_states_only() -> None:
+def test_revision_state_constraint_covers_final_target_states_only() -> None:
     state_sql = _constraint_sql(ActionRevision.__table__, "ck_action_revisions_state")
-    for state in WorkflowState:
+    for state in FINAL_TARGET_WORKFLOW_STATES:
         assert f"'{state.value}'" in state_sql
+    for state in (
+        WorkflowState.EXECUTING,
+        WorkflowState.UNKNOWN_OUTCOME,
+        WorkflowState.RECONCILING,
+    ):
+        assert f"'{state.value}'" not in state_sql
     assert "SUPERSEDED" not in state_sql
 
 
@@ -95,7 +102,7 @@ def test_action_workflows_require_unique_langgraph_thread_id() -> None:
     constraint_names = {constraint.name for constraint in ActionWorkflow.__table__.constraints}
     column = ActionWorkflow.__table__.c.langgraph_thread_id
     assert "uq_action_workflows_langgraph_thread_id" in constraint_names
-    assert column.nullable is False
+    assert column.nullable is True
     assert ActionWorkflow.__table__.c.created_at.type.timezone is True
 
 

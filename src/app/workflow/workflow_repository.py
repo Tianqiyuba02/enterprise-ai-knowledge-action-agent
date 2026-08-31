@@ -16,7 +16,7 @@ from app.workflow.domain import (
     WorkflowState,
 )
 from app.workflow.errors import WorkflowRowNotFoundError
-from app.workflow.occupancy import TRANSITIONAL_OCCUPANCY_STATES
+from app.workflow.occupancy import FINAL_OCCUPANCY_STATES
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ class WorkflowRepository:
             jurisdiction=spec.jurisdiction,
             action_type=spec.action_type.value,
             current_revision=V4_REVISION,
-            langgraph_thread_id=spec.langgraph_thread_id or str(uuid4()),
+            langgraph_thread_id=spec.langgraph_thread_id,
         )
         revision = ActionRevision(
             revision_id=uuid4(),
@@ -170,7 +170,7 @@ class WorkflowRepository:
             select(ActionRevision)
             .where(
                 ActionRevision.business_request_key == business_request_key,
-                ActionRevision.state.in_(TRANSITIONAL_OCCUPANCY_STATES),
+                ActionRevision.state.in_(FINAL_OCCUPANCY_STATES),
             )
             .with_for_update()
         ).scalar_one_or_none()

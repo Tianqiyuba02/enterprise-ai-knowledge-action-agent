@@ -24,7 +24,7 @@ from app.workflow.authority import AuthoritySnapshot, CanonicalDraft
 from app.workflow.calendar import V4_CALENDAR_VERSION
 from app.workflow.canonical import business_request_key
 from app.workflow.challenge_repository import ChallengeRepository
-from app.workflow.confirmation import ConfirmationService, confirmation_outbox_event_key
+from app.workflow.confirmation import ConfirmationService
 from app.workflow.domain import ActionType, ChallengeStatus, LeaveType, WorkflowState
 from app.workflow.orchestration import WorkflowOrchestrationService
 from app.workflow.tokens import hash_confirmation_token
@@ -167,6 +167,7 @@ def _create_action(
             ruleset_version="v4-annual-leave-1",
             calendar_version=V4_CALENDAR_VERSION,
             action_expires_at=expires_at or datetime.now(UTC) + timedelta(hours=1),
+            langgraph_thread_id=str(uuid.uuid4()),
         ),
     )
     return workflow.action_id
@@ -293,7 +294,7 @@ def test_owner_read_issue_confirm_replay_and_isolation(
         ).all()
     assert consumed is not None
     assert consumed.status == ChallengeStatus.CONSUMED.value
-    assert outbox == [confirmation_outbox_event_key(action_id)]
+    assert outbox == []
     assert token not in str(audits)
     assert _count(engine, "leave_requests") == 0
     assert _count(engine, "action_execution_ledger") == 0
@@ -387,9 +388,9 @@ def test_cancel_before_and_after_confirm(
     with session_factory() as session:
         before_id = _create_action(session, start=date(2026, 9, 5))
         after_id = _create_action(session, start=date(2026, 9, 6))
-        executing_id = _create_action(session, start=date(2026, 9, 7))
+        succeeded_id = _create_action(session, start=date(2026, 9, 7))
         WorkflowRepository().apply_revision_state(
-            session, action_id=executing_id, state=WorkflowState.EXECUTING
+            session, action_id=succeeded_id, state=WorkflowState.SUCCEEDED
         )
         session.commit()
 
@@ -421,16 +422,16 @@ def test_cancel_before_and_after_confirm(
     with session_factory() as session:
         outbox = session.execute(text("SELECT count(*) FROM workflow_outbox")).scalar_one()
         consumed = ChallengeRepository().get(session, later.challenge_id)
-    assert outbox == 1
+    assert outbox == 0
     assert consumed is not None
     assert consumed.status == ChallengeStatus.CONSUMED.value
     with pytest.raises(ActionConflictError):
-        service.cancel(action_id=executing_id, context=ALEX)
+        service.cancel(action_id=succeeded_id, context=ALEX)
     assert _count(engine, "leave_requests") == 0
     assert _count(engine, "action_execution_ledger") == 0
 
 
-def test_confirm_and_outbox_are_atomic(
+def test_confirm_and_audit_are_atomic(
     service: ConfirmationService,
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -439,7 +440,7 @@ def test_confirm_and_outbox_are_atomic(
         session.commit()
     issued = service.issue_challenge(action_id=action_id, context=ALEX)
     with (
-        patch.object(service._outbox, "enqueue", side_effect=RuntimeError("boom")),
+        patch.object(service._audits, "insert", side_effect=RuntimeError("boom")),
         pytest.raises(RuntimeError),
     ):
         service.confirm(

@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,6 +19,13 @@ class LeaveQueryRepository:
     def find_by_execution_key(self, session: Session, execution_key: str) -> LeaveRequest | None:
         return session.execute(
             select(LeaveRequest).where(LeaveRequest.execution_key == execution_key)
+        ).scalar_one_or_none()
+
+    def find_by_source_action_id(
+        self, session: Session, source_action_id: UUID
+    ) -> LeaveRequest | None:
+        return session.execute(
+            select(LeaveRequest).where(LeaveRequest.source_action_id == source_action_id)
         ).scalar_one_or_none()
 
     def find_by_business_request_key(

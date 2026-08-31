@@ -119,7 +119,7 @@ def _insert_action(connection: Connection) -> uuid.UUID:
 def test_alembic_head_includes_applied_v4_migrations(additive_engine: Engine) -> None:
     with additive_engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0004_v4_phase1a_occupancy"
+    assert version == "0005_v4_execution_cutover"
 
 
 def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: Engine) -> None:
@@ -431,7 +431,7 @@ def test_source_action_id_is_unique(connection: Connection) -> None:
     assert second
 
 
-def test_transitional_occupancy_index_covers_six_states(
+def test_final_occupancy_index_covers_three_states(
     additive_engine: Engine, connection: Connection
 ) -> None:
     first = _insert_action(connection)
@@ -452,19 +452,19 @@ def test_transitional_occupancy_index_covers_six_states(
                 SELECT pg_get_indexdef(indexrelid)
                 FROM pg_index
                 JOIN pg_class ON pg_class.oid = pg_index.indexrelid
-                WHERE pg_class.relname = 'uq_action_revisions_occupying_business_request_key'
+                WHERE pg_class.relname = 'uq_action_revisions_final_occupying_business_request_key'
                 """
             )
         ).scalar_one()
     for state in (
         "AWAITING_CONFIRMATION",
         "CONFIRMED",
-        "EXECUTING",
-        "UNKNOWN_OUTCOME",
-        "RECONCILING",
         "SUCCEEDED",
     ):
         assert state in definition
+    assert "EXECUTING" not in definition
+    assert "UNKNOWN_OUTCOME" not in definition
+    assert "RECONCILING" not in definition
     assert "EXPIRED" not in definition
     second = _insert_action(connection)
     with pytest.raises(IntegrityError):
@@ -480,11 +480,11 @@ def test_transitional_occupancy_index_covers_six_states(
         )
 
 
-def test_final_three_state_occupancy_index_does_not_exist(additive_engine: Engine) -> None:
+def test_final_three_state_occupancy_index_exists(additive_engine: Engine) -> None:
     inspector = inspect(additive_engine)
     index_names = {index["name"] for index in inspector.get_indexes("action_revisions")}
-    assert "uq_action_revisions_occupying_business_request_key" in index_names
-    assert "uq_action_revisions_final_occupying_business_request_key" not in index_names
+    assert "uq_action_revisions_occupying_business_request_key" not in index_names
+    assert "uq_action_revisions_final_occupying_business_request_key" in index_names
     with additive_engine.connect() as connection:
         definition = connection.execute(
             text(
@@ -492,11 +492,14 @@ def test_final_three_state_occupancy_index_does_not_exist(additive_engine: Engin
                 SELECT pg_get_indexdef(indexrelid)
                 FROM pg_index
                 JOIN pg_class ON pg_class.oid = pg_index.indexrelid
-                WHERE pg_class.relname = 'uq_action_revisions_occupying_business_request_key'
+                WHERE pg_class.relname = 'uq_action_revisions_final_occupying_business_request_key'
                 """
             )
         ).scalar_one()
-    assert "EXECUTING" in definition
+    assert "EXECUTING" not in definition
+    assert "AWAITING_CONFIRMATION" in definition
+    assert "CONFIRMED" in definition
+    assert "SUCCEEDED" in definition
 
 
 def test_phase1a_invariants_halt_nonterminal_with_leave(connection: Connection) -> None:

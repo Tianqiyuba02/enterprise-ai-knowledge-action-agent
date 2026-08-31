@@ -48,6 +48,9 @@ from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowReposi
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
 pytestmark = [
+    pytest.mark.skip(
+        reason="retired after simplified execution cutover; see test_v4_atomic_execution.py"
+    ),
     pytest.mark.postgres,
     pytest.mark.skipif(
         not POSTGRES_ENABLED,

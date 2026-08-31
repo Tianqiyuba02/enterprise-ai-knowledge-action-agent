@@ -21,6 +21,7 @@ def test_leave_query_repository_has_no_submission_path() -> None:
     methods = {name for name in dir(LeaveQueryRepository) if not name.startswith("_")}
     assert {
         "find_by_execution_key",
+        "find_by_source_action_id",
         "find_by_business_request_key",
         "sum_active_submitted_hours",
         "overlapping_active_annual_leave",

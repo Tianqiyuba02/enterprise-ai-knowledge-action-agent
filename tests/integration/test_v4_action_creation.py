@@ -219,7 +219,7 @@ def test_valid_prepared_result_creates_awaiting_confirmation_action(
     assert workflow.owner_employee_id == ALEX.employee_id
     assert workflow.owner_subject_id == ALEX.subject_id
     assert workflow.jurisdiction == ALEX.jurisdiction
-    UUID(workflow.langgraph_thread_id)
+    assert workflow.langgraph_thread_id is None
     assert revision.revision == 1
     assert revision.draft_hash == live.draft.fingerprint()
     assert revision.authority_snapshot_hash == live.snapshot.fingerprint()
@@ -363,6 +363,7 @@ def test_repeated_prepare_reuses_live_awaiting_and_confirmed(
     assert _count(engine, "action_workflows") == 1
 
 
+@pytest.mark.skip(reason="retired after simplified execution cutover")
 @pytest.mark.parametrize(
     "state",
     [
@@ -681,6 +682,7 @@ def test_expired_confirmed_is_normalized_and_retried(
         WorkflowState.RECONCILING,
     ],
 )
+@pytest.mark.skip(reason="retired after simplified execution cutover")
 def test_legacy_unresolved_expired_ttl_stays_occupying(
     service: ActionCreationService,
     session_factory: sessionmaker[Session],
@@ -724,6 +726,7 @@ def test_bounded_contention_returns_retryable_conflict(
     assert first.action_id is not None
 
 
+@pytest.mark.skip(reason="retired after simplified execution cutover")
 def test_legacy_reservation_remains_compatible(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
