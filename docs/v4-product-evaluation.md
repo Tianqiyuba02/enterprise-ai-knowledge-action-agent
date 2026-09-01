@@ -4,6 +4,47 @@ V4 has its own evaluation lifecycle. It does not reuse the V3 8-case frozen
 holdout and does not claim an unbiased V4 result until a later independent
 holdout exists.
 
+## Canonical Development status
+
+Post-simplification Development:
+
+**CLOSED — PARTIAL / PROVIDER-LIMITED**
+
+This is **not** a semantic PASS. It is **not** a Development PASS. It is
+**not** a holdout PASS. It is **not** full semantic validation. Do not claim
+15/15 PASS.
+
+- Applicable denominator: 15
+- Semantic evidence: 11 / 15
+- Observed semantic results: 11 / 11 PASS
+- Semantic failures: 0
+- Product/business misses: 0
+- Safety/authority misses: 0
+
+Uncovered applicable cases:
+
+- `dev_v4_e1_repeat_prepare_reuse`
+- `dev_v4_e2_reason_mismatch_reuse`
+- `dev_v4_e4_succeeded_no_duplicate`
+- `dev_v4_f1_full_e2e`
+
+N/A:
+
+- `dev_v4_e3_unknown_blocks_replace`
+  reason: retired UNKNOWN_OUTCOME architecture
+
+Provider limitation: intermittent Gemini HTTP 429 / `RESOURCE_EXHAUSTED`
+
+Final coverage artifact:
+`evals/results/v4-product-development-final-coverage.json`
+
+No further Development provider continuation is authorized.
+
+V4 holdout: **NOT CREATED / DEFERRED**
+
+Reason: Development semantic coverage remained incomplete because of
+provider-limited execution.
+
 ## Controlled live validation (observation only)
 
 Round 1 at `b3857d22bba7a392bcf5fd87fb98f55a7bd8336f`:
@@ -36,8 +77,9 @@ development set
 The current 16 cases are marked `DEVELOPMENT`. They may later be inspected,
 debugged, and tuned against. They must never be described as holdout.
 
-No V4 holdout file exists. Holdout design happens only after development
-closure plus independent pre-holdout review.
+V4 holdout is **NOT CREATED / DEFERRED**. Development semantic coverage
+remained incomplete because of provider-limited execution. Do not create or
+run a V4 holdout from this document.
 
 ## Evaluator
 
@@ -266,5 +308,6 @@ Eval-2 live development evaluation is not authorized by Stage 6P:
 
 `--split holdout` is rejected. A V4 holdout does not exist.
 
-This document does not claim a V4 development pass. Run 1 is closed as
-PARTIAL / PROVIDER-LIMITED. Run 2 has not been executed.
+This document does not claim a V4 development pass, holdout PASS, or 15/15
+PASS. Historical Run 1 remains closed as PARTIAL / PROVIDER-LIMITED and is
+not rewritten here. Canonical post-simplification status is recorded above.
