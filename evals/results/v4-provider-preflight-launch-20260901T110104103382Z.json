@@ -1,0 +1,18 @@
+{
+  "kind": "provider_preflight",
+  "evaluator_version": "v4-product-eval-2",
+  "scored": false,
+  "development_case": false,
+  "holdout_case": false,
+  "v4_action_created": false,
+  "business_mutation": false,
+  "completed": true,
+  "provider_failure": null,
+  "usage": {
+    "prompt_token_count": 49,
+    "output_token_count": 1,
+    "total_token_count": 50,
+    "cached_token_count": null
+  },
+  "generated_at": "2026-09-01T11:01:04.103382Z"
+}
