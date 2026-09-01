@@ -280,7 +280,7 @@ This 16-case DEVELOPMENT set has no labeled wrong-owner cases, so
 ## Isolated database
 
 Live and PostgreSQL evaluator runs use a disposable database. Alembic upgrades
-through `0003_v4_langgraph_checkpoints`. The V2 corpus is copied from the
+through `0006_v4_remove_legacy_execution`. The V2 corpus is copied from the
 normal development database without re-embedding. Baseline must be 12 documents,
 42 chunks, `AU-VIC-2026-v1`, and 14 statewide holiday rows. After populate, the
 evaluator computes `baseline_data_fingerprint` over document/chunk identity and

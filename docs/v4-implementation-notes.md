@@ -1,5 +1,18 @@
 # V4 Implementation Notes
 
+The notes below are historical stage records. They are superseded where they
+describe LangGraph, checkpoints, outbox, ledger, leases/fencing, or
+`UNKNOWN_OUTCOME` as live.
+
+**Current live V4:** LLM READ / PREPARE → persisted action → out-of-band
+confirmation → PostgreSQL poller → one-commit atomic execution. See
+[`docs/v4-architecture-simplification-freeze-2.2.md`](v4-architecture-simplification-freeze-2.2.md).
+Freeze 1.0 remains the historical maximal design only.
+
+**Current Development status:** CLOSED — PARTIAL / PROVIDER-LIMITED. Applicable
+coverage 11 / 15. V4 holdout is NOT CREATED / DEFERRED. See
+[`docs/v4-product-evaluation.md`](v4-product-evaluation.md).
+
 ## Current stage
 
 V4 Stage 6P hardens provider/evaluation transport after closed Run 1. Run 1 is
@@ -7,9 +20,11 @@ PARTIAL / PROVIDER-LIMITED: 9/16 provider-completed, 7 provider-blocked, 9/9
 semantic PASS among evaluable cases. It is not a Development PASS. Stage 6P
 does not call Gemini, does not start Resume #3, and does not run Run 2.
 
-Project version remains `0.4.0`. Sealed V3 `v0.4.0` is unchanged.
+Project version remains `0.4.0` until a Controller-authorized `v0.5.0` release.
+Sealed V3 `v0.4.0` is unchanged.
 
-Architecture authority remains [`docs/v4-architecture-freeze-1.0.md`](v4-architecture-freeze-1.0.md).
+Historical maximal architecture:
+[`docs/v4-architecture-freeze-1.0.md`](v4-architecture-freeze-1.0.md).
 
 ## What exists
 
