@@ -3,13 +3,12 @@ from collections.abc import Iterator, Sequence
 
 import pytest
 import yaml
-from alembic import command
-from alembic.config import Config as AlembicConfig
+from isolated_postgres import isolated_test_engine, refuse_engine_targets_shared_database
 from sqlalchemy import Engine, delete, func, select, update
 
 from app.db.models import Document as StoredDocument
 from app.db.models import DocumentChunk as StoredDocumentChunk
-from app.db.session import create_knowledge_engine, create_knowledge_session_factory
+from app.db.session import create_knowledge_session_factory
 from app.embeddings.client import EmbeddingServiceError
 from app.ingestion.errors import (
     EmbeddingProfileMismatchError,
@@ -65,14 +64,8 @@ class FailingEmbedder(FakeEmbedder):
 
 @pytest.fixture(scope="session")
 def ingestion_engine() -> Iterator[Engine]:
-    config = AlembicConfig("alembic.ini")
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
-    engine = create_knowledge_engine()
-    try:
+    with isolated_test_engine(prefix="knowledge_agent_v2_ing") as engine:
         yield engine
-    finally:
-        engine.dispose()
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +76,7 @@ def clean_knowledge_tables(ingestion_engine: Engine) -> Iterator[None]:
 
 
 def _delete_all(engine: Engine) -> None:
+    refuse_engine_targets_shared_database(engine)
     with engine.begin() as connection:
         connection.execute(delete(StoredDocumentChunk))
         connection.execute(delete(StoredDocument))

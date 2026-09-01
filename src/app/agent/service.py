@@ -16,9 +16,11 @@ from app.agent.leave_models import LeaveRequestDraft, PrepareLeaveRequestArgumen
 from app.agent.loop_models import (
     MAX_AGENT_CITATIONS,
     AgentModelTurn,
+    AgentProviderUsage,
     AgentRunResult,
     AgentRunStatus,
     AgentToolResponse,
+    merge_provider_usage,
 )
 from app.agent.models import (
     KnowledgeToolData,
@@ -107,6 +109,7 @@ class AgentService:
         citation_identities: set[tuple[str, str, str, str, int | None]] = set()
         tool_calls_attempted = 0
         prepared_leave_request: LeaveRequestDraft | None = None
+        usage: AgentProviderUsage | None = None
 
         for model_round in range(1, MAX_MODEL_ROUNDS_PER_TURN + 1):
             try:
@@ -118,6 +121,7 @@ class AgentService:
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
                     provider_failure=exc.failure,
+                    usage=usage,
                 )
             except InvalidAgentProviderResponseError:
                 return _unable(
@@ -126,6 +130,7 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    usage=usage,
                 )
             except AgentProviderError as exc:
                 return _provider_unavailable(
@@ -134,6 +139,7 @@ class AgentService:
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
                     provider_failure=exc.failure,
+                    usage=usage,
                 )
             except Exception:
                 return _unable(
@@ -142,8 +148,10 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    usage=usage,
                 )
             pending_responses = ()
+            usage = merge_provider_usage(usage, turn.usage)
 
             if turn.final_text is not None:
                 return AgentRunResult(
@@ -153,6 +161,7 @@ class AgentService:
                     prepared_leave_request=prepared_leave_request,
                     tool_calls_attempted=tool_calls_attempted,
                     model_rounds=model_round,
+                    usage=usage,
                 )
 
             if not turn.requested_calls:
@@ -168,6 +177,7 @@ class AgentService:
                         safe_message="The assistant reached its tool-call limit.",
                         tool_calls_attempted=tool_calls_attempted,
                         model_rounds=model_round,
+                        usage=usage,
                     )
                 tool_calls_attempted += 1
                 try:
@@ -206,6 +216,7 @@ class AgentService:
             rounds=MAX_MODEL_ROUNDS_PER_TURN,
             citations=tuple(citations),
             prepared_leave_request=prepared_leave_request,
+            usage=usage,
         )
 
     def _dispatch_requested_call(
@@ -285,6 +296,7 @@ def _unable(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.UNABLE_TO_COMPLETE,
@@ -293,6 +305,7 @@ def _unable(
         safe_message=message,
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
+        usage=usage,
     )
 
 
@@ -303,6 +316,7 @@ def _provider_unavailable(
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
     provider_failure: AgentProviderFailureDetail | None = None,
+    usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_UNAVAILABLE,
@@ -312,6 +326,7 @@ def _provider_unavailable(
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
         provider_failure=provider_failure,
+        usage=usage,
     )
 
 
@@ -322,6 +337,7 @@ def _provider_rate_limited(
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
     provider_failure: AgentProviderFailureDetail | None = None,
+    usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.PROVIDER_RATE_LIMITED,
@@ -331,4 +347,5 @@ def _provider_rate_limited(
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
         provider_failure=provider_failure,
+        usage=usage,
     )

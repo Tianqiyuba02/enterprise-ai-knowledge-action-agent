@@ -8,3 +8,6 @@ class AuthenticatedEmployeeContext:
     """Server-resolved employee identity; never constructed from request bodies."""
 
     employee_id: str
+    subject_id: str | None = None
+    session_id: str | None = None
+    jurisdiction: str | None = None

@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Response
 from app import __version__
 from app.agent.service import AgentService
 from app.api.errors import register_error_handlers
-from app.api.routes import assistant, chat, health, knowledge, me
+from app.api.routes import actions, assistant, chat, health, knowledge, me
 from app.knowledge.query_service import KnowledgeQueryService
 from app.llm.client import GeminiStructuredClient
 from app.repositories.demo import DemoRepository
@@ -70,4 +70,5 @@ def create_app(
     app.include_router(me.router, prefix=API_PREFIX)
     app.include_router(knowledge.router, prefix=API_PREFIX)
     app.include_router(assistant.router, prefix=API_PREFIX)
+    app.include_router(actions.router, prefix=API_PREFIX)
     return app

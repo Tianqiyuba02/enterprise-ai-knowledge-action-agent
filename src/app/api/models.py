@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 
@@ -104,3 +105,32 @@ class ErrorResponse(APIModel):
     error_code: str
     message: str
     request_id: str
+
+
+class ActionResponse(APIModel):
+    action_id: str
+    revision: int
+    action_type: str
+    state: str
+    draft: dict[str, object]
+    action_expires_at: datetime
+    confirmed_expires_at: datetime | None
+    confirmation_required: StrictBool
+    manual_review_required: StrictBool
+
+
+class ConfirmActionRequest(APIModel):
+    challenge_id: UUID
+    confirmation_token: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=256, strict=True),
+    ]
+
+
+class ConfirmationChallengeResponse(APIModel):
+    challenge_id: str
+    confirmation_token: str
+    expires_at: datetime
+    action_id: str
+    revision: int
+    action: ActionResponse

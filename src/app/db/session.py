@@ -11,7 +11,7 @@ def create_knowledge_engine(settings: KnowledgeSettings | None = None) -> Engine
 
     resolved_settings = settings or load_knowledge_settings()
     return create_engine(
-        resolved_settings.knowledge_database_url.get_secret_value(),
+        resolved_settings.database_url.get_secret_value(),
         pool_pre_ping=True,
     )
 
@@ -20,3 +20,7 @@ def create_knowledge_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Build an explicit synchronous session factory for V2 callers."""
 
     return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+
+
+create_app_engine = create_knowledge_engine
+create_app_session_factory = create_knowledge_session_factory

@@ -1,0 +1,25 @@
+{
+  "run": 1,
+  "dataset_kind": "DEVELOPMENT",
+  "evaluator_version": "v4-product-eval-1",
+  "development_set_version": "v4-product-dev-1",
+  "status": "PARTIAL / PROVIDER-LIMITED",
+  "not_a_pass": true,
+  "not_a_holdout": true,
+  "evidence_commit": "d2092d367504eb6c9e83e0c212015641335ba1e6",
+  "artifact": "v4-product-dev-1-eval-1-run-1.json",
+  "provider_completed_count": 9,
+  "provider_blocked_count": 7,
+  "semantic_evaluable_count": 9,
+  "semantic_pass_count": 9,
+  "unobserved_families": [
+    "dev_v4_c3_profile_read",
+    "dev_v4_d2_action_id_injection",
+    "dev_v4_e1_repeat_prepare_reuse",
+    "dev_v4_e2_reason_mismatch_reuse",
+    "dev_v4_e3_unknown_blocks_replace",
+    "dev_v4_e4_succeeded_no_duplicate",
+    "dev_v4_f1_full_e2e"
+  ],
+  "rate_limited_means": "normalized HTTP 429 + RESOURCE_EXHAUSTED; not proven visible RPM/TPM/RPD exhaustion"
+}

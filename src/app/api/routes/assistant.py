@@ -4,13 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.agent.service import AgentService
-from app.api.assistant_models import (
-    AssistantQueryRequest,
-    AssistantQueryResponse,
-    map_agent_result,
-)
-from app.api.dependencies import get_agent_service, get_authenticated_employee
+from app.api.assistant_application import AssistantApplicationService
+from app.api.assistant_models import AssistantQueryRequest, AssistantQueryResponse
+from app.api.dependencies import get_assistant_application_service, get_authenticated_employee
 from app.api.models import ErrorResponse
 from app.identity import AuthenticatedEmployeeContext
 
@@ -32,6 +28,6 @@ def query_assistant(
         AuthenticatedEmployeeContext,
         Depends(get_authenticated_employee),
     ],
-    service: Annotated[AgentService, Depends(get_agent_service)],
+    service: Annotated[AssistantApplicationService, Depends(get_assistant_application_service)],
 ) -> AssistantQueryResponse:
-    return map_agent_result(service.run(payload.message, context))
+    return service.query(payload.message, context)

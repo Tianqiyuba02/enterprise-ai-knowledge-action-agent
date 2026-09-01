@@ -2,11 +2,14 @@
 
 This repository contains the completed **Product Milestone V0** LLM foundation, **Product
 Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** authority-aware
-RAG implementation released as `v0.3.0`, and **Product Milestone V3** Agent + Tools released
-as `v0.4.0`.
+RAG implementation released as `v0.3.0`, **Product Milestone V3** Agent + Tools released
+as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution released as
+`v0.5.0`.
 
-This is not yet the finished enterprise assistant. The approved product plan is in
-[`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
+This is a local portfolio system, not a production-ready HR platform. The approved
+product plan is in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
+That kickoff still describes the original LangGraph V4 sketch; the live V4 design is the
+later simplified PostgreSQL-authoritative execution path.
 
 ## Milestone Status
 
@@ -16,7 +19,7 @@ This is not yet the finished enterprise assistant. The approved product plan is 
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
 | V3 — Agent + Tools | ✅ Complete — `v0.4.0` |
-| V4 — LangGraph + HITL | Not started |
+| V4 — Safe Action Execution | ✅ Complete — `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
 | V5 — Evaluation + Deployment | Not started |
 
 ### V0 Verification
@@ -72,6 +75,29 @@ V3 `v0.4.0` is published.
 - Release commit: `d396122d368be8c4849872c233460da09a857b17`
 - Annotated tag: `v0.4.0`
 - GitHub Release: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent/releases/tag/v0.4.0
+
+### V4 Release Verification
+
+V4 live execution is **not** LangGraph. After out-of-band confirmation, a PostgreSQL
+poller claims a `CONFIRMED` action, locks the revision, takes an employee advisory
+transaction lock, revalidates, and commits the leave mutation, final state, and audit
+together.
+
+Post-simplification Development evaluation is **CLOSED — PARTIAL / PROVIDER-LIMITED**.
+It is not a Development PASS, not 15/15 PASS, and not a holdout PASS.
+
+- Applicable denominator: 15
+- Semantic evidence: 11 / 15
+- Observed semantic results: 11 / 11 PASS
+- Semantic failures: 0
+- Product/business misses: 0
+- Safety/authority misses: 0
+- Uncovered applicable cases: `e1`, `e2`, `e4`, `f1`
+- N/A: `dev_v4_e3_unknown_blocks_replace` (retired `UNKNOWN_OUTCOME` architecture)
+- Provider limitation: intermittent Gemini HTTP 429 / `RESOURCE_EXHAUSTED`
+- V4 holdout: **NOT CREATED / DEFERRED**
+
+See [`docs/v4-product-evaluation.md`](docs/v4-product-evaluation.md).
 
 ## What V0 demonstrates
 
@@ -145,6 +171,26 @@ The V3 agent holdout passed on first authorized exposure. Accidental
 result, and adjudication record, and `docs/v3-release-readiness.md` for the published `v0.4.0`
 status. V3 product code remains frozen at the published release.
 
+V4 development evaluation used the existing live-provider harness. That campaign is
+closed as PARTIAL / PROVIDER-LIMITED. Do not treat it as holdout. `--split holdout`
+remains rejected because a V4 holdout does not exist.
+
+## What V4 adds (`v0.5.0`)
+
+V4 adds safe executable annual-leave actions:
+
+- deterministic PREPARE from trusted identity and calendar authority;
+- out-of-band HITL confirmation (chat "yes" cannot confirm);
+- PostgreSQL-authoritative action state;
+- database-enforced occupancy and leave idempotency;
+- employee-level advisory-lock serialization;
+- atomic leave mutation, final state, and audit in one COMMIT;
+- crash/concurrency safety on the simplified poller path.
+
+Development evaluation remains **CLOSED — PARTIAL / PROVIDER-LIMITED** (11/15
+applicable semantic evidence). This is not a full semantic validation and not a
+holdout result.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;
@@ -210,13 +256,24 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 | `GET` | `/api/v1/health` | Typed liveness response |
 | `POST` | `/api/v1/chat` | Existing schema-validated Gemini capability |
 | `POST` | `/api/v1/knowledge/query` | Authenticated grounded policy answer with citations |
-| `POST` | `/api/v1/assistant/query` | Authenticated bounded read/prepare orchestration |
+| `POST` | `/api/v1/assistant/query` | Authenticated bounded read/prepare orchestration; may persist a V4 action |
+| `GET` | `/api/v1/actions/{action_id}` | Authenticated owner read of a persisted V4 action |
+| `POST` | `/api/v1/actions/{action_id}/confirmation-challenges` | Issue an out-of-band confirmation challenge |
+| `POST` | `/api/v1/actions/{action_id}/confirm` | Confirm a challenged action with the returned token |
+| `POST` | `/api/v1/actions/{action_id}/cancel` | Cancel an owner action that is still cancellable |
 | `GET` | `/api/v1/me/profile` | Authenticated synthetic employee's profile |
 | `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
 | `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
 
-Chat, knowledge, and assistant queries require `GEMINI_API_KEY`; knowledge-backed requests also
-require PostgreSQL. Health and seeded `/me/*` reads start and work without those dependencies.
+Chat, knowledge, and assistant queries require `GEMINI_API_KEY`; knowledge-backed and V4 action
+requests also require PostgreSQL. Health and seeded `/me/*` reads start and work without those
+dependencies.
+
+Confirmed V4 actions are executed by the internal poller, not by chat text:
+
+```bash
+uv run enterprise-ai-workflow-worker --once
+```
 
 ## Run the V0 CLI
 
@@ -237,7 +294,7 @@ error message to standard error and exit non-zero without a traceback.
 
 ## Test and lint
 
-Ordinary V0, V1, V2, and V3 deterministic tests are offline and require no internet, API key, or
+Ordinary V0, V1, V2, V3, and V4 deterministic tests are offline and require no internet, API key, or
 paid provider call:
 
 ```bash
@@ -273,9 +330,9 @@ GitHub Release
 - Pull Requests may be used as review checkpoints in this solo project, but are not mandatory for
   every small documentation change.
 
-Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, and V3 → `v0.4.0`. Planned
-future mapping is V4 → `v0.5.0` and portfolio-ready V5 → `v1.0.0`. Tags are created only after
-milestone review and merge to `main`. `v0.4.0` is published.
+Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, V3 → `v0.4.0`, and
+V4 → `v0.5.0`. Planned future mapping is portfolio-ready V5 → `v1.0.0`. Tags are created
+only after milestone review and merge to `main`. `v0.5.0` is published.
 
 ## Project structure
 
@@ -297,8 +354,9 @@ enterprise-ai-knowledge-action-agent/
 │   ├── knowledge/          # applicability, retrieval, citations, and query service
 │   ├── llm/                # preserved V0/V1 Gemini analysis boundary
 │   ├── repositories/       # seeded V1 employee data
-│   └── services/           # V1 application services
-├── tests/                  # V0/V1, V2 unit/API, and gated PostgreSQL integration tests
+│   ├── services/           # V1 application services
+│   └── workflow/           # V4 PREPARE, confirmation, poller, and atomic leave execution
+├── tests/                  # V0–V4 unit/API tests and gated PostgreSQL integration tests
 ├── .env.example
 ├── .gitignore
 ├── .python-version
@@ -323,6 +381,11 @@ V2 explicitly does **not** include agents, provider-native tool calling, LangGra
 action preparation/confirmation, MCP, multi-agent systems, application containerization, enterprise
 integrations, or a frontend. Those capabilities remain outside Product Milestone V2.
 
-V3 remains READ + PREPARE only. It does not include LangGraph, HITL execution, persisted action
-execution, or business mutation. Mixed-form relative-weekday requests may be over-constrained and
-fail closed; that limitation is deferred as post-V3 hardening and is not fixed in this release.
+V3 remains READ + PREPARE only. Mixed-form relative-weekday requests may be over-constrained and
+fail closed; that limitation is deferred as post-V3 hardening and is not fixed in V3.
+
+V4 adds persisted annual-leave actions, out-of-band confirmation, and PostgreSQL-authoritative
+execution. It is not a production HR platform: identity is still synthetic demo sessions, the
+corpus is fictitious, and Development evaluation coverage is provider-limited (11/15 applicable
+cases). A V4 holdout was not created. The original kickoff LangGraph/checkpoint design is
+historical and is not the live execution path.

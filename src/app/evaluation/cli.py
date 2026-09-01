@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=[mode.value for mode in EvaluationMode] + ["agent"],
+        choices=[mode.value for mode in EvaluationMode] + ["agent", "v4-product"],
         required=True,
     )
     parser.add_argument(
@@ -81,6 +81,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="evaluator-only delay between live case attempts (default: 0)",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="run the non-scored V4 provider preflight only",
+    )
+    parser.add_argument(
+        "--authorize-preflight",
+        action="store_true",
+        help="explicitly authorize one live provider preflight call",
+    )
+    parser.add_argument(
+        "--provider-diagnostic-pair",
+        action="store_true",
+        help="run the non-scored V4 mirrored provider diagnostic pair only",
+    )
+    parser.add_argument(
+        "--authorize-diagnostic-pair",
+        action="store_true",
+        help="explicitly authorize the non-scored mirrored provider diagnostic pair",
+    )
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -95,6 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.mode == "agent":
         return run_agent_cli(args, split)
+    if args.mode == "v4-product":
+        from app.evaluation.v4.cli import run_v4_product_cli
+
+        return run_v4_product_cli(args, split)
     mode = EvaluationMode(args.mode)
 
     output = args.output or Path(f"evals/results/v2-stage5a-{split.value}-{mode.value}.json")

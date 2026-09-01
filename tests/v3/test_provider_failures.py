@@ -92,6 +92,12 @@ def _assert_safe(detail: AgentProviderFailureDetail) -> None:
         "exception_class",
         "http_status_code",
         "symbolic_status",
+        "provider_error_code",
+        "quota_metric",
+        "quota_limit",
+        "quota_limit_value",
+        "quota_location",
+        "retry_delay_ms",
     }
     assert "secret" not in serialized.lower()
     assert "bearer" not in serialized.lower()
@@ -330,6 +336,9 @@ def test_public_mapper_does_not_leak_internal_failure_fields() -> None:
         "citations",
         "message",
         "prepared_action",
+        "action",
+        "action_status",
+        "action_not_created_reason",
     }
     assert "provider_failure" not in AssistantQueryResponse.model_fields
     assert "http_status_code" not in AssistantQueryResponse.model_fields
@@ -365,3 +374,80 @@ def test_provider_failure_detail_rejects_unsafe_extra_fields() -> None:
                 "message": "secret",
             }
         )
+
+
+def test_generic_429_stays_broad_rate_limited_without_quota_subtype() -> None:
+    detail = classify_provider_failure(_api_error(errors.ClientError, 429, "RESOURCE_EXHAUSTED"))
+
+    assert detail.kind is AgentProviderFailureKind.RATE_LIMITED
+    assert detail.http_status_code == 429
+    assert detail.symbolic_status is AgentProviderSymbolicStatus.RESOURCE_EXHAUSTED
+    assert detail.provider_error_code is None
+    assert detail.quota_metric is None
+    assert detail.quota_limit is None
+    assert detail.retry_delay_ms is None
+    _assert_safe(detail)
+
+
+def test_structured_quota_fields_are_captured_when_present() -> None:
+    response = httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    exc = errors.ClientError(
+        429,
+        {
+            "error": {
+                "status": "RESOURCE_EXHAUSTED",
+                "message": "secret provider quota message",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "RATE_LIMIT_EXCEEDED",
+                        "metadata": {
+                            "quota_metric": "generativelanguage.googleapis.com/generate_requests",
+                            "quota_limit": "GenerateContentRequestsPerMinutePerProject",
+                            "quota_limit_value": "1000",
+                            "quota_location": "global",
+                        },
+                    },
+                    {
+                        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                        "retryDelay": "8s",
+                    },
+                ],
+            }
+        },
+        response,
+    )
+
+    detail = classify_provider_failure(exc)
+
+    assert detail.kind is AgentProviderFailureKind.RATE_LIMITED
+    assert detail.provider_error_code == "rate_limit_exceeded"
+    assert detail.quota_metric == "generativelanguage.googleapis.com/generate_requests"
+    assert detail.quota_limit == "GenerateContentRequestsPerMinutePerProject"
+    assert detail.quota_limit_value == "1000"
+    assert detail.quota_location == "global"
+    assert detail.retry_delay_ms == 8000
+    dumped = json.dumps(detail.model_dump(mode="json"))
+    assert "secret" not in dumped
+    assert "message" not in detail.model_dump()
+    assert "authorization" not in dumped
+
+
+def test_quota_exceeded_reason_does_not_rename_rate_limited_kind() -> None:
+    response = httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    exc = errors.ClientError(
+        429,
+        {
+            "error": {
+                "status": "RESOURCE_EXHAUSTED",
+                "message": "secret",
+                "details": [{"reason": "QUOTA_EXCEEDED"}],
+            }
+        },
+        response,
+    )
+
+    detail = classify_provider_failure(exc)
+
+    assert detail.kind is AgentProviderFailureKind.RATE_LIMITED
+    assert detail.provider_error_code == "quota_exceeded"

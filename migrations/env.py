@@ -1,4 +1,4 @@
-"""Alembic environment for the V2 knowledge-only PostgreSQL schema."""
+"""Alembic environment for the shared application PostgreSQL schema."""
 
 from logging.config import fileConfig
 
@@ -18,7 +18,7 @@ target_metadata = Base.metadata
 
 def _database_url() -> str:
     settings = load_knowledge_settings()
-    return settings.knowledge_database_url.get_secret_value()
+    return settings.database_url.get_secret_value()
 
 
 def run_migrations_offline() -> None:

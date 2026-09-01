@@ -72,8 +72,8 @@ def test_session_factory_is_synchronous() -> None:
     assert factory.kw["expire_on_commit"] is False
 
 
-def test_v2_metadata_contains_only_knowledge_tables() -> None:
-    assert set(Base.metadata.tables) == {"documents", "document_chunks"}
+def test_v2_knowledge_tables_remain_registered() -> None:
+    assert {"documents", "document_chunks"} <= set(Base.metadata.tables)
 
 
 def test_document_metadata_declares_required_constraints_and_indexes() -> None:
