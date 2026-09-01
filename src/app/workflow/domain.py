@@ -55,6 +55,30 @@ class ChallengeStatus(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class OutboxEventType(StrEnum):
+    """Historical 0002 import surface only. Not a live execution vocabulary."""
+
+    CONFIRMATION_COMMITTED = "confirmation_committed"
+    RECONCILE_REQUESTED = "reconcile_requested"
+
+
+class ExecutionOperation(StrEnum):
+    """Historical 0002 import surface only. Not a live execution vocabulary."""
+
+    SUBMIT_ANNUAL_LEAVE = "submit_annual_leave"
+
+
+class ExecutionLedgerStatus(StrEnum):
+    """Historical 0002 import surface only. Not a live execution vocabulary."""
+
+    RESERVED = "RESERVED"
+    LEASED = "LEASED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    RECONCILING = "RECONCILING"
+
+
 class ActorType(StrEnum):
     EMPLOYEE = "employee"
     SYSTEM = "system"
