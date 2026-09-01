@@ -27,6 +27,7 @@ from app.workflow.atomic_execution import (
     AtomicConfirmedExecutor,
     AtomicExecutionFailpoints,
     AtomicOutcome,
+    FailureScope,
 )
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.confirmed_poller import ConfirmedActionPoller
@@ -339,7 +340,7 @@ def test_lost_commit_acknowledgement(
         isolated_settings,
         AtomicExecutionFailpoints(discard_after_commit=True),
     ).execute_action(action_id)
-    assert result.outcome is AtomicOutcome.LOST_ACK
+    assert result.outcome is AtomicOutcome.SUCCEEDED
     assert result.observed_state == WorkflowState.SUCCEEDED.value
     assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
     assert _leave_count_for(engine, action_id) == 1
@@ -668,16 +669,23 @@ def test_transient_db_failure_leaves_confirmed(
     engine: Engine,
 ) -> None:
     action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 12, 15))
-    result = _executor(
+    executor = _executor(
         session_factory,
         isolated_settings,
         AtomicExecutionFailpoints(
             raise_transient_before_commit=OperationalError("SELECT 1", {}, Exception("db-down"))
         ),
-    ).execute_action(action_id)
+    )
+    result = executor.execute_action(action_id)
     assert result.outcome is AtomicOutcome.TRANSIENT
+    assert result.failure_kind == FailureScope.INFRASTRUCTURE.value
+    assert executor.outage_backoff_active()
+    assert not executor.action_cooldown_active(action_id)
     assert _state(engine, action_id) == WorkflowState.CONFIRMED.value
     assert _leave_count_for(engine, action_id) == 0
+    gated = executor.execute_action(action_id)
+    assert gated.outcome is AtomicOutcome.TRANSIENT
+    assert gated.action_id is None
     retry = _executor(session_factory, isolated_settings).execute_action(action_id)
     assert retry.outcome is AtomicOutcome.SUCCEEDED
 
@@ -934,7 +942,7 @@ def test_action_specific_transient_enters_process_local_cooldown(
 
     def transient(action_id: UUID) -> BaseException | None:
         if action_id == cooling:
-            return OperationalError("SELECT 1", {}, Exception("action-lock-timeout"))
+            return RuntimeError("action-specific-transient")
         return None
 
     executor = _executor(
@@ -946,6 +954,9 @@ def test_action_specific_transient_enters_process_local_cooldown(
     skipped = executor.execute_action(cooling)
     progressed = executor.execute_one()
     assert first.outcome is AtomicOutcome.TRANSIENT
+    assert first.failure_kind == FailureScope.ACTION.value
+    assert executor.action_cooldown_active(cooling)
+    assert not executor.outage_backoff_active()
     assert skipped.outcome is AtomicOutcome.SKIPPED
     assert progressed.action_id == other
     assert progressed.outcome is AtomicOutcome.SUCCEEDED
@@ -1005,7 +1016,7 @@ def test_lost_ack_uses_fresh_locked_observation(
     assert blocked.is_set()
     release.set()
     worker.join(timeout=5)
-    assert results == [AtomicOutcome.LOST_ACK]
+    assert results == [AtomicOutcome.SUCCEEDED]
     assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
     assert _leave_count_for(engine, action_id) == 1
 
@@ -1068,3 +1079,145 @@ def test_uniqueness_conflict_recovers_via_fresh_locked_probe(
     assert results[0].adopted is True
     assert _leave_count_for(engine, action_id) == 1
     assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
+
+
+def test_db_wide_failure_after_claim_uses_process_backoff(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 2))
+    executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(
+            raise_after_claim=lambda _action_id: OperationalError(
+                "SELECT 1", {}, Exception("database-unavailable")
+            )
+        ),
+    )
+    result = executor.execute_action(action_id)
+    assert result.outcome is AtomicOutcome.TRANSIENT
+    assert result.failure_kind == FailureScope.INFRASTRUCTURE.value
+    assert result.observed_state == WorkflowState.CONFIRMED.value
+    assert executor.outage_backoff_active()
+    assert not executor.action_cooldown_active(action_id)
+    assert _state(engine, action_id) == WorkflowState.CONFIRMED.value
+    assert _leave_count_for(engine, action_id) == 0
+
+
+def test_action_specific_failure_after_claim_uses_action_cooldown(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 16))
+    younger = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 17))
+
+    def poison(claimed: UUID) -> BaseException | None:
+        if claimed == action_id:
+            return RuntimeError("poison-after-claim")
+        return None
+
+    executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(raise_after_claim=poison),
+    )
+    result = executor.execute_action(action_id)
+    assert result.outcome is AtomicOutcome.TRANSIENT
+    assert result.failure_kind == FailureScope.ACTION.value
+    assert executor.action_cooldown_active(action_id)
+    assert not executor.outage_backoff_active()
+    skipped = executor.execute_action(action_id)
+    progressed = executor.execute_one()
+    assert skipped.outcome is AtomicOutcome.SKIPPED
+    assert progressed.action_id == younger
+    assert progressed.outcome is AtomicOutcome.SUCCEEDED
+    assert _state(engine, action_id) == WorkflowState.CONFIRMED.value
+
+
+def test_poller_survives_infrastructure_and_action_failures(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    outage_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 5))
+    outage_executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(
+            raise_after_claim=lambda _action_id: OperationalError(
+                "SELECT 1", {}, Exception("db-outage")
+            )
+        ),
+    )
+    outage_poller = ConfirmedActionPoller(
+        session_factory,
+        isolated_settings,
+        executor=outage_executor,
+    )
+    outage = outage_poller.run_once()
+    outage_poller.run_loop(once=True)
+    assert outage is not None
+    assert outage.outcome is AtomicOutcome.TRANSIENT
+    assert outage.failure_kind == FailureScope.INFRASTRUCTURE.value
+    assert outage_executor.outage_backoff_active()
+    assert not outage_executor.action_cooldown_active(outage_id)
+    assert _state(engine, outage_id) == WorkflowState.CONFIRMED.value
+    recovered = _executor(session_factory, isolated_settings).execute_action(outage_id)
+    assert recovered.outcome is AtomicOutcome.SUCCEEDED
+
+    poison_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 6))
+    younger = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 9))
+
+    def poison(action_id: UUID) -> BaseException | None:
+        if action_id == poison_id:
+            return RuntimeError("poison-action")
+        return None
+
+    action_executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(raise_after_claim=poison),
+    )
+    action_poller = ConfirmedActionPoller(
+        session_factory,
+        isolated_settings,
+        executor=action_executor,
+    )
+    first = action_poller.run_once()
+    second = action_poller.run_once()
+    action_poller.run_loop(once=True)
+    assert first is not None
+    assert first.action_id == poison_id
+    assert first.outcome is AtomicOutcome.TRANSIENT
+    assert first.failure_kind == FailureScope.ACTION.value
+    assert action_executor.action_cooldown_active(poison_id)
+    assert not action_executor.outage_backoff_active()
+    assert second is not None
+    assert second.action_id == younger
+    assert second.outcome is AtomicOutcome.SUCCEEDED
+    assert _state(engine, poison_id) == WorkflowState.CONFIRMED.value
+    assert _state(engine, younger) == WorkflowState.SUCCEEDED.value
+
+
+def test_lost_ack_observation_uses_fresh_physical_connection(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    engine: Engine,
+) -> None:
+    action_id = _prepare_confirmed(session_factory, isolated_settings, ALEX, date(2026, 11, 10))
+    executor = _executor(
+        session_factory,
+        isolated_settings,
+        AtomicExecutionFailpoints(discard_after_commit=True),
+    )
+    result = executor.execute_action(action_id)
+    assert result.outcome is AtomicOutcome.SUCCEEDED
+    assert result.observed_state == WorkflowState.SUCCEEDED.value
+    assert executor.last_uncertain_backend_pid is not None
+    assert executor.last_observation_backend_pid is not None
+    assert executor.last_uncertain_backend_pid != executor.last_observation_backend_pid
+    assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
+    assert _leave_count_for(engine, action_id) == 1

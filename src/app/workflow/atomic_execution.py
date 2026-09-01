@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import random
 import time
 from collections.abc import Callable
@@ -12,7 +13,8 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import bindparam, select, text
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings, load_knowledge_settings
@@ -51,6 +53,12 @@ OUTAGE_BACKOFF_INITIAL_SECONDS = 0.05
 OUTAGE_BACKOFF_CAP_SECONDS = 5.0
 ACTION_COOLDOWN_INITIAL_SECONDS = 0.05
 ACTION_COOLDOWN_CAP_SECONDS = 2.0
+
+
+class FailureScope(StrEnum):
+    CONFLICT = "CONFLICT"
+    ACTION = "ACTION"
+    INFRASTRUCTURE = "INFRASTRUCTURE"
 
 
 class AtomicOutcome(StrEnum):
@@ -128,6 +136,8 @@ class AtomicConfirmedExecutor:
         self._cooldowns: dict[UUID, _Cooldown] = {}
         self._outage_until = 0.0
         self._outage_delay = OUTAGE_BACKOFF_INITIAL_SECONDS
+        self.last_uncertain_backend_pid: int | None = None
+        self.last_observation_backend_pid: int | None = None
 
     def execute_one(self) -> AtomicExecutionResult:
         return self._execute(action_id=None)
@@ -140,12 +150,18 @@ class AtomicConfirmedExecutor:
 
         self._note_outage()
 
+    def outage_backoff_active(self) -> bool:
+        return time.monotonic() < self._outage_until
+
+    def action_cooldown_active(self, action_id: UUID) -> bool:
+        return self._is_cooling(action_id)
+
     def _execute(self, action_id: UUID | None) -> AtomicExecutionResult:
         now_mono = time.monotonic()
         if now_mono < self._outage_until:
             return AtomicExecutionResult(None, None, AtomicOutcome.TRANSIENT)
-        lost_ack_id: UUID | None = None
         claimed_id: UUID | None = None
+        observe_id: UUID | None = None
         try:
             with self._session_factory() as session:
                 _apply_transaction_timeouts(session)
@@ -164,54 +180,59 @@ class AtomicConfirmedExecutor:
                 self._raise_claim_failpoint(claimed_id)
                 result = self._finish_claimed(session, revision)
                 self._raise_failpoint("raise_transient_before_commit", action_id=claimed_id)
+                connection = session.connection()
+                if self._failpoints.discard_after_commit:
+                    with contextlib.suppress(SQLAlchemyError):
+                        self.last_uncertain_backend_pid = _backend_pid_on(connection)
                 try:
                     session.commit()
                 except SQLAlchemyError:
-                    self._invalidate(session)
-                    return self._observe_after_lost_ack(claimed_id)
-                self._clear_cooldown(claimed_id)
-                self._clear_outage()
-                if self._failpoints.discard_after_commit:
-                    lost_ack_id = claimed_id
+                    self._discard_uncertain_connection(session, connection)
+                    observe_id = claimed_id
                 else:
-                    return result
-        except _IntegrityConflict as exc:
-            return self._recover_after_conflict(exc.action_id)
-        except IntegrityError as exc:
-            if claimed_id is not None and is_leave_unique_violation(exc):
-                return self._recover_after_conflict(claimed_id)
-            if claimed_id is not None:
-                self._note_action_cooldown(claimed_id)
-                return AtomicExecutionResult(
-                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
-                )
-            self._note_outage()
-            return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
-        except _TransientExecution as exc:
-            cooled = exc.action_id or claimed_id
-            self._note_action_cooldown(cooled)
-            return AtomicExecutionResult(
-                cooled, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
-            )
-        except (OperationalError, SQLAlchemyError):
-            if claimed_id is not None:
-                self._note_action_cooldown(claimed_id)
-                return AtomicExecutionResult(
-                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
-                )
-            self._note_outage()
-            return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
-        except Exception:
-            if claimed_id is not None:
-                self._note_action_cooldown(claimed_id)
-                return AtomicExecutionResult(
-                    claimed_id, WorkflowState.CONFIRMED.value, AtomicOutcome.TRANSIENT
-                )
-            self._note_outage()
-            return AtomicExecutionResult(action_id, None, AtomicOutcome.TRANSIENT)
-        if lost_ack_id is not None:
-            return self._observe_after_lost_ack(lost_ack_id)
+                    self._clear_cooldown(claimed_id)
+                    self._clear_outage()
+                    if self._failpoints.discard_after_commit:
+                        self._discard_uncertain_connection(session, connection)
+                        observe_id = claimed_id
+                    else:
+                        return result
+        except Exception as exc:
+            return self._apply_failure_scope(exc, claimed_id=claimed_id, requested_id=action_id)
+        if observe_id is not None:
+            return self._observe_after_lost_ack(observe_id)
         return AtomicExecutionResult(action_id, None, AtomicOutcome.IDLE)
+
+    def _apply_failure_scope(
+        self,
+        exc: BaseException,
+        *,
+        claimed_id: UUID | None,
+        requested_id: UUID | None,
+    ) -> AtomicExecutionResult:
+        scope = classify_execution_failure(exc)
+        if scope is FailureScope.CONFLICT:
+            conflict_id = exc.action_id if isinstance(exc, _IntegrityConflict) else claimed_id
+            if conflict_id is None:
+                self._note_outage()
+                return AtomicExecutionResult(requested_id, None, AtomicOutcome.TRANSIENT)
+            return self._recover_after_conflict(conflict_id)
+        if scope is FailureScope.INFRASTRUCTURE:
+            self._note_outage()
+            return AtomicExecutionResult(
+                claimed_id or requested_id,
+                WorkflowState.CONFIRMED.value if claimed_id is not None else None,
+                AtomicOutcome.TRANSIENT,
+                failure_kind=FailureScope.INFRASTRUCTURE.value,
+            )
+        cooled = exc.action_id if isinstance(exc, _TransientExecution) else claimed_id
+        self._note_action_cooldown(cooled)
+        return AtomicExecutionResult(
+            cooled,
+            WorkflowState.CONFIRMED.value if cooled is not None else None,
+            AtomicOutcome.TRANSIENT,
+            failure_kind=FailureScope.ACTION.value,
+        )
 
     def _finish_claimed(
         self,
@@ -537,6 +558,7 @@ class AtomicConfirmedExecutor:
 
     def _observe_after_lost_ack(self, action_id: UUID) -> AtomicExecutionResult:
         with self._session_factory() as session:
+            self.last_observation_backend_pid = _backend_pid(session)
             try:
                 revision = self._workflows.lock_revision(session, action_id=action_id)
             except WorkflowRowNotFoundError:
@@ -544,21 +566,53 @@ class AtomicConfirmedExecutor:
                 return AtomicExecutionResult(action_id, None, AtomicOutcome.LOST_ACK)
             self._hold("hold_after_lost_ack_lock")
             leave = self._leave_queries.find_by_source_action_id(session, action_id)
+            classified = self._classify_lost_ack_observation(session, revision, leave)
             session.commit()
+            return classified
+
+    def _classify_lost_ack_observation(
+        self,
+        session: Session,
+        revision: ActionRevision,
+        leave: LeaveRequest | None,
+    ) -> AtomicExecutionResult:
+        if revision.state == WorkflowState.CONFIRMED.value and leave is None:
             return AtomicExecutionResult(
-                action_id,
-                revision.state,
-                AtomicOutcome.LOST_ACK,
-                leave_request_id=None if leave is None else leave.leave_request_id,
-                adopted=False,
+                revision.action_id,
+                WorkflowState.CONFIRMED.value,
+                AtomicOutcome.TRANSIENT,
             )
+        workflow = session.get(ActionWorkflow, revision.action_id)
+        if (
+            revision.state == WorkflowState.SUCCEEDED.value
+            and leave is not None
+            and workflow is not None
+        ):
+            try:
+                persisted = verify_persisted_draft_integrity(revision)
+            except WorkflowIntegrityError:
+                persisted = None
+            if persisted is not None and action_leave_trusted_equivalent(
+                workflow, revision, persisted, leave
+            ):
+                return AtomicExecutionResult(
+                    revision.action_id,
+                    WorkflowState.SUCCEEDED.value,
+                    AtomicOutcome.SUCCEEDED,
+                    leave_request_id=leave.leave_request_id,
+                )
+        return AtomicExecutionResult(
+            revision.action_id,
+            revision.state,
+            AtomicOutcome.LOST_ACK,
+            leave_request_id=None if leave is None else leave.leave_request_id,
+        )
 
     def _raise_failpoint(self, name: str, *, action_id: UUID | None = None) -> None:
+        del action_id
         error = getattr(self._failpoints, name)
         if error is None:
             return
-        if isinstance(error, OperationalError):
-            raise _TransientExecution(action_id) from error
         raise error
 
     def _raise_claim_failpoint(self, action_id: UUID) -> None:
@@ -568,8 +622,6 @@ class AtomicConfirmedExecutor:
         error = factory(action_id)
         if error is None:
             return
-        if isinstance(error, OperationalError):
-            raise _TransientExecution(action_id) from error
         raise error
 
     def _hold(self, name: str) -> None:
@@ -577,11 +629,41 @@ class AtomicConfirmedExecutor:
         if callback is not None:
             callback()
 
-    def _invalidate(self, session: Session) -> None:
-        session.rollback()
-        bind = session.get_bind()
-        if bind is not None and hasattr(bind, "invalidate"):
-            bind.invalidate()
+    def _discard_uncertain_connection(
+        self,
+        session: Session,
+        connection: Connection | None = None,
+    ) -> None:
+        """Invalidate the physical DBAPI connection so observation cannot reuse it."""
+
+        live = self._live_connection(session, connection)
+        if live is not None:
+            with contextlib.suppress(SQLAlchemyError):
+                self.last_uncertain_backend_pid = _backend_pid_on(live)
+            with contextlib.suppress(SQLAlchemyError):
+                live.invalidate()
+        with contextlib.suppress(SQLAlchemyError):
+            session.rollback()
+        with contextlib.suppress(SQLAlchemyError):
+            session.close()
+
+    def _live_connection(
+        self,
+        session: Session,
+        connection: Connection | None,
+    ) -> Connection | None:
+        """Return a still-usable connection, re-checking-out after commit release."""
+
+        try:
+            stale = connection is None or connection.closed or connection.invalidated
+        except SQLAlchemyError:
+            stale = True
+        if not stale:
+            return connection
+        try:
+            return session.connection()
+        except SQLAlchemyError:
+            return None
 
     def _is_cooling(self, action_id: UUID) -> bool:
         cooldown = self._cooldowns.get(action_id)
@@ -610,6 +692,28 @@ class AtomicConfirmedExecutor:
     def _clear_outage(self) -> None:
         self._outage_until = 0.0
         self._outage_delay = OUTAGE_BACKOFF_INITIAL_SECONDS
+
+
+def classify_execution_failure(exc: BaseException) -> FailureScope:
+    """Classify by exception scope. claimed_id is not a classification input."""
+
+    if isinstance(exc, _IntegrityConflict):
+        return FailureScope.CONFLICT
+    if isinstance(exc, IntegrityError) and is_leave_unique_violation(exc):
+        return FailureScope.CONFLICT
+    if isinstance(exc, IntegrityError | _TransientExecution):
+        return FailureScope.ACTION
+    if isinstance(exc, SQLAlchemyError):
+        return FailureScope.INFRASTRUCTURE
+    return FailureScope.ACTION
+
+
+def _backend_pid(session: Session) -> int:
+    return _backend_pid_on(session.connection())
+
+
+def _backend_pid_on(connection: Connection) -> int:
+    return int(connection.execute(text("SELECT pg_backend_pid()")).scalar_one())
 
 
 def action_leave_trusted_equivalent(
