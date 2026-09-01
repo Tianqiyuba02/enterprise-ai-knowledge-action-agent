@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
+from isolated_postgres import shared_development_settings
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -42,8 +43,9 @@ pytestmark = [
 
 @pytest.fixture(scope="session")
 def additive_engine() -> Iterator[Engine]:
+    settings = shared_development_settings()
     command.upgrade(AlembicConfig("alembic.ini"), "head")
-    engine = create_knowledge_engine()
+    engine = create_knowledge_engine(settings)
     try:
         yield engine
     finally:

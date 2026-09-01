@@ -11,14 +11,14 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from isolated_postgres import isolated_test_engine
+from isolated_postgres import isolated_settings_for_engine, isolated_test_engine
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.api.dependencies import DEMO_IDENTITY_BINDINGS
-from app.config import KnowledgeSettings, load_knowledge_settings
+from app.config import KnowledgeSettings
 from app.db.session import create_knowledge_session_factory
 from app.errors import ActionConflictError
 from app.identity import AuthenticatedEmployeeContext
@@ -60,8 +60,8 @@ FORBIDDEN_WITH_LEAVE = frozenset(
 
 @pytest.fixture
 def isolated_settings() -> Iterator[KnowledgeSettings]:
-    with isolated_test_engine(prefix="knowledge_agent_v4_ax"):
-        yield load_knowledge_settings()
+    with isolated_test_engine(prefix="knowledge_agent_v4_ax") as engine:
+        yield isolated_settings_for_engine(engine)
 
 
 @pytest.fixture
