@@ -20,7 +20,7 @@ PARTIAL / PROVIDER-LIMITED: 9/16 provider-completed, 7 provider-blocked, 9/9
 semantic PASS among evaluable cases. It is not a Development PASS. Stage 6P
 does not call Gemini, does not start Resume #3, and does not run Run 2.
 
-Project version remains `0.4.0` until a Controller-authorized `v0.5.0` release.
+Project version is `0.5.0` (`v0.5.0`).
 Sealed V3 `v0.4.0` is unchanged.
 
 Historical maximal architecture:

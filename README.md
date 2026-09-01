@@ -3,7 +3,7 @@
 This repository contains the completed **Product Milestone V0** LLM foundation, **Product
 Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** authority-aware
 RAG implementation released as `v0.3.0`, **Product Milestone V3** Agent + Tools released
-as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution, proposed as
+as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution released as
 `v0.5.0`.
 
 This is a local portfolio system, not a production-ready HR platform. The approved
@@ -19,7 +19,7 @@ later simplified PostgreSQL-authoritative execution path.
 | V1 — FastAPI | ✅ Complete |
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
 | V3 — Agent + Tools | ✅ Complete — `v0.4.0` |
-| V4 — Safe Action Execution | Implementation complete — proposed `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
+| V4 — Safe Action Execution | ✅ Complete — `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
 | V5 — Evaluation + Deployment | Not started |
 
 ### V0 Verification
@@ -175,7 +175,7 @@ V4 development evaluation used the existing live-provider harness. That campaign
 closed as PARTIAL / PROVIDER-LIMITED. Do not treat it as holdout. `--split holdout`
 remains rejected because a V4 holdout does not exist.
 
-## What V4 adds (proposed `v0.5.0`)
+## What V4 adds (`v0.5.0`)
 
 V4 adds safe executable annual-leave actions:
 
@@ -330,9 +330,9 @@ GitHub Release
 - Pull Requests may be used as review checkpoints in this solo project, but are not mandatory for
   every small documentation change.
 
-Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, and V3 → `v0.4.0`. Planned
-future mapping is V4 → `v0.5.0` and portfolio-ready V5 → `v1.0.0`. Tags are created only after
-milestone review and merge to `main`. `v0.4.0` is published.
+Release mapping: V0 → `v0.1.0`, V1 → `v0.2.0`, V2 → `v0.3.0`, V3 → `v0.4.0`, and
+V4 → `v0.5.0`. Planned future mapping is portfolio-ready V5 → `v1.0.0`. Tags are created
+only after milestone review and merge to `main`. `v0.5.0` is published.
 
 ## Project structure
 
