@@ -44,7 +44,6 @@ def test_existing_v2_knowledge_configuration_remains_compatible() -> None:
     assert settings.database_url.get_secret_value() == DEFAULT_KNOWLEDGE_DATABASE_URL
     assert settings.v4_confirmation_challenge_ttl_seconds == 600
     assert settings.v4_confirmed_ttl_seconds == 600
-    assert settings.v4_execution_lease_ttl_seconds == 60
     assert settings.v4_action_ttl_seconds == 1800
 
 

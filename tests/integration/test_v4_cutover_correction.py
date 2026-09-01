@@ -6,7 +6,7 @@ import os
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from isolated_postgres import isolated_test_engine
@@ -23,19 +23,14 @@ from app.workflow.atomic_execution import AtomicConfirmedExecutor, AtomicOutcome
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.cutover import (
     CutoverHaltError,
-    LegacyExecutionQuiescedError,
     normalize_legacy_execution_states,
+    refuse_legacy_execution_scheduling,
     run_execution_cutover_preflight,
 )
 from app.workflow.domain import ChallengeStatus, LeaveType, WorkflowState
-from app.workflow.execution import ExecutionPermit, ExecutionReservationService
-from app.workflow.executor import BusinessOutcome, ExecutorResult, LeaveSubmissionExecutor
-from app.workflow.finalization import ExecutionFinalizationService
 from app.workflow.leave_command_repository import LeaveCommandRepository, NewLeaveRequest
 from app.workflow.occupancy import Phase1AInvariantError, assert_cutover_invariants
-from app.workflow.runtime import WorkflowExecutionRuntime
 from app.workflow.time import database_now
-from app.workflow.worker import ClaimedWake, WorkflowWorker
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
@@ -120,16 +115,6 @@ def _prepare_confirmed(
     return action_id
 
 
-def _dummy_permit() -> ExecutionPermit:
-    return ExecutionPermit(
-        execution_key="a" * 64,
-        lease_owner_id="legacy-worker",
-        lease_generation=1,
-        action_id=uuid4(),
-        revision=1,
-    )
-
-
 def test_maintenance_cutover_halts_when_awaiting_has_leave(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
@@ -161,7 +146,6 @@ def test_maintenance_cutover_halts_when_awaiting_has_leave(
                 requested_hours=Decimal(payload["requested_hours"]),
                 reason=payload["reason"],
                 submitted_at=database_now(session),
-                execution_key=None,
                 business_request_key=revision["business_request_key"],
                 source_action_id=action_id,
                 calendar_version=revision["calendar_version"],
@@ -177,50 +161,21 @@ def test_maintenance_cutover_halts_when_awaiting_has_leave(
         connection.commit()
 
 
-def test_new_binary_legacy_execution_entrypoints_refuse(
-    session_factory: sessionmaker[Session],
-    isolated_settings: KnowledgeSettings,
-) -> None:
-    permit = _dummy_permit()
-    reservation = ExecutionReservationService(session_factory, isolated_settings)
-    executor = LeaveSubmissionExecutor(session_factory, isolated_settings)
-    finalization = ExecutionFinalizationService(session_factory, isolated_settings)
-    runtime = WorkflowExecutionRuntime(
-        session_factory, isolated_settings, worker_id="legacy-runtime"
-    )
-    worker = WorkflowWorker(session_factory, isolated_settings, worker_id="legacy-worker")
-    with pytest.raises(LegacyExecutionQuiescedError):
-        worker.run_once()
-    with pytest.raises(LegacyExecutionQuiescedError):
-        worker.claim_one()
-    with pytest.raises(LegacyExecutionQuiescedError):
-        worker.deliver(
-            ClaimedWake(
-                event_id=uuid4(),
-                event_key="legacy",
-                action_id=permit.action_id,
-                revision=1,
-                event_type="confirmation_committed",
-                attempt_count=1,
-            ),
-            mark_delivered=True,
-        )
-    with pytest.raises(LegacyExecutionQuiescedError):
-        reservation.reserve(action_id=permit.action_id, revision=1, worker_id="legacy-worker")
-    with pytest.raises(LegacyExecutionQuiescedError):
-        reservation.takeover_expired_lease(
-            action_id=permit.action_id, revision=1, worker_id="legacy-worker"
-        )
-    with pytest.raises(LegacyExecutionQuiescedError):
-        executor.submit(permit)
-    with pytest.raises(LegacyExecutionQuiescedError):
-        finalization.finalize(permit, ExecutorResult(BusinessOutcome.DEFINITELY_NOT_APPLIED))
-    with pytest.raises(LegacyExecutionQuiescedError):
-        finalization.classify_and_finalize(permit, "legacy-worker")
-    with pytest.raises(LegacyExecutionQuiescedError):
-        runtime.execute(str(permit.action_id), 1)
-    with pytest.raises(LegacyExecutionQuiescedError):
-        runtime.reconcile(str(permit.action_id), 1)
+def test_new_binary_legacy_execution_entrypoints_are_absent() -> None:
+    import importlib
+
+    for name in (
+        "app.workflow.execution",
+        "app.workflow.executor",
+        "app.workflow.finalization",
+        "app.workflow.runtime",
+        "app.workflow.worker",
+        "app.workflow.orchestration",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(name)
+    with pytest.raises(RuntimeError, match="legacy execution scheduling is quiesced"):
+        refuse_legacy_execution_scheduling()
 
 
 def test_awaiting_expiry_normalization_supersedes_active_challenge(

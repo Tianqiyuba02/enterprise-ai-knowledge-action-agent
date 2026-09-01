@@ -201,7 +201,6 @@ class ActionCreationService:
                         ruleset_version=executable.draft.ruleset_version,
                         calendar_version=executable.draft.calendar_version,
                         action_expires_at=expires_at,
-                        langgraph_thread_id=None,
                         action_id=action_id,
                     ),
                 )

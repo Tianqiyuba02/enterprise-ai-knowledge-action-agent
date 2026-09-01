@@ -283,7 +283,6 @@ class AtomicConfirmedExecutor:
                     requested_hours=quantize_hours(classified.persisted.requested_hours),
                     reason=classified.persisted.reason,
                     submitted_at=now,
-                    execution_key=None,
                     business_request_key=revision.business_request_key,
                     source_action_id=workflow.action_id,
                     source_action_revision=revision.revision,

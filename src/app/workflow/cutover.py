@@ -153,9 +153,9 @@ def run_execution_cutover_preflight(connection: Connection) -> int:
             """
         ),
         {
-            "executing": WorkflowState.EXECUTING.value,
-            "unknown": WorkflowState.UNKNOWN_OUTCOME.value,
-            "reconciling": WorkflowState.RECONCILING.value,
+            "executing": "EXECUTING",
+            "unknown": "UNKNOWN_OUTCOME",
+            "reconciling": "RECONCILING",
         },
     ).scalar_one()
     if leftover:

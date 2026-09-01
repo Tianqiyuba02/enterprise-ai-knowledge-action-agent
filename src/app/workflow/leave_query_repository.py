@@ -16,11 +16,6 @@ from app.workflow.domain import LeaveRequestStatus, LeaveType
 class LeaveQueryRepository:
     """Query committed V4 leave state without exposing a business mutation path."""
 
-    def find_by_execution_key(self, session: Session, execution_key: str) -> LeaveRequest | None:
-        return session.execute(
-            select(LeaveRequest).where(LeaveRequest.execution_key == execution_key)
-        ).scalar_one_or_none()
-
     def find_by_source_action_id(
         self, session: Session, source_action_id: UUID
     ) -> LeaveRequest | None:

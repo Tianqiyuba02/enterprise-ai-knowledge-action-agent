@@ -341,9 +341,7 @@ class V4ProductEvaluationRunner:
         )
         if created.action_id is None:
             raise RuntimeError("evaluation setup could not create a seeded action")
-        if setup.kind is V4SetupKind.SEED_UNKNOWN:
-            _set_state(self._engine, created.action_id, WorkflowState.UNKNOWN_OUTCOME.value)
-        elif setup.kind is V4SetupKind.SEED_SUCCEEDED:
+        if setup.kind is V4SetupKind.SEED_SUCCEEDED:
             _set_state(self._engine, created.action_id, WorkflowState.SUCCEEDED.value)
         return str(created.action_id)
 

@@ -8,10 +8,13 @@ from app.workflow.occupancy import (
 )
 
 
-def test_transitional_occupancy_predicate_includes_legacy_unresolved() -> None:
+def test_occupancy_predicate_is_final_three_state() -> None:
     clause = occupancy_where_sql()
     for state in TRANSITIONAL_OCCUPANCY_STATES:
         assert f"'{state}'" in clause
+    assert "EXECUTING" not in clause
+    assert "UNKNOWN_OUTCOME" not in clause
+    assert "RECONCILING" not in clause
     assert "EXPIRED" not in clause
     assert OCCUPANCY_UNIQUE_INDEX != FINAL_OCCUPANCY_UNIQUE_INDEX
 

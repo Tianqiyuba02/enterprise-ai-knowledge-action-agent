@@ -21,17 +21,12 @@ from app.workflow.challenge_repository import ChallengeRepository, NewConfirmati
 from app.workflow.domain import (
     ActionType,
     ActorType,
-    ExecutionLedgerStatus,
     LeaveRequestStatus,
     LeaveType,
-    OutboxEventType,
     WorkflowState,
 )
-from app.workflow.errors import DuplicateExecutionReservationError, DuplicateWorkflowEventError
-from app.workflow.execution_repository import ExecutionLedgerRepository, NewExecutionReservation
 from app.workflow.holiday_repository import HolidayCalendarRepository
 from app.workflow.leave_query_repository import LeaveQueryRepository
-from app.workflow.outbox_repository import NewOutboxEvent, OutboxRepository
 from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowRepository
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
@@ -181,73 +176,6 @@ def test_holiday_repository_and_calendar_service_use_seed(session: Session) -> N
     assert repository.calendar_version() == V4_CALENDAR_VERSION
 
 
-def test_outbox_duplicate_identity_and_claim_lock(session: Session) -> None:
-    workflow, _revision = _create_action(session)
-    repository = OutboxRepository()
-    event = NewOutboxEvent(
-        event_key=f"confirmation_committed:{workflow.action_id}:1",
-        action_id=workflow.action_id,
-        event_type=OutboxEventType.CONFIRMATION_COMMITTED,
-        available_at=datetime.now(UTC),
-    )
-    first = repository.enqueue(session, event)
-    with pytest.raises(DuplicateWorkflowEventError):
-        repository.enqueue(session, event)
-
-    claimed = repository.claim_ready(
-        session,
-        now=datetime.now(UTC),
-        locked_by="worker-1",
-        lock_for=timedelta(minutes=1),
-    )
-    assert [row.event_id for row in claimed] == [first.event_id]
-    assert claimed[0].locked_by == "worker-1"
-    repository.release(session, first.event_id, failure_kind="test")
-    repository.mark_delivered(session, first.event_id, delivered_at=datetime.now(UTC))
-    assert repository.get_by_event_key(session, event.event_key).delivered_at is not None
-
-
-def test_execution_ledger_duplicate_and_stale_generation(session: Session) -> None:
-    workflow, _revision = _create_action(session, start=date(2026, 9, 1))
-    other_workflow, _other_revision = _create_action(session, start=date(2026, 9, 2))
-    repository = ExecutionLedgerRepository()
-    first = repository.create_reservation(
-        session,
-        NewExecutionReservation(
-            action_id=workflow.action_id,
-            execution_key=f"exec-{workflow.action_id}",
-            lease_generation=2,
-            lease_owner_id="worker-a",
-            status=ExecutionLedgerStatus.RESERVED,
-        ),
-    )
-    nested = session.begin_nested()
-    with pytest.raises(DuplicateExecutionReservationError):
-        repository.create_reservation(
-            session,
-            NewExecutionReservation(
-                action_id=workflow.action_id,
-                execution_key=f"exec-other-{uuid4()}",
-            ),
-        )
-    nested.rollback()
-    nested = session.begin_nested()
-    with pytest.raises(DuplicateExecutionReservationError):
-        repository.create_reservation(
-            session,
-            NewExecutionReservation(
-                action_id=other_workflow.action_id,
-                execution_key=first.execution_key,
-            ),
-        )
-    nested.rollback()
-
-    locked = repository.lock_reservation(session, action_id=workflow.action_id)
-    assert locked.execution_id == first.execution_id
-    assert repository.is_stale_generation(locked.lease_generation, 1) is True
-    assert repository.is_stale_generation(locked.lease_generation, 2) is False
-
-
 def test_audit_insert_and_leave_query_without_business_mutation(session: Session) -> None:
     workflow, _revision = _create_action(session)
     AuditRepository().insert(
@@ -287,7 +215,6 @@ def test_audit_insert_and_leave_query_without_business_mutation(session: Session
             reason="Family visit",
             status=LeaveRequestStatus.SUBMITTED.value,
             submitted_at=datetime.now(UTC),
-            execution_key=f"leave-exec-{workflow.action_id}",
             business_request_key=f"leave-business-{workflow.action_id}",
             source_action_id=workflow.action_id,
             source_action_revision=1,
@@ -298,7 +225,7 @@ def test_audit_insert_and_leave_query_without_business_mutation(session: Session
     session.flush()
 
     queries = LeaveQueryRepository()
-    found = queries.find_by_execution_key(session, f"leave-exec-{workflow.action_id}")
+    found = queries.find_by_source_action_id(session, workflow.action_id)
     overlapping = queries.overlapping_active_annual_leave(
         session,
         employee_id="EMP-1001",

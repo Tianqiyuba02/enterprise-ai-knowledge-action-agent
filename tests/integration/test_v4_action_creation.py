@@ -31,7 +31,6 @@ from app.workflow.action_creation import (
 from app.workflow.canonical import business_request_key
 from app.workflow.domain import V4_REVISION, ChallengeStatus, WorkflowState
 from app.workflow.executable_preparation import V4ExecutablePreparationService
-from app.workflow.execution import ExecutionReservationService, ReservationOutcome
 from app.workflow.time import database_now
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
@@ -193,7 +192,7 @@ def test_valid_prepared_result_creates_awaiting_confirmation_action(
         workflow = session.execute(
             text(
                 """
-                SELECT owner_employee_id, owner_subject_id, jurisdiction, langgraph_thread_id
+                SELECT owner_employee_id, owner_subject_id, jurisdiction
                 FROM action_workflows WHERE action_id = :action_id
                 """
             ),
@@ -219,7 +218,6 @@ def test_valid_prepared_result_creates_awaiting_confirmation_action(
     assert workflow.owner_employee_id == ALEX.employee_id
     assert workflow.owner_subject_id == ALEX.subject_id
     assert workflow.jurisdiction == ALEX.jurisdiction
-    assert workflow.langgraph_thread_id is None
     assert revision.revision == 1
     assert revision.draft_hash == live.draft.fingerprint()
     assert revision.authority_snapshot_hash == live.snapshot.fingerprint()
@@ -231,7 +229,6 @@ def test_valid_prepared_result_creates_awaiting_confirmation_action(
     assert "subject_id" not in created.draft
     assert "session_id" not in created.draft
     assert _count(engine, "confirmation_challenges") == 0
-    assert _count(engine, "action_execution_ledger") == 0
     assert _count(engine, "leave_requests") == 0
     assert _count(engine, "action_workflows") == 1
     assert _count(engine, "action_revisions") == 1
@@ -360,30 +357,6 @@ def test_repeated_prepare_reuses_live_awaiting_and_confirmed(
     assert third.action_id == first.action_id
     assert third.disposition is ActionCreationDisposition.REUSED_EXISTING
     assert third.state == WorkflowState.CONFIRMED.value
-    assert _count(engine, "action_workflows") == 1
-
-
-@pytest.mark.skip(reason="retired after simplified execution cutover")
-@pytest.mark.parametrize(
-    "state",
-    [
-        WorkflowState.EXECUTING,
-        WorkflowState.UNKNOWN_OUTCOME,
-        WorkflowState.RECONCILING,
-    ],
-)
-def test_in_flight_request_creates_no_replacement(
-    service: ActionCreationService,
-    session_factory: sessionmaker[Session],
-    engine: Engine,
-    state: WorkflowState,
-) -> None:
-    first = service.create_or_reuse(ALEX, _draft())
-    _force_state(session_factory, first.action_id, state)
-    again = service.create_or_reuse(ALEX, _draft())
-    assert again.action_id == first.action_id
-    assert again.disposition is ActionCreationDisposition.RETURNED_IN_FLIGHT
-    assert again.state == state.value
     assert _count(engine, "action_workflows") == 1
 
 
@@ -674,36 +647,6 @@ def test_expired_confirmed_is_normalized_and_retried(
     assert old_state == WorkflowState.EXPIRED.value
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        WorkflowState.EXECUTING,
-        WorkflowState.UNKNOWN_OUTCOME,
-        WorkflowState.RECONCILING,
-    ],
-)
-@pytest.mark.skip(reason="retired after simplified execution cutover")
-def test_legacy_unresolved_expired_ttl_stays_occupying(
-    service: ActionCreationService,
-    session_factory: sessionmaker[Session],
-    engine: Engine,
-    state: WorkflowState,
-) -> None:
-    first = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 16)))
-    _force_state(session_factory, first.action_id, state, ttl_expired=True)
-    again = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 16)))
-    assert again.disposition is ActionCreationDisposition.RETURNED_IN_FLIGHT
-    assert again.action_id == first.action_id
-    assert again.state == state.value
-    assert _count(engine, "action_workflows") == 1
-    with session_factory() as session:
-        persisted = session.execute(
-            text("SELECT state FROM action_revisions WHERE action_id = :id"),
-            {"id": first.action_id},
-        ).scalar_one()
-    assert persisted == state.value
-
-
 def test_bounded_contention_returns_retryable_conflict(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
@@ -724,20 +667,3 @@ def test_bounded_contention_returns_retryable_conflict(
     assert PREPARE_CONTENTION_ATTEMPTS >= 1
     assert _count(engine, "action_workflows") == 1
     assert first.action_id is not None
-
-
-@pytest.mark.skip(reason="retired after simplified execution cutover")
-def test_legacy_reservation_remains_compatible(
-    isolated_settings: KnowledgeSettings,
-    session_factory: sessionmaker[Session],
-    service: ActionCreationService,
-) -> None:
-    created = service.create_or_reuse(ALEX, _draft(start=date(2026, 11, 18)))
-    _force_state(session_factory, created.action_id, WorkflowState.CONFIRMED)
-    reserved = ExecutionReservationService(session_factory, isolated_settings).reserve(
-        action_id=created.action_id,
-        revision=V4_REVISION,
-        worker_id="workflow-worker:phase1a",
-    )
-    assert reserved.outcome is ReservationOutcome.RESERVED
-    assert reserved.permit is not None

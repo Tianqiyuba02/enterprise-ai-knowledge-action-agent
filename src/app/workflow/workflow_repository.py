@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.db.workflow_models import ActionRevision, ActionWorkflow
 from app.workflow.domain import (
-    UNRESOLVED_EXECUTION_STATES,
     V4_REVISION,
     ActionType,
     WorkflowState,
@@ -33,7 +32,6 @@ class NewWorkflowRevision:
     ruleset_version: str
     calendar_version: str
     action_expires_at: datetime
-    langgraph_thread_id: str | None = None
     action_id: UUID | None = None
 
 
@@ -53,7 +51,6 @@ class WorkflowRepository:
             jurisdiction=spec.jurisdiction,
             action_type=spec.action_type.value,
             current_revision=V4_REVISION,
-            langgraph_thread_id=spec.langgraph_thread_id,
         )
         revision = ActionRevision(
             revision_id=uuid4(),
@@ -145,19 +142,6 @@ class WorkflowRepository:
         row.state = state.value
         session.flush()
         return row
-
-    def list_unresolved_by_business_request_key(
-        self,
-        session: Session,
-        business_request_key: str,
-    ) -> tuple[ActionRevision, ...]:
-        rows = session.execute(
-            select(ActionRevision).where(
-                ActionRevision.business_request_key == business_request_key,
-                ActionRevision.state.in_([state.value for state in UNRESOLVED_EXECUTION_STATES]),
-            )
-        ).scalars()
-        return tuple(rows)
 
     def lock_occupying_revision_for_business_request(
         self,

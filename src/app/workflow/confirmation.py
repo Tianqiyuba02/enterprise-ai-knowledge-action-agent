@@ -8,7 +8,7 @@ Transaction lock order for overlapping T2 / issue / cancel rows:
 4. action_audit_events insert
 
 CONFIRMED is durable work for the internal poller. Confirmation does not
-enqueue outbox events, wake LangGraph, or create legacy execution authority.
+schedule execution, write a wake event, or create a separate execution permit.
 """
 
 from dataclasses import dataclass
@@ -47,13 +47,8 @@ AUDIT_ACTION_CONFIRMED = "ACTION_CONFIRMED"
 AUDIT_ACTION_CANCELLED = "ACTION_CANCELLED"
 AUDIT_CANCEL_REJECTED = "CANCEL_REJECTED"
 AUDIT_ACTION_EXPIRED = "ACTION_EXPIRED"
-AUDIT_OUTBOX_ENQUEUED = "OUTBOX_ENQUEUED"
 
 CANCELABLE_STATES = frozenset({WorkflowState.AWAITING_CONFIRMATION, WorkflowState.CONFIRMED})
-
-
-def confirmation_outbox_event_key(action_id: UUID, revision: int = V4_REVISION) -> str:
-    return f"confirmation_committed:{action_id}:{revision}"
 
 
 @dataclass(frozen=True, slots=True)

@@ -62,15 +62,9 @@ _SUBJECT_PATHS: Final = (
     Path("src/app/workflow/confirmation.py"),
     Path("src/app/workflow/domain.py"),
     Path("src/app/workflow/executable_preparation.py"),
-    Path("src/app/workflow/execution.py"),
-    Path("src/app/workflow/executor.py"),
-    Path("src/app/workflow/finalization.py"),
-    Path("src/app/workflow/graph.py"),
     Path("src/app/workflow/holiday_repository.py"),
     Path("src/app/workflow/leave_equivalence.py"),
     Path("src/app/workflow/occupancy.py"),
-    Path("src/app/workflow/orchestration.py"),
-    Path("src/app/workflow/worker.py"),
 )
 
 _TRANSPORT_PATHS: Final = (

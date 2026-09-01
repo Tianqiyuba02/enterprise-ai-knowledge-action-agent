@@ -6,13 +6,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from app.db import Base
 from app.db.workflow_models import (
     ActionAuditEvent,
-    ActionExecutionLedger,
     ActionRevision,
     ActionWorkflow,
     ConfirmationChallenge,
     LeaveRequest,
     PublicHoliday,
-    WorkflowOutbox,
 )
 from app.workflow.domain import (
     ALL_WORKFLOW_STATES,
@@ -29,12 +27,19 @@ V4_TABLES = {
     "action_workflows",
     "action_revisions",
     "confirmation_challenges",
-    "workflow_outbox",
-    "action_execution_ledger",
     "action_audit_events",
     "leave_requests",
 }
-FORBIDDEN_TABLES = {"action_thread_map", "reconciliation_probes"}
+REMOVED_TABLES = {
+    "workflow_outbox",
+    "action_execution_ledger",
+    "checkpoints",
+    "checkpoint_blobs",
+    "checkpoint_writes",
+    "checkpoint_migrations",
+    "action_thread_map",
+    "reconciliation_probes",
+}
 PLAINTEXT_TOKEN_COLUMNS = {"token", "plaintext_token", "confirmation_token"}
 
 
@@ -43,30 +48,33 @@ def _constraint_sql(table, name: str) -> str:
     return str(constraint.sqltext)
 
 
-def test_v4_tables_are_registered_and_forbidden_tables_are_absent() -> None:
+def test_v4_tables_are_registered_and_obsolete_tables_are_absent() -> None:
     table_names = set(Base.metadata.tables)
     assert table_names >= V4_TABLES
-    assert FORBIDDEN_TABLES.isdisjoint(table_names)
+    assert REMOVED_TABLES.isdisjoint(table_names)
     assert "documents" in table_names
     assert "document_chunks" in table_names
 
 
-def test_workflow_state_machine_matches_freeze() -> None:
+def test_workflow_state_machine_is_the_final_seven_states() -> None:
     assert {state.value for state in WorkflowState} == {
         "AWAITING_CONFIRMATION",
         "CONFIRMED",
-        "EXECUTING",
-        "UNKNOWN_OUTCOME",
-        "RECONCILING",
         "SUCCEEDED",
         "EXECUTION_FAILED",
         "CANCELLED",
         "EXPIRED",
         "STALE",
     }
-    assert "SUPERSEDED" not in {state.value for state in WorkflowState}
-    assert "SUPERSEDED" not in {state.value for state in ALL_WORKFLOW_STATES}
-    assert not hasattr(WorkflowState, "SUPERSEDED")
+    assert {state.value for state in FINAL_TARGET_WORKFLOW_STATES} == {
+        state.value for state in WorkflowState
+    }
+    assert "EXECUTING" not in {state.value for state in WorkflowState}
+    assert "UNKNOWN_OUTCOME" not in {state.value for state in WorkflowState}
+    assert "RECONCILING" not in {state.value for state in WorkflowState}
+    assert not hasattr(WorkflowState, "EXECUTING")
+    assert not hasattr(WorkflowState, "UNKNOWN_OUTCOME")
+    assert not hasattr(WorkflowState, "RECONCILING")
     assert NON_TERMINAL_WORKFLOW_STATES.isdisjoint(TERMINAL_WORKFLOW_STATES)
     assert ALL_WORKFLOW_STATES == NON_TERMINAL_WORKFLOW_STATES | TERMINAL_WORKFLOW_STATES
     assert {status.value for status in ChallengeStatus} == {
@@ -89,20 +97,15 @@ def test_revision_state_constraint_covers_final_target_states_only() -> None:
     state_sql = _constraint_sql(ActionRevision.__table__, "ck_action_revisions_state")
     for state in FINAL_TARGET_WORKFLOW_STATES:
         assert f"'{state.value}'" in state_sql
-    for state in (
-        WorkflowState.EXECUTING,
-        WorkflowState.UNKNOWN_OUTCOME,
-        WorkflowState.RECONCILING,
-    ):
-        assert f"'{state.value}'" not in state_sql
-    assert "SUPERSEDED" not in state_sql
+    for state in ("EXECUTING", "UNKNOWN_OUTCOME", "RECONCILING"):
+        assert f"'{state}'" not in state_sql
 
 
-def test_action_workflows_require_unique_langgraph_thread_id() -> None:
+def test_action_workflows_have_no_langgraph_thread_id() -> None:
+    columns = set(ActionWorkflow.__table__.c.keys())
     constraint_names = {constraint.name for constraint in ActionWorkflow.__table__.constraints}
-    column = ActionWorkflow.__table__.c.langgraph_thread_id
-    assert "uq_action_workflows_langgraph_thread_id" in constraint_names
-    assert column.nullable is True
+    assert "langgraph_thread_id" not in columns
+    assert "uq_action_workflows_langgraph_thread_id" not in constraint_names
     assert ActionWorkflow.__table__.c.created_at.type.timezone is True
 
 
@@ -133,37 +136,19 @@ def test_active_challenge_uniqueness_uses_partial_unique_index() -> None:
     assert str(active.dialect_options["postgresql"]["where"]) == "status = 'ACTIVE'"
 
 
-def test_execution_ledger_uniqueness_and_numeric_lease_generation() -> None:
-    table = ActionExecutionLedger.__table__
-    constraint_names = {constraint.name for constraint in table.constraints}
-    assert "uq_action_execution_ledger_reservation" in constraint_names
-    assert "uq_action_execution_ledger_execution_key" in constraint_names
-    assert "lease_generation >= 1" in _constraint_sql(
-        table,
-        "ck_action_execution_ledger_lease_generation",
-    )
-
-
 def test_leave_request_key_uniqueness_and_decimal_hours() -> None:
     table = LeaveRequest.__table__
+    columns = set(table.c.keys())
     constraint_names = {constraint.name for constraint in table.constraints}
-    assert "uq_leave_requests_execution_key" in constraint_names
+    assert "execution_key" not in columns
+    assert "uq_leave_requests_execution_key" not in constraint_names
     assert "uq_leave_requests_business_request_key" in constraint_names
+    assert "uq_leave_requests_source_action_id" in constraint_names
     hours_type = table.c.requested_hours.type
     assert isinstance(hours_type, Numeric)
     assert hours_type.precision == 10
     assert hours_type.scale == 2
     assert not isinstance(hours_type, DateTime)
-
-
-def test_workflow_outbox_has_event_identity_and_claim_index() -> None:
-    table = WorkflowOutbox.__table__
-    constraint_names = {constraint.name for constraint in table.constraints}
-    indexes = {index.name: index for index in table.indexes}
-    assert "uq_workflow_outbox_event_key" in constraint_names
-    claim = indexes["ix_workflow_outbox_claimable"]
-    assert [column.name for column in claim.columns] == ["available_at", "locked_until"]
-    assert str(claim.dialect_options["postgresql"]["where"]) == "delivered_at IS NULL"
 
 
 def test_audit_events_do_not_declare_update_or_delete_hooks() -> None:

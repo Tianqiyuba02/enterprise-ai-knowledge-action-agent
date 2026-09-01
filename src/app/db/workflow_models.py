@@ -30,11 +30,8 @@ from app.workflow.domain import (
     ActionType,
     ActorType,
     ChallengeStatus,
-    ExecutionLedgerStatus,
-    ExecutionOperation,
     LeaveRequestStatus,
     LeaveType,
-    OutboxEventType,
     sql_in_clause,
 )
 
@@ -42,9 +39,6 @@ SHA256_HEX_PATTERN = r"^[0-9a-f]{64}$"
 WORKFLOW_STATE_SQL = sql_in_clause(FINAL_TARGET_WORKFLOW_STATES)
 CHALLENGE_STATUS_SQL = sql_in_clause(ChallengeStatus)
 ACTION_TYPE_SQL = sql_in_clause(ActionType)
-OUTBOX_EVENT_TYPE_SQL = sql_in_clause(OutboxEventType)
-EXECUTION_OPERATION_SQL = sql_in_clause(ExecutionOperation)
-EXECUTION_STATUS_SQL = sql_in_clause(ExecutionLedgerStatus)
 ACTOR_TYPE_SQL = sql_in_clause(ActorType)
 LEAVE_STATUS_SQL = sql_in_clause(LeaveRequestStatus)
 LEAVE_TYPE_SQL = sql_in_clause(LeaveType)
@@ -98,7 +92,6 @@ class ActionWorkflow(Base):
 
     __tablename__ = "action_workflows"
     __table_args__ = (
-        UniqueConstraint("langgraph_thread_id", name="uq_action_workflows_langgraph_thread_id"),
         CheckConstraint(
             f"current_revision = {V4_REVISION}",
             name="ck_action_workflows_current_revision",
@@ -119,10 +112,6 @@ class ActionWorkflow(Base):
             "btrim(jurisdiction) <> ''",
             name="ck_action_workflows_jurisdiction_nonempty",
         ),
-        CheckConstraint(
-            "langgraph_thread_id IS NULL OR btrim(langgraph_thread_id) <> ''",
-            name="ck_action_workflows_langgraph_thread_id_nonempty",
-        ),
         Index("ix_action_workflows_owner_subject_id", "owner_subject_id"),
         Index("ix_action_workflows_owner_employee_id", "owner_employee_id"),
     )
@@ -141,7 +130,6 @@ class ActionWorkflow(Base):
         nullable=False,
         server_default=text(str(V4_REVISION)),
     )
-    langgraph_thread_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -297,158 +285,6 @@ class ConfirmationChallenge(Base):
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class WorkflowOutbox(Base):
-    """Durable event identity for future SKIP LOCKED competing consumers."""
-
-    __tablename__ = "workflow_outbox"
-    __table_args__ = (
-        UniqueConstraint("event_key", name="uq_workflow_outbox_event_key"),
-        CheckConstraint(
-            f"event_type IN ({OUTBOX_EVENT_TYPE_SQL})",
-            name="ck_workflow_outbox_event_type",
-        ),
-        CheckConstraint("attempt_count >= 0", name="ck_workflow_outbox_attempt_count"),
-        CheckConstraint("btrim(event_key) <> ''", name="ck_workflow_outbox_event_key_nonempty"),
-        ForeignKeyConstraint(
-            ["action_id", "revision"],
-            ["action_revisions.action_id", "action_revisions.revision"],
-            name="fk_workflow_outbox_revision",
-            ondelete="RESTRICT",
-        ),
-        Index(
-            "ix_workflow_outbox_claimable",
-            "available_at",
-            "locked_until",
-            postgresql_where=text("delivered_at IS NULL"),
-        ),
-        Index("ix_workflow_outbox_action_revision", "action_id", "revision"),
-    )
-
-    event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    event_key: Mapped[str] = mapped_column(Text, nullable=False)
-    action_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    revision: Mapped[int] = mapped_column(Integer, nullable=False)
-    event_type: Mapped[str] = mapped_column(Text, nullable=False)
-    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    attempt_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        server_default=text("0"),
-    )
-    locked_by: Mapped[str | None] = mapped_column(Text, nullable=True)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_failure_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-
-
-class ActionExecutionLedger(Base):
-    """Reservation and fencing row. No executor or business call exists in Stage 1."""
-
-    __tablename__ = "action_execution_ledger"
-    __table_args__ = (
-        UniqueConstraint(
-            "action_id",
-            "revision",
-            "operation",
-            name="uq_action_execution_ledger_reservation",
-        ),
-        UniqueConstraint("execution_key", name="uq_action_execution_ledger_execution_key"),
-        CheckConstraint(
-            f"operation IN ({EXECUTION_OPERATION_SQL})",
-            name="ck_action_execution_ledger_operation",
-        ),
-        CheckConstraint(
-            f"status IN ({EXECUTION_STATUS_SQL})",
-            name="ck_action_execution_ledger_status",
-        ),
-        CheckConstraint(
-            "lease_generation >= 1",
-            name="ck_action_execution_ledger_lease_generation",
-        ),
-        CheckConstraint(
-            "attempt_count >= 0",
-            name="ck_action_execution_ledger_attempt_count",
-        ),
-        CheckConstraint(
-            "reconciliation_attempt_count >= 0",
-            name="ck_action_execution_ledger_reconciliation_attempt_count",
-        ),
-        CheckConstraint(
-            "btrim(execution_key) <> ''",
-            name="ck_action_execution_ledger_execution_key_nonempty",
-        ),
-        ForeignKeyConstraint(
-            ["action_id", "revision"],
-            ["action_revisions.action_id", "action_revisions.revision"],
-            name="fk_action_execution_ledger_revision",
-            ondelete="RESTRICT",
-        ),
-        Index("ix_action_execution_ledger_status", "status"),
-    )
-
-    execution_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    action_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    revision: Mapped[int] = mapped_column(Integer, nullable=False)
-    operation: Mapped[str] = mapped_column(Text, nullable=False)
-    execution_key: Mapped[str] = mapped_column(Text, nullable=False)
-    lease_owner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    lease_generation: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        server_default=text("1"),
-    )
-    lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    attempt_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        server_default=text("0"),
-    )
-    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    reconciliation_attempt_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        server_default=text("0"),
-    )
-    manual_review_required: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        server_default=text("false"),
-    )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    failure_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-
-
 class ActionAuditEvent(Base):
     """Application-owned audit fact. Repository contract is INSERT-only."""
 
@@ -501,7 +337,6 @@ class LeaveRequest(Base):
 
     __tablename__ = "leave_requests"
     __table_args__ = (
-        UniqueConstraint("execution_key", name="uq_leave_requests_execution_key"),
         UniqueConstraint("business_request_key", name="uq_leave_requests_business_request_key"),
         UniqueConstraint("source_action_id", name="uq_leave_requests_source_action_id"),
         CheckConstraint(f"leave_type IN ({LEAVE_TYPE_SQL})", name="ck_leave_requests_leave_type"),
@@ -511,10 +346,6 @@ class LeaveRequest(Base):
         CheckConstraint(
             "btrim(employee_id) <> ''",
             name="ck_leave_requests_employee_id_nonempty",
-        ),
-        CheckConstraint(
-            "execution_key IS NULL OR btrim(execution_key) <> ''",
-            name="ck_leave_requests_execution_key_nonempty",
         ),
         CheckConstraint(
             "btrim(business_request_key) <> ''",
@@ -551,7 +382,6 @@ class LeaveRequest(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    execution_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     business_request_key: Mapped[str] = mapped_column(Text, nullable=False)
     source_action_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_action_revision: Mapped[int] = mapped_column(Integer, nullable=False)

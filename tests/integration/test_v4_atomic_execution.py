@@ -223,8 +223,6 @@ def test_confirmed_action_executes_exactly_once(
     assert second.outcome is AtomicOutcome.IDLE
     assert _state(engine, action_id) == WorkflowState.SUCCEEDED.value
     assert _leave_count_for(engine, action_id) == 1
-    assert _count(engine, "workflow_outbox") == 0
-    assert _count(engine, "action_execution_ledger") == 0
     _assert_no_forbidden_leave_pairs(engine)
 
 
@@ -478,7 +476,6 @@ def test_valid_adoption(
                 requested_hours=Decimal(payload["requested_hours"]),
                 reason=payload["reason"],
                 submitted_at=database_now(session),
-                execution_key=None,
                 business_request_key=revision["business_request_key"],
                 source_action_id=action_id,
                 calendar_version=revision["calendar_version"],
@@ -513,7 +510,6 @@ def test_mismatched_adoption_fails_closed(
                 requested_hours=Decimal("8.00"),
                 reason="mismatch",
                 submitted_at=database_now(session),
-                execution_key=None,
                 business_request_key=revision.business_request_key,
                 source_action_id=action_id,
                 calendar_version="AU-VIC-2026-v1",
@@ -814,7 +810,6 @@ def test_reason_mismatch_cannot_adopt(
                 requested_hours=Decimal(payload["requested_hours"]),
                 reason="tampered-reason",
                 submitted_at=database_now(session),
-                execution_key=None,
                 business_request_key=revision["business_request_key"],
                 source_action_id=action_id,
                 calendar_version=revision["calendar_version"],
@@ -1050,7 +1045,6 @@ def test_uniqueness_conflict_recovers_via_fresh_locked_probe(
                     requested_hours=Decimal(payload["requested_hours"]),
                     reason=payload["reason"],
                     submitted_at=database_now(session),
-                    execution_key=None,
                     business_request_key=revision["business_request_key"],
                     source_action_id=action_id,
                     calendar_version=revision["calendar_version"],

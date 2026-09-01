@@ -25,7 +25,6 @@ from app.workflow.action_creation import ActionCreationDisposition, ActionCreati
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.confirmed_poller import ConfirmedActionPoller
 from app.workflow.domain import WorkflowState
-from app.workflow.orchestration import WorkflowOrchestrationService
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
@@ -140,7 +139,6 @@ def _client(
     session_factory: sessionmaker[Session],
     agent: ScriptedAgent,
     *,
-    orchestration: WorkflowOrchestrationService | None = None,
     action_creation=None,
 ) -> TestClient:
     app = create_app(agent_service=agent)  # type: ignore[arg-type]
@@ -149,13 +147,12 @@ def _client(
     actions = action_creation or ActionCreationService(session_factory, isolated_settings)
     app.state.action_creation_service = actions
     app.state.confirmation_service = ConfirmationService(session_factory, isolated_settings)
-    if orchestration is not None or action_creation is not None:
+    if action_creation is not None:
         app.state.assistant_application_service = AssistantApplicationService(
             agent,  # type: ignore[arg-type]
             actions,
             session_factory=session_factory,
             settings=isolated_settings,
-            orchestration=orchestration,
         )
     return TestClient(app, raise_server_exceptions=False)
 
@@ -337,7 +334,6 @@ def test_full_offline_prepare_confirm_execute_and_replay(
     assert first is not None
     assert first.observed_state == WorkflowState.SUCCEEDED.value
     assert _count(engine, "action_workflows") == 1
-    assert _count(engine, "action_execution_ledger") == 0
     assert _count(engine, "leave_requests") == 1
     replay_confirm = client.post(
         f"/api/v1/actions/{action_id}/confirm",
@@ -365,14 +361,12 @@ def test_create_without_checkpoint_reuses_action_and_init_is_retryable(
         ALEX, _draft(start=date(2026, 11, 9))
     )
     assert created.disposition is ActionCreationDisposition.CREATED
-    assert _count(engine, "checkpoints") == 0
     reused = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
         ALEX, _draft(start=date(2026, 11, 9))
     )
     assert reused.action_id == created.action_id
     assert reused.draft == created.draft
     assert _count(engine, "action_workflows") == 1
-    assert _count(engine, "checkpoints") == 0
     confirmation = ConfirmationService(session_factory, isolated_settings)
     issued = confirmation.issue_challenge(action_id=created.action_id, context=ALEX)
     confirmation.confirm(
@@ -433,61 +427,29 @@ def test_expired_and_cancelled_generated_actions_cannot_execute(
     assert _count(engine, "leave_requests") == 0
 
 
-@pytest.mark.skip(reason="retired after simplified execution cutover")
-def test_unknown_blocks_replacement_and_calendar_drift_stales(
+def test_confirmed_action_is_reused_and_does_not_create_a_replacement(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,
 ) -> None:
-    unknown = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
+    created = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
         ALEX, _draft(start=date(2026, 11, 12))
     )
-    with session_factory() as session:
-        session.execute(
-            text("UPDATE action_revisions SET state = :state WHERE action_id = :action_id"),
-            {"state": WorkflowState.UNKNOWN_OUTCOME.value, "action_id": unknown.action_id},
-        )
-        session.commit()
-    blocked = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
-        ALEX, _draft(start=date(2026, 11, 12))
-    )
-    assert blocked.action_id == unknown.action_id
-    assert blocked.disposition is ActionCreationDisposition.RETURNED_IN_FLIGHT
-    assert _count(engine, "action_workflows") == 1
-
-    drift = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
-        ALEX, _draft(start=date(2026, 11, 13))
-    )
-    WorkflowOrchestrationService(session_factory).ensure_started(
-        action_id=drift.action_id,
-        owner_subject_id=ALEX.subject_id or "",
-        settings=isolated_settings,
-    )
-    with session_factory() as session:
-        session.execute(
-            text(
-                """
-                UPDATE action_revisions
-                SET calendar_version = 'AU-VIC-2025-v1'
-                WHERE action_id = :action_id
-                """
-            ),
-            {"action_id": drift.action_id},
-        )
-        session.commit()
     confirmation = ConfirmationService(session_factory, isolated_settings)
-    issued = confirmation.issue_challenge(action_id=drift.action_id, context=ALEX)
+    issued = confirmation.issue_challenge(action_id=created.action_id, context=ALEX)
     confirmation.confirm(
-        action_id=drift.action_id,
+        action_id=created.action_id,
         challenge_id=issued.challenge_id,
         confirmation_token=issued.confirmation_token,
         context=ALEX,
     )
-    worker = ConfirmedActionPoller(
-        session_factory, isolated_settings, worker_id="drift-worker"
-    ).run_once()
-    assert worker is not None
-    assert worker.observed_state == WorkflowState.STALE.value
+    blocked = ActionCreationService(session_factory, isolated_settings).create_or_reuse(
+        ALEX, _draft(start=date(2026, 11, 12))
+    )
+    assert blocked.action_id == created.action_id
+    assert blocked.disposition is ActionCreationDisposition.REUSED_EXISTING
+    assert blocked.state == WorkflowState.CONFIRMED.value
+    assert _count(engine, "action_workflows") == 1
     assert _count(engine, "leave_requests") == 0
 
 
@@ -539,8 +501,6 @@ def test_succeeded_balance_and_overlap_affect_later_actions(
 
 def _assert_no_confirmation_or_execution(engine: Engine) -> None:
     assert _count(engine, "confirmation_challenges") == 0
-    assert _count(engine, "workflow_outbox") == 0
-    assert _count(engine, "action_execution_ledger") == 0
     assert _count(engine, "leave_requests") == 0
 
 
@@ -687,7 +647,7 @@ def test_action_id_in_chat_is_not_workflow_authority(
     assert _count(engine, "action_workflows") == 1
 
 
-def test_action_creation_does_not_initialize_langgraph_checkpoint(
+def test_action_creation_does_not_require_checkpoint_tables(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,
@@ -710,7 +670,6 @@ def test_action_creation_does_not_initialize_langgraph_checkpoint(
     assert fetched.status_code == 200
     assert fetched.json()["draft"] == payload["action"]["draft"]
     assert _count(engine, "action_workflows") == 1
-    assert _count(engine, "checkpoints") == 0
     retry = client.post(
         "/api/v1/assistant/query",
         headers=ALEX_HEADERS,
@@ -722,7 +681,7 @@ def test_action_creation_does_not_initialize_langgraph_checkpoint(
     _assert_no_confirmation_or_execution(engine)
 
 
-def test_t1_persistence_failure_is_distinct_from_graph_init_failure(
+def test_t1_persistence_failure_does_not_create_an_action(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],
     engine: Engine,

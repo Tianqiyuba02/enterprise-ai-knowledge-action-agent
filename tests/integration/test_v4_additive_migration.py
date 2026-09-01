@@ -22,8 +22,6 @@ from app.workflow.domain import (
     ActionType,
     ActorType,
     ChallengeStatus,
-    ExecutionLedgerStatus,
-    ExecutionOperation,
     LeaveRequestStatus,
     LeaveType,
     WorkflowState,
@@ -72,10 +70,10 @@ def _insert_action(connection: Connection) -> uuid.UUID:
             """
             INSERT INTO action_workflows (
                 action_id, owner_subject_id, owner_employee_id, jurisdiction,
-                action_type, current_revision, langgraph_thread_id
+                action_type, current_revision
             ) VALUES (
                 :action_id, :subject_id, :employee_id, :jurisdiction,
-                :action_type, 1, :thread_id
+                :action_type, 1
             )
             """
         ),
@@ -85,7 +83,6 @@ def _insert_action(connection: Connection) -> uuid.UUID:
             "employee_id": "EMP-1001",
             "jurisdiction": "AU-VIC",
             "action_type": ActionType.SUBMIT_ANNUAL_LEAVE.value,
-            "thread_id": f"thread-{action_id}",
         },
     )
     connection.execute(
@@ -119,7 +116,7 @@ def _insert_action(connection: Connection) -> uuid.UUID:
 def test_alembic_head_includes_applied_v4_migrations(additive_engine: Engine) -> None:
     with additive_engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0005_v4_execution_cutover"
+    assert version == "0006_v4_remove_legacy_execution"
 
 
 def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: Engine) -> None:
@@ -132,11 +129,15 @@ def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: En
         "action_workflows",
         "action_revisions",
         "confirmation_challenges",
-        "workflow_outbox",
-        "action_execution_ledger",
         "action_audit_events",
         "leave_requests",
     } <= table_names
+    assert "workflow_outbox" not in table_names
+    assert "action_execution_ledger" not in table_names
+    assert "checkpoints" not in table_names
+    assert "checkpoint_blobs" not in table_names
+    assert "checkpoint_writes" not in table_names
+    assert "checkpoint_migrations" not in table_names
     assert "action_thread_map" not in table_names
     assert "reconciliation_probes" not in table_names
 
@@ -234,46 +235,14 @@ def test_only_one_active_challenge_per_revision(connection: Connection) -> None:
         )
 
 
-def test_execution_key_cannot_be_duplicated(connection: Connection) -> None:
-    first = _insert_action(connection)
-    second = _insert_action(connection)
-    connection.execute(
-        text(
-            """
-            INSERT INTO action_execution_ledger (
-                execution_id, action_id, revision, operation, execution_key, status
-            ) VALUES (
-                :execution_id, :action_id, 1, :operation, :execution_key, :status
-            )
-            """
-        ),
-        {
-            "execution_id": uuid.uuid4(),
-            "action_id": first,
-            "operation": ExecutionOperation.SUBMIT_ANNUAL_LEAVE.value,
-            "execution_key": "exec-shared",
-            "status": ExecutionLedgerStatus.RESERVED.value,
-        },
-    )
-    with pytest.raises(IntegrityError):
-        connection.execute(
-            text(
-                """
-                INSERT INTO action_execution_ledger (
-                    execution_id, action_id, revision, operation, execution_key, status
-                ) VALUES (
-                    :execution_id, :action_id, 1, :operation, :execution_key, :status
-                )
-                """
-            ),
-            {
-                "execution_id": uuid.uuid4(),
-                "action_id": second,
-                "operation": ExecutionOperation.SUBMIT_ANNUAL_LEAVE.value,
-                "execution_key": "exec-shared",
-                "status": ExecutionLedgerStatus.RESERVED.value,
-            },
-        )
+def test_retired_execution_tables_are_absent(additive_engine: Engine) -> None:
+    inspector = inspect(additive_engine)
+    columns = {column["name"] for column in inspector.get_columns("action_workflows")}
+    leave_columns = {column["name"] for column in inspector.get_columns("leave_requests")}
+    assert "langgraph_thread_id" not in columns
+    assert "execution_key" not in leave_columns
+    assert "workflow_outbox" not in inspector.get_table_names()
+    assert "action_execution_ledger" not in inspector.get_table_names()
 
 
 def test_leave_request_business_key_is_unique(connection: Connection) -> None:
@@ -285,11 +254,11 @@ def test_leave_request_business_key_is_unique(connection: Connection) -> None:
             """
             INSERT INTO leave_requests (
                 leave_request_id, employee_id, leave_type, start_date, end_date,
-                requested_hours, status, submitted_at, execution_key, business_request_key,
+                requested_hours, status, submitted_at, business_request_key,
                 source_action_id, source_action_revision, calendar_version, ruleset_version
             ) VALUES (
                 :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
-                :hours, :status, :submitted_at, :execution_key, :business_key,
+                :hours, :status, :submitted_at, :business_key,
                 :action_id, 1, :calendar_version, 'v4-annual-leave-1'
             )
             """
@@ -302,7 +271,6 @@ def test_leave_request_business_key_is_unique(connection: Connection) -> None:
             "hours": Decimal("7.60"),
             "status": LeaveRequestStatus.SUBMITTED.value,
             "submitted_at": now,
-            "execution_key": "leave-exec-1",
             "business_key": "leave-business-shared",
             "action_id": first,
             "calendar_version": V4_CALENDAR_VERSION,
@@ -314,11 +282,11 @@ def test_leave_request_business_key_is_unique(connection: Connection) -> None:
                 """
                 INSERT INTO leave_requests (
                     leave_request_id, employee_id, leave_type, start_date, end_date,
-                    requested_hours, status, submitted_at, execution_key, business_request_key,
+                    requested_hours, status, submitted_at, business_request_key,
                     source_action_id, source_action_revision, calendar_version, ruleset_version
                 ) VALUES (
                     :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
-                    :hours, :status, :submitted_at, :execution_key, :business_key,
+                    :hours, :status, :submitted_at, :business_key,
                     :action_id, 1, :calendar_version, 'v4-annual-leave-1'
                 )
                 """
@@ -331,7 +299,6 @@ def test_leave_request_business_key_is_unique(connection: Connection) -> None:
                 "hours": Decimal("7.60"),
                 "status": LeaveRequestStatus.SUBMITTED.value,
                 "submitted_at": now,
-                "execution_key": "leave-exec-2",
                 "business_key": "leave-business-shared",
                 "action_id": second,
                 "calendar_version": V4_CALENDAR_VERSION,
@@ -387,11 +354,11 @@ def test_source_action_id_is_unique(connection: Connection) -> None:
             """
             INSERT INTO leave_requests (
                 leave_request_id, employee_id, leave_type, start_date, end_date,
-                requested_hours, status, submitted_at, execution_key, business_request_key,
+                requested_hours, status, submitted_at, business_request_key,
                 source_action_id, source_action_revision, calendar_version, ruleset_version
             ) VALUES (
                 :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
-                :hours, :status, :submitted_at, :execution_key, :business_key,
+                :hours, :status, :submitted_at, :business_key,
                 :action_id, 1, :calendar_version, 'v4-annual-leave-1'
             )
             """
@@ -399,7 +366,6 @@ def test_source_action_id_is_unique(connection: Connection) -> None:
         {
             **payload,
             "leave_request_id": uuid.uuid4(),
-            "execution_key": "leave-source-1",
             "business_key": "leave-source-a",
         },
     )
@@ -409,11 +375,11 @@ def test_source_action_id_is_unique(connection: Connection) -> None:
                 """
                 INSERT INTO leave_requests (
                     leave_request_id, employee_id, leave_type, start_date, end_date,
-                    requested_hours, status, submitted_at, execution_key, business_request_key,
+                    requested_hours, status, submitted_at, business_request_key,
                     source_action_id, source_action_revision, calendar_version, ruleset_version
                 ) VALUES (
                     :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
-                    :hours, :status, :submitted_at, :execution_key, :business_key,
+                    :hours, :status, :submitted_at, :business_key,
                     :action_id, 1, :calendar_version, 'v4-annual-leave-1'
                 )
                 """
@@ -421,7 +387,6 @@ def test_source_action_id_is_unique(connection: Connection) -> None:
             {
                 **payload,
                 "leave_request_id": uuid.uuid4(),
-                "execution_key": "leave-source-2",
                 "business_key": "leave-source-b",
                 "action_id": first,
                 "start_date": date(2026, 9, 2),
@@ -512,11 +477,11 @@ def test_phase1a_invariants_halt_nonterminal_with_leave(connection: Connection) 
             """
             INSERT INTO leave_requests (
                 leave_request_id, employee_id, leave_type, start_date, end_date,
-                requested_hours, status, submitted_at, execution_key, business_request_key,
+                requested_hours, status, submitted_at, business_request_key,
                 source_action_id, source_action_revision, calendar_version, ruleset_version
             ) VALUES (
                 :leave_request_id, 'EMP-1001', :leave_type, :start_date, :end_date,
-                :hours, :status, :submitted_at, :execution_key, :business_key,
+                :hours, :status, :submitted_at, :business_key,
                 :action_id, 1, :calendar_version, 'v4-annual-leave-1'
             )
             """
@@ -529,7 +494,6 @@ def test_phase1a_invariants_halt_nonterminal_with_leave(connection: Connection) 
             "hours": Decimal("7.60"),
             "status": LeaveRequestStatus.SUBMITTED.value,
             "submitted_at": now,
-            "execution_key": "leave-awaiting-contradiction",
             "business_key": f"business-{action_id}",
             "action_id": action_id,
             "calendar_version": V4_CALENDAR_VERSION,

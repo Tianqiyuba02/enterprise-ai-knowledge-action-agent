@@ -10,9 +10,6 @@ V4_REVISION: Final = 1
 class WorkflowState(StrEnum):
     AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
     CONFIRMED = "CONFIRMED"
-    EXECUTING = "EXECUTING"
-    UNKNOWN_OUTCOME = "UNKNOWN_OUTCOME"
-    RECONCILING = "RECONCILING"
     SUCCEEDED = "SUCCEEDED"
     EXECUTION_FAILED = "EXECUTION_FAILED"
     CANCELLED = "CANCELLED"
@@ -24,9 +21,6 @@ NON_TERMINAL_WORKFLOW_STATES: Final = frozenset(
     {
         WorkflowState.AWAITING_CONFIRMATION,
         WorkflowState.CONFIRMED,
-        WorkflowState.EXECUTING,
-        WorkflowState.UNKNOWN_OUTCOME,
-        WorkflowState.RECONCILING,
     }
 )
 TERMINAL_WORKFLOW_STATES: Final = frozenset(
@@ -48,13 +42,6 @@ FINAL_TARGET_WORKFLOW_STATES: Final = (
     WorkflowState.CANCELLED,
     WorkflowState.EXPIRED,
 )
-UNRESOLVED_EXECUTION_STATES: Final = frozenset(
-    {
-        WorkflowState.EXECUTING,
-        WorkflowState.UNKNOWN_OUTCOME,
-        WorkflowState.RECONCILING,
-    }
-)
 
 
 class ActionType(StrEnum):
@@ -66,24 +53,6 @@ class ChallengeStatus(StrEnum):
     CONSUMED = "CONSUMED"
     SUPERSEDED = "SUPERSEDED"
     EXPIRED = "EXPIRED"
-
-
-class OutboxEventType(StrEnum):
-    CONFIRMATION_COMMITTED = "confirmation_committed"
-    RECONCILE_REQUESTED = "reconcile_requested"
-
-
-class ExecutionOperation(StrEnum):
-    SUBMIT_ANNUAL_LEAVE = "submit_annual_leave"
-
-
-class ExecutionLedgerStatus(StrEnum):
-    RESERVED = "RESERVED"
-    LEASED = "LEASED"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    UNKNOWN = "UNKNOWN"
-    RECONCILING = "RECONCILING"
 
 
 class ActorType(StrEnum):

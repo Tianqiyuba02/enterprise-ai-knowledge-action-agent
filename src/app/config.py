@@ -116,12 +116,6 @@ class KnowledgeSettings(BaseSettings):
         ge=1,
         le=86_400,
     )
-    v4_execution_lease_ttl_seconds: int = Field(
-        default=60,
-        validation_alias="V4_EXECUTION_LEASE_TTL_SECONDS",
-        ge=1,
-        le=86_400,
-    )
     v4_action_ttl_seconds: int = Field(
         default=1800,
         validation_alias="V4_ACTION_TTL_SECONDS",

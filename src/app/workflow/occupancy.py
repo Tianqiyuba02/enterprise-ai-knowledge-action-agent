@@ -20,9 +20,6 @@ FINAL_OCCUPANCY_UNIQUE_INDEX: Final = "uq_action_revisions_final_occupying_busin
 TRANSITIONAL_OCCUPANCY_STATES: Final = (
     WorkflowState.AWAITING_CONFIRMATION.value,
     WorkflowState.CONFIRMED.value,
-    WorkflowState.EXECUTING.value,
-    WorkflowState.UNKNOWN_OUTCOME.value,
-    WorkflowState.RECONCILING.value,
     WorkflowState.SUCCEEDED.value,
 )
 FINAL_OCCUPANCY_STATES: Final = (
@@ -40,9 +37,9 @@ PREPARE_NORMALIZABLE_STATES: Final = frozenset(
 )
 LEGACY_UNRESOLVED_STATES: Final = frozenset(
     {
-        WorkflowState.EXECUTING.value,
-        WorkflowState.UNKNOWN_OUTCOME.value,
-        WorkflowState.RECONCILING.value,
+        "EXECUTING",
+        "UNKNOWN_OUTCOME",
+        "RECONCILING",
     }
 )
 CONTRADICTORY_TERMINAL_WITH_LEAVE: Final = frozenset(
@@ -154,9 +151,9 @@ def _leftover_legacy_unresolved(connection: Connection) -> list[str]:
         FROM action_revisions
         WHERE state IN (:executing, :unknown, :reconciling)
         """,
-        executing=WorkflowState.EXECUTING.value,
-        unknown=WorkflowState.UNKNOWN_OUTCOME.value,
-        reconciling=WorkflowState.RECONCILING.value,
+        executing="EXECUTING",
+        unknown="UNKNOWN_OUTCOME",
+        reconciling="RECONCILING",
     )
     return [
         f"legacy unresolved state {row['state']} remains on action {row['action_id']}"

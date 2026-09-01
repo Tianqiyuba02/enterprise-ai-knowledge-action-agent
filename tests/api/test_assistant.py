@@ -439,7 +439,7 @@ def test_persistence_failure_does_not_fabricate_action() -> None:
     assert response.answer == "I prepared a draft."
 
 
-def test_graph_initialization_failure_still_returns_persisted_action() -> None:
+def test_created_action_is_returned_without_orchestration() -> None:
     from datetime import UTC, datetime
     from uuid import UUID
 
@@ -464,10 +464,6 @@ def test_graph_initialization_failure_still_returns_persisted_action() -> None:
                 confirmation_required=True,
             )
 
-    class FailingOrchestration:
-        def ensure_started(self, **kwargs):
-            raise RuntimeError("checkpoint store unavailable")
-
     agent = Mock(spec=AgentService)
     agent.run.return_value = AgentRunResult(
         status=AgentRunStatus.COMPLETED,
@@ -480,7 +476,6 @@ def test_graph_initialization_failure_still_returns_persisted_action() -> None:
     service = AssistantApplicationService(
         agent,
         CreatedActions(),
-        orchestration=FailingOrchestration(),  # type: ignore[arg-type]
     )
     response = service.query(
         "Prepare leave",

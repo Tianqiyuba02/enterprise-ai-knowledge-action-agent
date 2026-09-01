@@ -20,7 +20,6 @@ class NewLeaveRequest:
     requested_hours: Decimal
     reason: str | None
     submitted_at: datetime
-    execution_key: str | None
     business_request_key: str
     source_action_id: UUID
     calendar_version: str
@@ -43,7 +42,6 @@ class LeaveCommandRepository:
             reason=spec.reason,
             status=spec.status.value,
             submitted_at=spec.submitted_at,
-            execution_key=spec.execution_key,
             business_request_key=spec.business_request_key,
             source_action_id=spec.source_action_id,
             source_action_revision=spec.source_action_revision,

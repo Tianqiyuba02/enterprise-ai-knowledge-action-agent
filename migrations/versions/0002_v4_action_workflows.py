@@ -22,13 +22,20 @@ from app.workflow.domain import (
     ActionType,
     ActorType,
     ChallengeStatus,
-    ExecutionLedgerStatus,
-    ExecutionOperation,
     LeaveRequestStatus,
     LeaveType,
-    OutboxEventType,
-    WorkflowState,
     sql_in_clause,
+)
+
+# Frozen at 0002. Later revisions narrow WorkflowState and drop these tables.
+_0002_WORKFLOW_STATE_SQL = (
+    "'AWAITING_CONFIRMATION', 'CONFIRMED', 'EXECUTING', 'UNKNOWN_OUTCOME', "
+    "'RECONCILING', 'SUCCEEDED', 'EXECUTION_FAILED', 'CANCELLED', 'EXPIRED', 'STALE'"
+)
+_0002_OUTBOX_EVENT_TYPE_SQL = "'confirmation_committed', 'reconcile_requested'"
+_0002_EXECUTION_OPERATION_SQL = "'submit_annual_leave'"
+_0002_EXECUTION_LEDGER_STATUS_SQL = (
+    "'RESERVED', 'LEASED', 'COMPLETED', 'FAILED', 'UNKNOWN', 'RECONCILING'"
 )
 
 revision: str = "0002_v4_action_workflows"
@@ -204,7 +211,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(f"revision = {V4_REVISION}", name="ck_action_revisions_revision"),
         sa.CheckConstraint(
-            f"state IN ({sql_in_clause(WorkflowState)})",
+            f"state IN ({_0002_WORKFLOW_STATE_SQL})",
             name="ck_action_revisions_state",
         ),
         sa.CheckConstraint(
@@ -319,7 +326,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            f"event_type IN ({sql_in_clause(OutboxEventType)})",
+            f"event_type IN ({_0002_OUTBOX_EVENT_TYPE_SQL})",
             name="ck_workflow_outbox_event_type",
         ),
         sa.CheckConstraint("attempt_count >= 0", name="ck_workflow_outbox_attempt_count"),
@@ -386,11 +393,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            f"operation IN ({sql_in_clause(ExecutionOperation)})",
+            f"operation IN ({_0002_EXECUTION_OPERATION_SQL})",
             name="ck_action_execution_ledger_operation",
         ),
         sa.CheckConstraint(
-            f"status IN ({sql_in_clause(ExecutionLedgerStatus)})",
+            f"status IN ({_0002_EXECUTION_LEDGER_STATUS_SQL})",
             name="ck_action_execution_ledger_status",
         ),
         sa.CheckConstraint(

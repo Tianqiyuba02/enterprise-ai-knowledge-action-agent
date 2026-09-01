@@ -22,12 +22,7 @@ EXPECTED_DOCUMENTS = 12
 EXPECTED_CHUNKS = 42
 EXPECTED_HOLIDAYS = len(VIC_2026_STATEWIDE_HOLIDAYS)
 WORKFLOW_CLEANUP_TABLES = (
-    "checkpoint_writes",
-    "checkpoint_blobs",
-    "checkpoints",
     "leave_requests",
-    "action_execution_ledger",
-    "workflow_outbox",
     "confirmation_challenges",
     "action_audit_events",
     "action_revisions",
@@ -150,8 +145,8 @@ def workflow_counts(engine: Engine) -> dict[str, int]:
         "action_workflows": _count(engine, "action_workflows"),
         "action_revisions": _count(engine, "action_revisions"),
         "confirmation_challenges": _count(engine, "confirmation_challenges"),
-        "workflow_outbox": _count(engine, "workflow_outbox"),
-        "action_execution_ledger": _count(engine, "action_execution_ledger"),
+        "workflow_outbox": 0,
+        "action_execution_ledger": 0,
         "leave_requests": _count(engine, "leave_requests"),
     }
 

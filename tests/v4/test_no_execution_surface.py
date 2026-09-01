@@ -64,9 +64,9 @@ def test_confirmation_control_plane_has_no_execution_path() -> None:
     assert "gemini" not in combined.lower()
 
 
-def test_langgraph_is_pinned_without_langchain_application_api() -> None:
+def test_langgraph_is_not_a_project_dependency() -> None:
     requirements = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "langgraph==1.2.11" in requirements
-    assert "langgraph-checkpoint-postgres==3.1.2" in requirements
+    assert "langgraph" not in requirements
+    assert "langgraph-checkpoint-postgres" not in requirements
     assert '"langchain"' not in requirements
     assert "langchain==" not in requirements

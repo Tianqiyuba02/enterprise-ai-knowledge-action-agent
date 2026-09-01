@@ -46,9 +46,8 @@ class AssistantApplicationService:
         *,
         session_factory: sessionmaker[Session] | None = None,
         settings: KnowledgeSettings | None = None,
-        orchestration=None,
     ) -> None:
-        del session_factory, settings, orchestration
+        del session_factory, settings
         self._agent = agent_service
         self._actions = action_creation
 
