@@ -1,0 +1,102 @@
+{
+  "kind": "provider_diagnostic_pair",
+  "diagnostic_version": "v4-provider-diagnostic-1",
+  "evaluator_version": "v4-product-eval-2",
+  "scored": false,
+  "development_case": false,
+  "holdout_case": false,
+  "v4_action_created": false,
+  "business_mutation": false,
+  "generated_at": "2026-08-29T06:05:28.859584Z",
+  "order": [
+    "agent_shaped",
+    "minimal_control"
+  ],
+  "provider_config_fingerprint": "f38d6d34897133bb4345deef9831d0dd914cc8e369a14dfe31ef4c605a726002",
+  "evaluation_subject_fingerprint": "2a674da5848e4882150aca3052933ac21aeaff203e22f108a0d263c7390426b1",
+  "evaluation_transport_fingerprint": "caed4a3232fe0e4dd22975c7b97244aec30e1edfea48b71e8beb5f5d5e8b601d",
+  "business_clock": {
+    "version": "v4-product-dev-1",
+    "trusted_date": "2026-08-28",
+    "timezone": "Australia/Melbourne"
+  },
+  "business_clock_fingerprint": "fc995a58cfa205024fb9d91c9eed82ea4e5e0f5446714e67482b8134e81d0a01",
+  "agent_shaped": {
+    "probe_type": "agent_shaped",
+    "scored": false,
+    "development_case": false,
+    "holdout_case": false,
+    "v4_action_created": false,
+    "business_mutation": false,
+    "tool_executed": false,
+    "started_at": "2026-08-29T06:05:27.910203Z",
+    "finished_at": "2026-08-29T06:05:28.471251Z",
+    "completed": false,
+    "provider_failure": {
+      "kind": "rate_limited",
+      "exception_class": "ClientError",
+      "http_status_code": 429,
+      "symbolic_status": "RESOURCE_EXHAUSTED",
+      "provider_error_code": null,
+      "quota_metric": null,
+      "quota_limit": null,
+      "quota_limit_value": null,
+      "quota_location": null,
+      "retry_delay_ms": 31000
+    },
+    "usage": null,
+    "response_kind": null,
+    "function_call_tool_name": null,
+    "request_shape_fingerprint": "c4817c675ddcff7bae70c51d2d7ce17aba115daaf0fbea196fea6215182dffe0",
+    "request_size": {
+      "user_chars": 33,
+      "user_bytes": 33,
+      "instruction_chars": 2274,
+      "instruction_bytes": 2274,
+      "tool_declaration_count": 5,
+      "tool_schema_bytes": 1100,
+      "contents_count": 1,
+      "max_output_tokens": 1024,
+      "envelope_bytes": 4731
+    }
+  },
+  "minimal_control": {
+    "probe_type": "minimal_control",
+    "scored": false,
+    "development_case": false,
+    "holdout_case": false,
+    "v4_action_created": false,
+    "business_mutation": false,
+    "tool_executed": false,
+    "started_at": "2026-08-29T06:05:28.485754Z",
+    "finished_at": "2026-08-29T06:05:28.835750Z",
+    "completed": false,
+    "provider_failure": {
+      "kind": "rate_limited",
+      "exception_class": "ClientError",
+      "http_status_code": 429,
+      "symbolic_status": "RESOURCE_EXHAUSTED",
+      "provider_error_code": null,
+      "quota_metric": null,
+      "quota_limit": null,
+      "quota_limit_value": null,
+      "quota_location": null,
+      "retry_delay_ms": 31000
+    },
+    "usage": null,
+    "response_kind": null,
+    "function_call_tool_name": null,
+    "request_shape_fingerprint": "f5e4f017462110fbf15b4d720f9a3ec9393916af42853257146faae714f46d49",
+    "request_size": {
+      "user_chars": 33,
+      "user_bytes": 33,
+      "instruction_chars": 148,
+      "instruction_bytes": 148,
+      "tool_declaration_count": 0,
+      "tool_schema_bytes": 0,
+      "contents_count": 1,
+      "max_output_tokens": 16,
+      "envelope_bytes": 419
+    }
+  }
+}

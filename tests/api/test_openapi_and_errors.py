@@ -7,6 +7,10 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     assert response.status_code == 200
     schema = response.json()
     assert set(schema["paths"]) == {
+        "/api/v1/actions/{action_id}",
+        "/api/v1/actions/{action_id}/cancel",
+        "/api/v1/actions/{action_id}/confirm",
+        "/api/v1/actions/{action_id}/confirmation-challenges",
         "/api/v1/assistant/query",
         "/api/v1/chat",
         "/api/v1/health",
@@ -49,7 +53,13 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "citations",
         "message",
         "prepared_action",
+        "action",
+        "action_status",
+        "action_not_created_reason",
     }
+    assert "AssistantDurableAction" in component_names
+    confirm_properties = schema["components"]["schemas"]["ConfirmActionRequest"]["properties"]
+    assert set(confirm_properties) == {"challenge_id", "confirmation_token"}
     assistant_parameters = schema["paths"]["/api/v1/assistant/query"]["post"]["parameters"]
     assert any(parameter["name"] == "X-Demo-Session" for parameter in assistant_parameters)
     assert not any(

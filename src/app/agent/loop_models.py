@@ -37,12 +37,24 @@ class AgentToolResponse:
     provider_call_id: str | None = None
 
 
+class AgentProviderUsage(BaseModel):
+    """Safe provider token counts. Missing fields stay null; values are never estimated."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    prompt_token_count: Annotated[int | None, Field(ge=0)] = None
+    output_token_count: Annotated[int | None, Field(ge=0)] = None
+    total_token_count: Annotated[int | None, Field(ge=0)] = None
+    cached_token_count: Annotated[int | None, Field(ge=0)] = None
+
+
 @dataclass(frozen=True, slots=True)
 class AgentModelTurn:
     """One parsed model response containing final text, tool calls, or neither."""
 
     final_text: str | None = None
     requested_calls: tuple[AgentRequestedToolCall, ...] = ()
+    usage: AgentProviderUsage | None = None
 
 
 class AgentRunStatus(StrEnum):
@@ -66,6 +78,7 @@ class AgentRunResult(BaseModel):
     tool_calls_attempted: Annotated[int, Field(ge=0, le=5)]
     model_rounds: Annotated[int, Field(ge=0, le=7)]
     provider_failure: AgentProviderFailureDetail | None = None
+    usage: AgentProviderUsage | None = None
 
     @model_validator(mode="after")
     def validate_status_shape(self) -> Self:
@@ -79,3 +92,40 @@ class AgentRunResult(BaseModel):
         }:
             raise ValueError("provider failure detail is only valid on provider outcomes")
         return self
+
+
+def merge_provider_usage(
+    left: AgentProviderUsage | None,
+    right: AgentProviderUsage | None,
+) -> AgentProviderUsage | None:
+    """Sum provider-returned counts only. Do not invent missing values."""
+
+    if left is None:
+        return right
+    if right is None:
+        return left
+
+    def _add(first: int | None, second: int | None) -> int | None:
+        if first is None:
+            return second
+        if second is None:
+            return first
+        return first + second
+
+    merged = AgentProviderUsage(
+        prompt_token_count=_add(left.prompt_token_count, right.prompt_token_count),
+        output_token_count=_add(left.output_token_count, right.output_token_count),
+        total_token_count=_add(left.total_token_count, right.total_token_count),
+        cached_token_count=_add(left.cached_token_count, right.cached_token_count),
+    )
+    if all(
+        value is None
+        for value in (
+            merged.prompt_token_count,
+            merged.output_token_count,
+            merged.total_token_count,
+            merged.cached_token_count,
+        )
+    ):
+        return None
+    return merged

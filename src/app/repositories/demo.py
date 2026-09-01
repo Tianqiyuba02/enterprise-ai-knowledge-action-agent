@@ -108,6 +108,55 @@ class DemoRepository:
             ),
         }
 
+    def evaluation_fixture_snapshot(self) -> dict[str, object]:
+        """Canonical trusted fixture values used by evaluated READ/PREPARE tools."""
+
+        employees = [
+            {
+                "employee_id": item.employee_id,
+                "full_name": item.full_name,
+                "work_email": item.work_email,
+                "location": item.location,
+                "employment_type": item.employment_type,
+                "hours_per_day": item.hours_per_day,
+                "work_days": list(item.work_days),
+                "timezone": item.timezone,
+                "is_active": item.is_active,
+            }
+            for item in sorted(self._employees.values(), key=lambda item: item.employee_id)
+        ]
+        balances = [
+            {
+                "employee_id": item.employee_id,
+                "leave_type": item.leave_type,
+                "balance_hours": item.balance_hours,
+                "as_of_date": item.as_of_date.isoformat(),
+            }
+            for item in sorted(
+                self._leave_balances,
+                key=lambda item: (item.employee_id, item.leave_type),
+            )
+        ]
+        tickets = [
+            {
+                "ticket_id": item.ticket_id,
+                "employee_id": item.employee_id,
+                "category": item.category,
+                "summary": item.summary,
+                "description": item.description,
+                "urgency": item.urgency,
+                "status": item.status,
+                "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in sorted(self._tickets.values(), key=lambda item: item.ticket_id)
+        ]
+        return {
+            "employees": employees,
+            "leave_balances": balances,
+            "tickets": tickets,
+        }
+
     def get_employee(self, employee_id: str) -> EmployeeRecord | None:
         return self._employees.get(employee_id)
 

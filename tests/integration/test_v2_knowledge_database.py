@@ -4,13 +4,11 @@ from collections.abc import Iterator
 from datetime import date
 
 import pytest
-from alembic import command
-from alembic.config import Config as AlembicConfig
+from isolated_postgres import isolated_test_engine
 from sqlalchemy import Connection, Engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Document, DocumentChunk
-from app.db.session import create_knowledge_engine
 
 POSTGRES_ENABLED = os.getenv("RUN_POSTGRES_TESTS") == "1"
 
@@ -25,14 +23,8 @@ pytestmark = [
 
 @pytest.fixture(scope="session")
 def migrated_engine() -> Iterator[Engine]:
-    config = AlembicConfig("alembic.ini")
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
-    engine = create_knowledge_engine()
-    try:
+    with isolated_test_engine(prefix="knowledge_agent_v2_schema") as engine:
         yield engine
-    finally:
-        engine.dispose()
 
 
 @pytest.fixture
@@ -110,7 +102,7 @@ def test_empty_database_upgrades_to_expected_head_and_schema(
     )
     assert (
         connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        == "0001_v2_knowledge"
+        == "0006_v4_remove_legacy_execution"
     )
     assert {"documents", "document_chunks"} <= tables
     assert document_columns == {column.name for column in Document.__table__.columns}

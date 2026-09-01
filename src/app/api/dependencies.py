@@ -8,6 +8,7 @@ from fastapi import Depends, Header, Request
 from app.agent.client import GeminiAgentClient
 from app.agent.dispatcher import ToolDispatcher
 from app.agent.service import AgentService
+from app.api.assistant_application import AssistantApplicationService
 from app.config import load_agent_settings, load_knowledge_settings, load_settings
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
 from app.embeddings.client import GeminiDocumentEmbeddingClient
@@ -26,13 +27,28 @@ from app.services.chat import ChatService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
+from app.workflow.action_creation import ActionCreationService
+from app.workflow.confirmation import ConfirmationService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
-DEMO_SESSIONS: Final = MappingProxyType(
+DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
     {
-        "demo-v1-7f4c2a91": "EMP-1001",
-        "demo-v1-3b8e6d50": "EMP-1002",
+        "demo-v1-7f4c2a91": AuthenticatedEmployeeContext(
+            employee_id="EMP-1001",
+            subject_id="subj_9f2c4e81a6b047d3",
+            session_id="sess_c4a81f07e2d94b6a",
+            jurisdiction="AU-VIC",
+        ),
+        "demo-v1-3b8e6d50": AuthenticatedEmployeeContext(
+            employee_id="EMP-1002",
+            subject_id="subj_1a8e5c03d7f249b6",
+            session_id="sess_e50b3d6a91c8472f",
+            jurisdiction="AU-VIC",
+        ),
     }
+)
+DEMO_SESSIONS: Final = MappingProxyType(
+    {token: identity.employee_id for token, identity in DEMO_IDENTITY_BINDINGS.items()}
 )
 
 
@@ -41,10 +57,10 @@ def get_authenticated_employee(
 ) -> AuthenticatedEmployeeContext:
     """Resolve an opaque demo token to server-controlled employee identity."""
 
-    employee_id = DEMO_SESSIONS.get(x_demo_session or "")
-    if employee_id is None:
+    identity = DEMO_IDENTITY_BINDINGS.get(x_demo_session or "")
+    if identity is None:
         raise InvalidDemoSessionError
-    return AuthenticatedEmployeeContext(employee_id=employee_id)
+    return identity
 
 
 def get_demo_repository(request: Request) -> DemoRepository:
@@ -99,6 +115,27 @@ def get_knowledge_query_service(request: Request) -> KnowledgeQueryService:
     return service
 
 
+def get_confirmation_service(request: Request) -> ConfirmationService:
+    """Build the confirmation control plane only when an action route needs it."""
+
+    service = cast(
+        ConfirmationService | None,
+        getattr(request.app.state, "confirmation_service", None),
+    )
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ConfirmationService(factory, settings)
+    request.app.state.confirmation_service = service
+    return service
+
+
 def get_agent_service(
     request: Request,
 ) -> AgentService:
@@ -126,4 +163,32 @@ def get_agent_service(
             clock=clock,
         )
         request.app.state.agent_service = service
+    return service
+
+
+def get_action_creation_service(request: Request):
+    service = getattr(request.app.state, "action_creation_service", None)
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ActionCreationService(factory, settings)
+    request.app.state.action_creation_service = service
+    return service
+
+
+def get_assistant_application_service(request: Request) -> AssistantApplicationService:
+    existing = getattr(request.app.state, "assistant_application_service", None)
+    if existing is not None:
+        return cast(AssistantApplicationService, existing)
+    service = AssistantApplicationService(
+        get_agent_service(request),
+        get_action_creation_service(request),
+    )
+    request.app.state.assistant_application_service = service
     return service

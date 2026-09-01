@@ -1,6 +1,6 @@
 """Strict public contracts and explicit mapping for the V3 assistant endpoint."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Literal, Self
@@ -9,6 +9,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     StringConstraints,
     field_serializer,
     model_validator,
@@ -58,6 +59,7 @@ class PreparedLeaveRequestAction(AssistantAPIModel):
     reason: str | None = None
     public_holiday_check_required: bool
     non_executing: Literal[True] = True
+    authority: Literal["preview"] = "preview"
 
     @field_serializer(
         "requested_hours",
@@ -69,12 +71,44 @@ class PreparedLeaveRequestAction(AssistantAPIModel):
         return float(value)
 
 
+class AssistantActionStatus(StrEnum):
+    NOT_CREATED = "not_created"
+    CREATED = "created"
+    REUSED = "reused"
+    CREATION_FAILED = "creation_failed"
+
+
+class AssistantActionNotCreatedReason(StrEnum):
+    CALENDAR_UNCOVERED = "calendar_uncovered"
+    NO_SCHEDULED_WORK = "no_scheduled_work"
+    INSUFFICIENT_BALANCE = "insufficient_balance"
+    NOT_EXECUTABLE = "not_executable"
+    UNSUPPORTED_LEAVE_TYPE = "unsupported_leave_type"
+    INVALID_PREPARATION = "invalid_preparation"
+    AUTHORITY_INCONSISTENT = "authority_inconsistent"
+    RETRYABLE_CONFLICT = "retryable_conflict"
+
+
+class AssistantDurableAction(AssistantAPIModel):
+    action_id: str
+    revision: int
+    action_type: str
+    state: str
+    draft: dict[str, object]
+    action_expires_at: datetime
+    confirmation_required: StrictBool
+    authority: Literal["authoritative"] = "authoritative"
+
+
 class AssistantQueryResponse(AssistantAPIModel):
     status: AssistantPublicStatus
     answer: PublicText | None = None
     citations: tuple[KnowledgeCitation, ...] = Field(max_length=MAX_AGENT_CITATIONS)
     message: PublicText | None = None
     prepared_action: PreparedLeaveRequestAction | None = None
+    action: AssistantDurableAction | None = None
+    action_status: AssistantActionStatus | None = None
+    action_not_created_reason: AssistantActionNotCreatedReason | None = None
 
     @model_validator(mode="after")
     def validate_public_shape(self) -> Self:

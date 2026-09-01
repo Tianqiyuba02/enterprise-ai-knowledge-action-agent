@@ -9,6 +9,7 @@ from google.genai import errors, types
 
 from app.agent.loop_models import (
     AgentModelTurn,
+    AgentProviderUsage,
     AgentRequestedToolCall,
     AgentToolResponse,
 )
@@ -198,7 +199,15 @@ class GeminiAgentSession:
         if not isinstance(content, types.Content):
             raise InvalidAgentProviderResponseError("The agent provider returned invalid content.")
         self._contents.append(content)
-        return parse_model_content(content)
+        turn = parse_model_content(content)
+        usage = extract_provider_usage(response)
+        if usage is None:
+            return turn
+        return AgentModelTurn(
+            final_text=turn.final_text,
+            requested_calls=turn.requested_calls,
+            usage=usage,
+        )
 
 
 def build_function_response_content(
@@ -246,6 +255,46 @@ def parse_model_content(content: types.Content) -> AgentModelTurn:
             "The agent provider returned an overlong final response."
         )
     return AgentModelTurn(final_text=final_text or None)
+
+
+def extract_provider_usage(response: object) -> AgentProviderUsage | None:
+    """Copy integer token counts only when the provider returned them."""
+
+    metadata = getattr(response, "usage_metadata", None)
+    if metadata is None:
+        return None
+
+    def _count(name: str, *aliases: str) -> int | None:
+        for key in (name, *aliases):
+            raw = getattr(metadata, key, None)
+            if raw is None and isinstance(metadata, dict):
+                raw = metadata.get(key)
+            if raw is None:
+                continue
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                return None
+            return value if value >= 0 else None
+        return None
+
+    usage = AgentProviderUsage(
+        prompt_token_count=_count("prompt_token_count"),
+        output_token_count=_count("candidates_token_count", "output_token_count"),
+        total_token_count=_count("total_token_count"),
+        cached_token_count=_count("cached_content_token_count", "cached_token_count"),
+    )
+    if all(
+        value is None
+        for value in (
+            usage.prompt_token_count,
+            usage.output_token_count,
+            usage.total_token_count,
+            usage.cached_token_count,
+        )
+    ):
+        return None
+    return usage
 
 
 def _safe_agent_provider_error(exc: errors.APIError) -> AgentProviderError:

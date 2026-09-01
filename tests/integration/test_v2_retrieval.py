@@ -4,13 +4,12 @@ from collections.abc import Iterator, Sequence
 from datetime import date, timedelta
 
 import pytest
-from alembic import command
-from alembic.config import Config as AlembicConfig
+from isolated_postgres import isolated_test_engine, refuse_engine_targets_shared_database
 from sqlalchemy import Engine, create_engine, delete
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Document, DocumentChunk
-from app.db.session import create_knowledge_engine, create_knowledge_session_factory
+from app.db.session import create_knowledge_session_factory
 from app.knowledge.context import KnowledgeApplicabilityContext
 from app.knowledge.errors import KnowledgeDatabaseError
 from app.knowledge.repository import KnowledgeRetrievalRepository
@@ -30,14 +29,8 @@ pytestmark = [
 
 @pytest.fixture(scope="session")
 def retrieval_engine() -> Iterator[Engine]:
-    config = AlembicConfig("alembic.ini")
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
-    engine = create_knowledge_engine()
-    try:
+    with isolated_test_engine(prefix="knowledge_agent_v2_ret") as engine:
         yield engine
-    finally:
-        engine.dispose()
 
 
 @pytest.fixture(autouse=True)
@@ -66,6 +59,7 @@ def applicability() -> KnowledgeApplicabilityContext:
 
 
 def _delete_all(engine: Engine) -> None:
+    refuse_engine_targets_shared_database(engine)
     with engine.begin() as connection:
         connection.execute(delete(DocumentChunk))
         connection.execute(delete(Document))

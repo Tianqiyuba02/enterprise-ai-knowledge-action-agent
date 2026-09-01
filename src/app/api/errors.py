@@ -28,7 +28,11 @@ from app.embeddings.client import (
     InvalidEmbeddingResponseError,
 )
 from app.errors import (
+    ActionConflictError,
+    ActionCreationIdentityError,
+    ActionNotFoundError,
     ApplicationError,
+    ConfirmationInvalidError,
     EmployeeNotFoundError,
     InvalidDemoSessionError,
     TicketNotFoundError,
@@ -84,6 +88,10 @@ async def application_error_handler(request: Request, exc: ApplicationError) -> 
         InvalidDemoSessionError: HTTPStatus.UNAUTHORIZED,
         EmployeeNotFoundError: HTTPStatus.NOT_FOUND,
         TicketNotFoundError: HTTPStatus.NOT_FOUND,
+        ActionNotFoundError: HTTPStatus.NOT_FOUND,
+        ConfirmationInvalidError: HTTPStatus.CONFLICT,
+        ActionConflictError: HTTPStatus.CONFLICT,
+        ActionCreationIdentityError: HTTPStatus.BAD_REQUEST,
     }.get(type(exc), HTTPStatus.BAD_REQUEST)
     logger.info(
         "application_error request_id=%s error_code=%s",
