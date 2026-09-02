@@ -5,14 +5,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import get_authenticated_employee, get_confirmation_service
+from app.api.dependencies import (
+    get_authenticated_employee,
+    get_confirmation_service,
+    get_portal_read_service,
+)
 from app.api.models import (
     ActionResponse,
     ConfirmActionRequest,
     ConfirmationChallengeResponse,
     ErrorResponse,
 )
+from app.api.portal_models import ActionDetailResponse
 from app.identity import AuthenticatedEmployeeContext
+from app.portal.service import PortalReadService
 from app.workflow.confirmation import ActionView, ConfirmationService, IssuedChallenge
 
 router = APIRouter(prefix="/actions", tags=["actions"])
@@ -36,6 +42,25 @@ def get_action(
     service: Annotated[ConfirmationService, Depends(get_confirmation_service)],
 ) -> ActionResponse:
     return _action_response(service.get_action(action_id=action_id, context=context))
+
+
+@router.get(
+    "/{action_id}/detail",
+    response_model=ActionDetailResponse,
+    responses={
+        **ACTION_RESPONSES,
+        503: {"model": ErrorResponse, "description": "Portal read unavailable"},
+    },
+)
+def get_action_detail(
+    action_id: UUID,
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    confirmation: Annotated[ConfirmationService, Depends(get_confirmation_service)],
+    portal: Annotated[PortalReadService, Depends(get_portal_read_service)],
+) -> ActionDetailResponse:
+    # Preserve the V4 read-side expiry normalization before projecting detail.
+    confirmation.get_action(action_id=action_id, context=context)
+    return portal.action_detail(action_id=action_id, context=context)
 
 
 @router.post(

@@ -4,7 +4,8 @@ This repository contains the completed **Product Milestone V0** LLM foundation, 
 Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** authority-aware
 RAG implementation released as `v0.3.0`, **Product Milestone V3** Agent + Tools released
 as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution released as
-`v0.5.0`.
+`v0.5.0`. The repository also contains the unreleased **V5 M1 Enterprise Portal
+Experience**, which consumes the sealed V4 backend without changing its execution semantics.
 
 This is a local portfolio system, not a production-ready HR platform. The approved
 product plan is in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -20,7 +21,8 @@ later simplified PostgreSQL-authoritative execution path.
 | V2 — Authority-Aware RAG | ✅ Complete — `v0.3.0` |
 | V3 — Agent + Tools | ✅ Complete — `v0.4.0` |
 | V4 — Safe Action Execution | ✅ Complete — `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
-| V5 — Evaluation + Deployment | Not started |
+| V5 M1 — Enterprise Portal Experience | ✅ Implemented and locally verified; unreleased |
+| V5 M2/M3 | Not started; outside the M1 scope |
 
 ### V0 Verification
 
@@ -191,6 +193,25 @@ Development evaluation remains **CLOSED — PARTIAL / PROVIDER-LIMITED** (11/15
 applicable semantic evidence). This is not a full semantic validation and not a
 holdout result.
 
+## What V5 M1 adds (unreleased)
+
+M1 adds a responsive Next.js + TypeScript + Tailwind employee portal in [`ui/`](ui/):
+
+- Portal Shell, Home, Assistant, My Leave, My Requests, Action Detail, Review, and Policy Library;
+- a server-only bridge from an HttpOnly Alex/Sam persona cookie to the fixed trusted demo-session
+  tokens (the browser never supplies an arbitrary `employee_id`);
+- owner-scoped action list/detail, live leave summary/history, and applicable policy document
+  projections over the existing PostgreSQL tables;
+- display of the exact persisted authoritative annual-leave draft;
+- independent, short-lived challenge confirmation with the token retained only in component memory;
+- polling of the existing V4 worker result, with no browser or HTTP execution endpoint; and
+- desktop/mobile responsive layouts and accessible navigation, forms, status, tables, and focus
+  states.
+
+The LLM remains READ/PREPARE-only. Chat text such as "yes, submit it" is non-authoritative. The
+Review page confirms only through the existing V4 challenge endpoint, and the existing worker
+remains solely responsible for executing `CONFIRMED` actions.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;
@@ -261,9 +282,14 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 | `POST` | `/api/v1/actions/{action_id}/confirmation-challenges` | Issue an out-of-band confirmation challenge |
 | `POST` | `/api/v1/actions/{action_id}/confirm` | Confirm a challenged action with the returned token |
 | `POST` | `/api/v1/actions/{action_id}/cancel` | Cancel an owner action that is still cancellable |
+| `GET` | `/api/v1/actions/{action_id}/detail` | Owner-scoped authoritative draft, result, and safe audit timeline |
 | `GET` | `/api/v1/me/profile` | Authenticated synthetic employee's profile |
 | `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
+| `GET` | `/api/v1/me/leave/summary` | Effective balances plus submitted annual-leave history |
+| `GET` | `/api/v1/me/actions` | Owner-scoped action list for My Requests |
 | `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
+| `GET` | `/api/v1/knowledge/documents` | Approved/effective/applicable policy revisions |
+| `GET` | `/api/v1/knowledge/documents/{doc_code}/versions/{version}` | Applicable policy revision and citation sections |
 
 Chat, knowledge, and assistant queries require `GEMINI_API_KEY`; knowledge-backed and V4 action
 requests also require PostgreSQL. Health and seeded `/me/*` reads start and work without those
@@ -273,6 +299,27 @@ Confirmed V4 actions are executed by the internal poller, not by chat text:
 
 ```bash
 uv run enterprise-ai-workflow-worker --once
+```
+
+## Run the M1 portal
+
+Keep PostgreSQL, the API, and the worker available as described above. In a separate terminal:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:3000`. The portal defaults to `http://127.0.0.1:8000` for the API. To use a
+different local API origin, copy [`ui/.env.example`](ui/.env.example) to `ui/.env.local` and set
+`BACKEND_URL`; do not expose it as a `NEXT_PUBLIC_` variable.
+
+For continuous local execution rather than one-action smoke testing, run the existing worker in
+another terminal:
+
+```bash
+uv run enterprise-ai-workflow-worker --poll-seconds 1
 ```
 
 ## Run the V0 CLI
@@ -301,6 +348,15 @@ paid provider call:
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
+```
+
+The M1 frontend has its own gates:
+
+```bash
+cd ui
+npm run lint
+npm run typecheck
+npm run build
 ```
 
 PostgreSQL and live-provider gated tests remain separately identified in the suite. A manual run

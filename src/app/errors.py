@@ -60,3 +60,17 @@ class ActionCreationIdentityError(ApplicationError):
 
     error_code = "action_identity_incomplete"
     public_message = "A complete trusted identity is required to create an action."
+
+
+class PortalReadUnavailableError(ApplicationError):
+    """Raised when an M1 owner-scoped read projection cannot query PostgreSQL."""
+
+    error_code = "portal_read_unavailable"
+    public_message = "The employee portal data is temporarily unavailable."
+
+
+class PolicyDocumentNotFoundError(ApplicationError):
+    """Raised when a policy revision is absent or inapplicable to the current employee."""
+
+    error_code = "policy_document_not_found"
+    public_message = "The requested policy document was not found."

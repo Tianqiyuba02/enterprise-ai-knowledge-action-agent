@@ -8,6 +8,7 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     schema = response.json()
     assert set(schema["paths"]) == {
         "/api/v1/actions/{action_id}",
+        "/api/v1/actions/{action_id}/detail",
         "/api/v1/actions/{action_id}/cancel",
         "/api/v1/actions/{action_id}/confirm",
         "/api/v1/actions/{action_id}/confirmation-challenges",
@@ -15,7 +16,11 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "/api/v1/chat",
         "/api/v1/health",
         "/api/v1/knowledge/query",
+        "/api/v1/knowledge/documents",
+        "/api/v1/knowledge/documents/{doc_code}/versions/{version}",
+        "/api/v1/me/actions",
         "/api/v1/me/leave/balances",
+        "/api/v1/me/leave/summary",
         "/api/v1/me/profile",
         "/api/v1/me/tickets/{ticket_id}",
     }
@@ -32,6 +37,11 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "KnowledgeQueryRequest",
         "KnowledgeQueryResponse",
         "LeaveBalancesResponse",
+        "LeaveSummaryResponse",
+        "ActionDetailResponse",
+        "ActionListResponse",
+        "PolicyDocumentListResponse",
+        "PolicyDocumentDetailResponse",
         "PreparedLeaveRequestAction",
         "TicketResponse",
     } <= component_names

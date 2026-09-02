@@ -22,6 +22,7 @@ from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.repository import KnowledgeRetrievalRepository
 from app.knowledge.service import KnowledgeRetrievalService
 from app.llm.client import GeminiStructuredClient
+from app.portal.service import PortalReadService
 from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
 from app.services.employee import EmployeeService
@@ -133,6 +134,27 @@ def get_confirmation_service(request: Request) -> ConfirmationService:
         request.app.state.workflow_session_factory = factory
     service = ConfirmationService(factory, settings)
     request.app.state.confirmation_service = service
+    return service
+
+
+def get_portal_read_service(request: Request) -> PortalReadService:
+    """Build owner-scoped M1 projections over the existing V2/V4 tables."""
+
+    service = cast(
+        PortalReadService | None,
+        getattr(request.app.state, "portal_read_service", None),
+    )
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = PortalReadService(factory, get_demo_repository(request))
+    request.app.state.portal_read_service = service
     return service
 
 
