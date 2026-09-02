@@ -53,12 +53,18 @@ export default async function HomePage() {
           <p className="eyebrow">{melbourneWeekday} · Melbourne</p>
           <h1>Welcome back, {profile.full_name.split(" ")[0]}.</h1>
           <p>
-            Ask a policy question, prepare leave, or pick up a request where you left it.
+            Request leave, review your employee tasks, or ask for governed assistance.
           </p>
-          <Link className="button button-primary" href="/assistant">
-            <MessageCircleMore aria-hidden="true" size={17} />
-            Ask the assistant
-          </Link>
+          <div className="hero-actions">
+            <Link className="button button-primary" href="/leave">
+              <CalendarCheck2 aria-hidden="true" size={17} />
+              Request annual leave
+            </Link>
+            <Link className="button button-hero-secondary" href="/assistant">
+              <MessageCircleMore aria-hidden="true" size={17} />
+              Ask the assistant
+            </Link>
+          </div>
         </div>
         <div className="hero-balance">
           <div className="balance-orbit" aria-hidden="true" />

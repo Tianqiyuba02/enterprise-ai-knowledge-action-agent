@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
@@ -79,7 +79,7 @@ class ActionAuditEventResponse(PortalAPIModel):
     actor_type: str
     from_state: str | None
     to_state: str | None
-    safe_metadata: dict[str, Any]
+    safe_metadata: dict[str, str]
     created_at: datetime
 
 

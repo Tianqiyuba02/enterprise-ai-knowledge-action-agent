@@ -37,6 +37,13 @@ from app.workflow.canonical import quantize_hours
 from app.workflow.domain import WorkflowState
 from app.workflow.time import database_now
 
+_EMPLOYEE_SAFE_AUDIT_METADATA_FIELDS: dict[str, frozenset[str]] = {
+    "EXECUTION_FAILED": frozenset({"failure_kind"}),
+    "ACTION_STALE": frozenset({"failure_kind"}),
+    "ACTION_EXPIRED": frozenset({"reason"}),
+}
+_MAX_EMPLOYEE_AUDIT_METADATA_LENGTH = 64
+
 
 class PortalReadService:
     """Build browser-friendly projections without changing V4 state or authority."""
@@ -323,13 +330,20 @@ def _action_list_item(
 
 
 def _audit_event(row: ActionAuditEvent) -> ActionAuditEventResponse:
+    allowed_fields = _EMPLOYEE_SAFE_AUDIT_METADATA_FIELDS.get(row.event_type, frozenset())
+    employee_metadata = {
+        key: value
+        for key in allowed_fields
+        if isinstance((value := row.safe_metadata.get(key)), str)
+        and 0 < len(value) <= _MAX_EMPLOYEE_AUDIT_METADATA_LENGTH
+    }
     return ActionAuditEventResponse(
         event_id=row.event_id,
         event_type=row.event_type,
         actor_type=row.actor_type,
         from_state=row.from_state,
         to_state=row.to_state,
-        safe_metadata=dict(row.safe_metadata),
+        safe_metadata=employee_metadata,
         created_at=row.created_at,
     )
 

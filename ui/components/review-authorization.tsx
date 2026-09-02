@@ -143,7 +143,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: ActionDe
           <div>
             <p className="eyebrow">Independent authorization</p>
             <h1>Review annual leave</h1>
-            <p>This is the exact persisted draft. The assistant cannot approve it for you.</p>
+            <p>This is a draft — nothing has been submitted yet.</p>
           </div>
           <StatusPill state={detail.state} />
         </div>
@@ -195,9 +195,10 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: ActionDe
                   <input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />
                   <span>I have reviewed these dates and hours, and I explicitly authorize this annual leave request.</span>
                 </label>
+                <p className="submission-consent-copy">By submitting, you authorize this exact request.</p>
                 <button className="button button-primary button-wide" type="button" disabled={!reviewed || pending !== null} onClick={() => void authorize()}>
                   {pending === "confirm" ? <LoaderCircle className="spin" aria-hidden="true" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}
-                  Authorize and submit request
+                  Submit leave request
                 </button>
               </div>
             )}

@@ -365,6 +365,12 @@ def test_full_offline_prepare_confirm_execute_and_replay(
         "ACTION_CONFIRMED",
         "EXECUTION_SUCCEEDED",
     }
+    succeeded_event = next(
+        event
+        for event in detail_after["audit_events"]
+        if event["event_type"] == "EXECUTION_SUCCEEDED"
+    )
+    assert succeeded_event["safe_metadata"] == {}
     after_balance = client.get("/api/v1/me/leave/summary", headers=ALEX_HEADERS).json()
     assert after_balance["balances"][0]["committed_hours"] == "7.60"
     assert after_balance["balances"][0]["available_hours"] == "68.40"

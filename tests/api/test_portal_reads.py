@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 from uuid import UUID
@@ -21,7 +22,7 @@ from app.api.portal_models import (
     PolicySectionResponse,
     StableAuthorityResponse,
 )
-from app.portal.service import PortalReadService
+from app.portal.service import PortalReadService, _audit_event
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.domain import WorkflowState
 
@@ -156,6 +157,42 @@ def test_action_detail_normalizes_v4_state_then_returns_exact_persisted_draft() 
     assert payload["audit_events"][0]["safe_metadata"] == {"disposition": "CREATED"}
     confirmation.get_action.assert_called_once()
     portal.action_detail.assert_called_once()
+
+
+def test_audit_projection_only_exposes_bounded_employee_safe_terminal_metadata() -> None:
+    common = {
+        "event_id": UUID("c5bab1aa-8f5e-44a1-813f-17e7c6697158"),
+        "actor_type": "worker",
+        "from_state": "CONFIRMED",
+        "to_state": "EXECUTION_FAILED",
+        "created_at": NOW,
+    }
+    cases = (
+        (
+            "EXECUTION_FAILED",
+            {"failure_kind": "INSUFFICIENT_BALANCE", "worker_id": "internal-worker"},
+            {"failure_kind": "INSUFFICIENT_BALANCE"},
+        ),
+        (
+            "ACTION_STALE",
+            {"failure_kind": "AUTHORITY_CHANGED", "worker_id": "internal-worker"},
+            {"failure_kind": "AUTHORITY_CHANGED"},
+        ),
+        (
+            "ACTION_EXPIRED",
+            {"reason": "confirmed_ttl", "worker_id": "internal-worker"},
+            {"reason": "confirmed_ttl"},
+        ),
+        (
+            "EXECUTION_SUCCEEDED",
+            {"leave_request_id": "internal-id", "worker_id": "internal-worker"},
+            {},
+        ),
+    )
+
+    for event_type, metadata, expected in cases:
+        row = SimpleNamespace(event_type=event_type, safe_metadata=metadata, **common)
+        assert _audit_event(row).safe_metadata == expected
 
 
 def test_policy_library_only_uses_server_resolved_applicability() -> None:
