@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 
 import { StatusPill } from "@/components/status-pill";
 import type {
-  ActionDetail,
+  AnnualLeaveActionDetail,
   ActionResponse,
   ConfirmationChallenge,
 } from "@/lib/contracts";
@@ -51,7 +51,7 @@ async function portalPost<T>(path: string, body?: object): Promise<T> {
   return payload as T;
 }
 
-export function ReviewAuthorization({ initialDetail }: { initialDetail: ActionDetail }) {
+export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLeaveActionDetail }) {
   const [detail, setDetail] = useState(initialDetail);
   const [challenge, setChallenge] = useState<ConfirmationChallenge | null>(null);
   const [reviewed, setReviewed] = useState(false);
@@ -65,7 +65,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: ActionDe
         cache: "no-store",
       });
       if (!response.ok) return;
-      const next = (await response.json()) as ActionDetail;
+      const next = (await response.json()) as AnnualLeaveActionDetail;
       setDetail(next);
       if (TERMINAL_STATES.has(next.state)) window.clearInterval(interval);
     }, 1200);

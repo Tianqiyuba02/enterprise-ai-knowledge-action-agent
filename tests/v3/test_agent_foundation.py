@@ -64,15 +64,19 @@ def test_agent_retry_policy_is_isolated_validated_and_environment_controlled(
             AgentSettings(agent_max_attempts=invalid, _env_file=None)
 
 
-def test_allowlist_contains_four_read_tools_and_one_prepare_tool() -> None:
+def test_allowlist_contains_four_read_tools_and_two_prepare_tools() -> None:
     assert set(V3_TOOL_ALLOWLIST) == {
         V3ToolName.KNOWLEDGE_QUERY,
         V3ToolName.GET_MY_PROFILE,
         V3ToolName.GET_MY_LEAVE_BALANCES,
         V3ToolName.GET_MY_TICKET,
         V3ToolName.PREPARE_LEAVE_REQUEST,
+        V3ToolName.PREPARE_IT_SUPPORT_TICKET,
     }
     assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].capability is ToolCapability.PREPARE
+    assert (
+        V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_IT_SUPPORT_TICKET].capability is ToolCapability.PREPARE
+    )
     assert all(
         V3_TOOL_ALLOWLIST[name].capability is ToolCapability.READ
         for name in {
@@ -110,6 +114,12 @@ def test_model_arguments_cannot_control_identity_applicability_or_generic_capabi
         "start_date",
         "end_date",
         "reason",
+    )
+    assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_IT_SUPPORT_TICKET].llm_arguments == (
+        "category",
+        "summary",
+        "description",
+        "urgency",
     )
 
 

@@ -25,7 +25,6 @@ from app.identity import AuthenticatedEmployeeContext
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
 from app.workflow.challenge_repository import ChallengeRepository, NewConfirmationChallenge
 from app.workflow.domain import (
-    V4_REVISION,
     ActorType,
     ChallengeStatus,
     WorkflowState,
@@ -298,9 +297,7 @@ class ConfirmationService:
 
         with self._session_factory() as session:
             workflow = self._workflows.lock_workflow(session, action_id)
-            revision = self._workflows.lock_revision(
-                session, action_id=action_id, revision=V4_REVISION
-            )
+            revision = self._workflows.lock_current_revision(session, workflow)
             now = database_now(session)
             actor = context or AuthenticatedEmployeeContext(employee_id=workflow.owner_employee_id)
             self._normalize_expiry(session, workflow, revision, now, actor)
@@ -324,9 +321,7 @@ class ConfirmationService:
         ):
             raise ActionNotFoundError
         try:
-            revision = self._workflows.lock_revision(
-                session, action_id=action_id, revision=V4_REVISION
-            )
+            revision = self._workflows.lock_current_revision(session, workflow)
         except WorkflowRowNotFoundError:
             raise ActionNotFoundError from None
         return workflow, revision

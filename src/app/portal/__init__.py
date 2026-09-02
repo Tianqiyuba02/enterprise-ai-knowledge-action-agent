@@ -1,1 +1,1 @@
-"""M1 employee-portal read projections over the sealed V1-V4 backends."""
+"""V5 employee-portal read projections over authoritative domain backends."""

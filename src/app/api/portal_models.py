@@ -1,4 +1,4 @@
-"""Strict public contracts for the M1 employee-portal read projections."""
+"""Strict public contracts for V5 employee-portal read projections."""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+from app.it.domain import ITTicketCategory, ITTicketStatus, ITTicketUrgency
 from app.workflow.domain import WorkflowState
 
 
@@ -55,6 +56,22 @@ class AuthoritativeAnnualLeaveDraftResponse(PortalAPIModel):
         return format(value, "f")
 
 
+class AuthoritativeITSupportTicketDraftResponse(PortalAPIModel):
+    action_type: Literal["create_it_support_ticket"]
+    category: ITTicketCategory
+    summary: str
+    description: str
+    urgency: ITTicketUrgency
+    ruleset_version: Literal["it-support-v1"]
+    authority_snapshot_hash: str
+
+
+AuthoritativeActionDraft = Annotated[
+    AuthoritativeAnnualLeaveDraftResponse | AuthoritativeITSupportTicketDraftResponse,
+    Field(discriminator="action_type"),
+]
+
+
 class LeaveRequestResultResponse(PortalAPIModel):
     leave_request_id: UUID
     source_action_id: UUID
@@ -73,9 +90,20 @@ class LeaveRequestResultResponse(PortalAPIModel):
         return format(value, "f")
 
 
+class ITTicketResultResponse(PortalAPIModel):
+    ticket_id: str
+    category: ITTicketCategory
+    summary: str
+    urgency: ITTicketUrgency
+    status: ITTicketStatus
+    created_at: datetime
+    updated_at: datetime
+
+
 class ActionAuditEventResponse(PortalAPIModel):
     event_id: UUID
     event_type: str
+    revision: Annotated[int, Field(ge=1)] = 1
     actor_type: str
     from_state: str | None
     to_state: str | None
@@ -104,8 +132,30 @@ class ActionListItemResponse(PortalAPIModel):
         return format(value, "f")
 
 
+class ITActionListItemResponse(PortalAPIModel):
+    action_id: UUID
+    revision: int
+    action_type: Literal["create_it_support_ticket"]
+    state: WorkflowState
+    category: ITTicketCategory
+    summary: str
+    urgency: ITTicketUrgency
+    created_at: datetime
+    updated_at: datetime
+    action_expires_at: datetime
+    confirmed_expires_at: datetime | None
+    confirmation_required: bool
+    result: ITTicketResultResponse | None = None
+
+
+ActionListItem = Annotated[
+    ActionListItemResponse | ITActionListItemResponse,
+    Field(discriminator="action_type"),
+]
+
+
 class ActionListResponse(PortalAPIModel):
-    items: tuple[ActionListItemResponse, ...]
+    items: tuple[ActionListItem, ...]
     total: Annotated[int, Field(ge=0)]
 
 
@@ -124,6 +174,29 @@ class ActionDetailResponse(PortalAPIModel):
     manual_review_required: bool
     result: LeaveRequestResultResponse | None = None
     audit_events: tuple[ActionAuditEventResponse, ...]
+
+
+class ITActionDetailResponse(PortalAPIModel):
+    action_id: UUID
+    revision: int
+    action_type: Literal["create_it_support_ticket"]
+    state: WorkflowState
+    authoritative_draft: AuthoritativeITSupportTicketDraftResponse
+    created_at: datetime
+    updated_at: datetime
+    action_expires_at: datetime
+    confirmed_at: datetime | None
+    confirmed_expires_at: datetime | None
+    confirmation_required: bool
+    manual_review_required: bool
+    result: ITTicketResultResponse | None = None
+    audit_events: tuple[ActionAuditEventResponse, ...]
+
+
+ActionDetail = Annotated[
+    ActionDetailResponse | ITActionDetailResponse,
+    Field(discriminator="action_type"),
+]
 
 
 class LeaveBalanceProjectionResponse(PortalAPIModel):

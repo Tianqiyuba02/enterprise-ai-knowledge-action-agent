@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 
+from app.api.portal_models import AuthoritativeActionDraft
+from app.it.domain import ITTicketCategory, ITTicketStatus, ITTicketUrgency
 from app.llm.models import QuestionAnalysis, QuestionCategory
 
 
@@ -71,34 +73,20 @@ class LeaveBalancesResponse(APIModel):
     balances: tuple[LeaveBalanceResponse, ...]
 
 
-class TicketCategory(StrEnum):
-    ACCESS = "access"
-    HARDWARE = "hardware"
-    SOFTWARE = "software"
-    NETWORK = "network"
-
-
-class TicketUrgency(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class TicketStatus(StrEnum):
-    OPEN = "open"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-
-
 class TicketResponse(AttributeAPIModel):
     ticket_id: str
-    category: TicketCategory
+    category: ITTicketCategory
     summary: str
     description: str
-    urgency: TicketUrgency
-    status: TicketStatus
+    urgency: ITTicketUrgency
+    status: ITTicketStatus
     created_at: datetime
     updated_at: datetime
+
+
+class TicketListResponse(APIModel):
+    items: tuple[TicketResponse, ...]
+    total: Annotated[int, Field(ge=0)]
 
 
 class ErrorResponse(APIModel):
@@ -112,7 +100,7 @@ class ActionResponse(APIModel):
     revision: int
     action_type: str
     state: str
-    draft: dict[str, object]
+    draft: AuthoritativeActionDraft
     action_expires_at: datetime
     confirmed_expires_at: datetime | None
     confirmation_required: StrictBool

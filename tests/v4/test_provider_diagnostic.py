@@ -46,7 +46,7 @@ STAGE_6P1_TRANSPORT = "97841cb7573de90279a8d2a7ea56b76140f95e9b3bfc2e844968d3a64
 STAGE_6P3_TRANSPORT = "caed4a3232fe0e4dd22975c7b97244aec30e1edfea48b71e8beb5f5d5e8b601d"
 PHASE_1A_SUBJECT = "7410b097fb1b92581da557eed6b28e76bc5cf387d627eef7c4fa71d679d7f52f"
 PHASE_1A_TRANSPORT = "1d78429a92e263df484497c3807279706489c9716ad3f952eac2cf5c9e8d1209"
-CUTOVER_SUBJECT = "4d413bce6c74c2a91cfc037a6acb463986a9a621d8704eca75433f41d2997093"
+CUTOVER_SUBJECT = "544a7691bfe78fbae262f038c88f778e7de1d5dd0a9cacc55a929579205d27de"
 CUTOVER_TRANSPORT = "c27bb277565a0a97c6aac1a45104513bdfbe8709dd671d764b865684f9a20860"
 STAGE_6P_PROVIDER_CONFIG = "f38d6d34897133bb4345deef9831d0dd914cc8e369a14dfe31ef4c605a726002"
 STAGE_6P_BUSINESS_CLOCK = "fc995a58cfa205024fb9d91c9eed82ea4e5e0f5446714e67482b8134e81d0a01"
@@ -220,7 +220,7 @@ def test_request_shape_fingerprints_are_deterministic_and_distinct() -> None:
         first.agent_shaped.request_shape_fingerprint
         != first.minimal_control.request_shape_fingerprint
     )
-    assert first.agent_shaped.request_size.tool_declaration_count == 5
+    assert first.agent_shaped.request_size.tool_declaration_count == 6
     assert first.minimal_control.request_size.tool_declaration_count == 0
     assert DIAGNOSTIC_USER_MESSAGE == PREFLIGHT_USER_MESSAGE
 

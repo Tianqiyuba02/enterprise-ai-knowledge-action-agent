@@ -17,6 +17,7 @@ from pydantic import (
 from app.agent.leave_models import LeaveRequestDraft
 from app.api.knowledge_models import KnowledgeCitation
 from app.grounding.models import KnowledgeAnswerStatus
+from app.it.domain import PreparedITSupportTicket
 
 NonEmptyString = Annotated[
     str,
@@ -36,7 +37,7 @@ KnowledgeAnswerString = Annotated[
 ]
 TicketId = Annotated[
     str,
-    StringConstraints(pattern=r"^TKT-[0-9]{4}$", strict=True),
+    StringConstraints(pattern=r"^TKT-[0-9]+$", strict=True),
 ]
 
 
@@ -58,8 +59,8 @@ class GetMyTicketArguments(StrictToolModel):
     @field_validator("ticket_id")
     @classmethod
     def require_full_ticket_id_match(cls, value: str) -> str:
-        if re.fullmatch(r"TKT-[0-9]{4}", value) is None:
-            raise ValueError("ticket_id must exactly match TKT-####")
+        if re.fullmatch(r"TKT-[0-9]+", value) is None:
+            raise ValueError("ticket_id must exactly match TKT-<digits>")
         return value
 
 
@@ -127,12 +128,18 @@ class PreparedLeaveRequestToolData(StrictToolModel):
     draft: LeaveRequestDraft
 
 
+class PreparedITSupportTicketToolData(StrictToolModel):
+    kind: Literal["prepared_it_support_ticket"] = "prepared_it_support_ticket"
+    draft: PreparedITSupportTicket
+
+
 ToolData = Annotated[
     ProfileToolData
     | LeaveBalancesToolData
     | TicketToolData
     | KnowledgeToolData
-    | PreparedLeaveRequestToolData,
+    | PreparedLeaveRequestToolData
+    | PreparedITSupportTicketToolData,
     Field(discriminator="kind"),
 ]
 

@@ -9,6 +9,7 @@ const GET_ROUTES = [
   /^me\/profile$/,
   /^me\/leave\/summary$/,
   /^me\/actions$/,
+  /^me\/tickets$/,
   new RegExp(`^actions\\/${UUID}\\/detail$`),
   /^knowledge\/documents$/,
   new RegExp(`^knowledge\\/documents\\/${SAFE_SEGMENT}\\/versions\\/${SAFE_SEGMENT}$`),
@@ -19,6 +20,7 @@ const POST_ROUTES = [
   new RegExp(`^actions\\/${UUID}\\/confirmation-challenges$`),
   new RegExp(`^actions\\/${UUID}\\/confirm$`),
   new RegExp(`^actions\\/${UUID}\\/cancel$`),
+  new RegExp(`^actions\\/${UUID}\\/revisions$`),
 ];
 
 type RouteContext = { params: Promise<{ path: string[] }> };

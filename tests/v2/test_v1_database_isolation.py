@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.application import create_app
 from app.llm.client import GeminiStructuredClient
 from app.llm.models import QuestionAnalysis
+from app.repositories.demo import DemoRepository
 
 PRIMARY_SESSION = {"X-Demo-Session": "demo-v1-7f4c2a91"}
 
@@ -25,7 +26,10 @@ def test_unavailable_v2_database_does_not_change_v1_routes(monkeypatch) -> None:
         }
     )
 
-    app = create_app(llm_client=cast(GeminiStructuredClient, llm_client))
+    app = create_app(
+        repository=DemoRepository(),
+        llm_client=cast(GeminiStructuredClient, llm_client),
+    )
     with TestClient(app, raise_server_exceptions=False) as client:
         health = client.get("/api/v1/health")
         profile = client.get("/api/v1/me/profile", headers=PRIMARY_SESSION)

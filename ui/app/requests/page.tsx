@@ -1,4 +1,4 @@
-import { ArrowRight, ClipboardList } from "lucide-react";
+import { ArrowRight, CalendarDays, ClipboardList, Headphones } from "lucide-react";
 import Link from "next/link";
 
 import { DataUnavailable, PageIntro } from "@/components/shared";
@@ -34,13 +34,29 @@ export default async function RequestsPage() {
             {actions.items.map((action) => (
               <Link className="request-card" href={`/requests/${action.action_id}`} key={action.action_id}>
                 <span className="request-card-date">
-                  <small>{new Date(`${action.start_date}T12:00:00`).toLocaleString("en-AU", { month: "short" })}</small>
-                  <strong>{new Date(`${action.start_date}T12:00:00`).getDate()}</strong>
+                  {action.action_type === "submit_annual_leave" ? (
+                    <>
+                      <small>{new Date(`${action.start_date}T12:00:00`).toLocaleString("en-AU", { month: "short" })}</small>
+                      <strong>{new Date(`${action.start_date}T12:00:00`).getDate()}</strong>
+                    </>
+                  ) : (
+                    <Headphones aria-hidden="true" size={20} />
+                  )}
                 </span>
                 <span className="request-card-copy">
-                  <small>Annual leave · Revision {action.revision}</small>
-                  <strong>{formatDate(action.start_date)} – {formatDate(action.end_date)}</strong>
-                  <span>{formatHours(action.requested_hours)} · Created {formatDateTime(action.created_at)}</span>
+                  {action.action_type === "submit_annual_leave" ? (
+                    <>
+                      <small><CalendarDays aria-hidden="true" size={11} /> Annual leave · Revision {action.revision}</small>
+                      <strong>{formatDate(action.start_date)} – {formatDate(action.end_date)}</strong>
+                      <span>{formatHours(action.requested_hours)} · Created {formatDateTime(action.created_at)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <small>IT Support · Revision {action.revision}</small>
+                      <strong>{action.summary}</strong>
+                      <span>{action.category} · {action.urgency} urgency · Created {formatDateTime(action.created_at)}</span>
+                    </>
+                  )}
                 </span>
                 <StatusPill state={action.state} />
                 <ArrowRight aria-hidden="true" size={17} />
@@ -51,7 +67,7 @@ export default async function RequestsPage() {
           <div className="empty-state">
             <ClipboardList aria-hidden="true" size={25} />
             <h3>No requests yet</h3>
-            <p>Ask the assistant to prepare an annual leave draft.</p>
+            <p>Ask the assistant to prepare leave or an IT support request.</p>
             <Link className="button button-secondary" href="/assistant">Open assistant</Link>
           </div>
         )}

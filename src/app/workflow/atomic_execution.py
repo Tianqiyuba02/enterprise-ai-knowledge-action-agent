@@ -12,21 +12,29 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import bindparam, select, text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KnowledgeSettings, load_knowledge_settings
-from app.db.workflow_models import ActionRevision, ActionWorkflow, LeaveRequest
+from app.db.workflow_models import ActionRevision, ActionWorkflow, ITTicket, LeaveRequest
 from app.identity import AuthenticatedEmployeeContext
+from app.it.domain import (
+    IT_CALENDAR_VERSION,
+    IT_RULESET_VERSION,
+    ITTicketStatus,
+    it_authority_hash,
+    parse_authoritative_it_draft,
+)
+from app.it.repository import ITTicketRepository, NewITTicket
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
 from app.workflow.authority import CanonicalDraft
 from app.workflow.calendar import V4_CALENDAR_VERSION, V4_RULESET_VERSION
 from app.workflow.calendar_service import CalendarCoverage
 from app.workflow.canonical import quantize_hours
 from app.workflow.confirmation import AUDIT_ACTION_EXPIRED
-from app.workflow.domain import V4_REVISION, ActorType, LeaveType, WorkflowState
+from app.workflow.domain import ActionType, ActorType, LeaveType, WorkflowState
 from app.workflow.errors import WorkflowIntegrityError, WorkflowRowNotFoundError
 from app.workflow.executable_preparation import (
     ExecutablePreparation,
@@ -38,7 +46,7 @@ from app.workflow.leave_command_repository import LeaveCommandRepository, NewLea
 from app.workflow.leave_equivalence import leaves_trusted_equivalent
 from app.workflow.leave_query_repository import LeaveQueryRepository
 from app.workflow.locks import acquire_employee_lock
-from app.workflow.occupancy import is_leave_unique_violation
+from app.workflow.occupancy import is_it_ticket_source_unique_violation, is_leave_unique_violation
 from app.workflow.time import database_now
 from app.workflow.workflow_repository import WorkflowRepository
 
@@ -78,6 +86,7 @@ class AtomicExecutionResult:
     observed_state: str | None
     outcome: AtomicOutcome
     leave_request_id: UUID | None = None
+    ticket_id: str | None = None
     failure_kind: str | None = None
     adopted: bool = False
 
@@ -96,6 +105,8 @@ class AtomicExecutionFailpoints:
 
     raise_before_leave_insert: BaseException | None = None
     raise_after_leave_insert: BaseException | None = None
+    raise_before_it_ticket_insert: BaseException | None = None
+    raise_after_it_ticket_insert: BaseException | None = None
     raise_after_succeeded_update: BaseException | None = None
     raise_on_audit: BaseException | None = None
     raise_transient_before_commit: BaseException | None = None
@@ -132,6 +143,7 @@ class AtomicConfirmedExecutor:
         self._audits = AuditRepository()
         self._leave_queries = LeaveQueryRepository()
         self._leave_commands = LeaveCommandRepository()
+        self._it_tickets = ITTicketRepository()
         self._preparation = V4ExecutablePreparationService()
         self._cooldowns: dict[UUID, _Cooldown] = {}
         self._outage_until = 0.0
@@ -245,6 +257,10 @@ class AtomicConfirmedExecutor:
         now = database_now(session)
         if _ttl_expired(revision, now):
             return self._expire(session, workflow, revision, now)
+        if workflow.action_type == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+            return self._finish_it_ticket(session, workflow, revision, now)
+        if workflow.action_type != ActionType.SUBMIT_ANNUAL_LEAVE.value:
+            raise WorkflowIntegrityError("claimed action type is unsupported")
         self._hold("hold_before_employee_lock")
         acquire_employee_lock(session, workflow.owner_employee_id)
         now = database_now(session)
@@ -298,6 +314,88 @@ class AtomicConfirmedExecutor:
         self._raise_failpoint("raise_after_leave_insert")
         return self._succeed(session, workflow, revision, created, adopted=False)
 
+    def _finish_it_ticket(
+        self,
+        session: Session,
+        workflow: ActionWorkflow,
+        revision: ActionRevision,
+        now: datetime,
+    ) -> AtomicExecutionResult:
+        try:
+            draft = parse_authoritative_it_draft(revision.draft_payload)
+        except ValueError:
+            return self._fail(
+                session,
+                workflow,
+                revision,
+                WorkflowState.EXECUTION_FAILED,
+                "DRAFT_INTEGRITY_FAILURE",
+            )
+        trusted_context = AuthenticatedEmployeeContext(
+            employee_id=workflow.owner_employee_id,
+            subject_id=workflow.owner_subject_id,
+            jurisdiction=workflow.jurisdiction,
+        )
+        if (
+            draft.fingerprint() != revision.draft_hash
+            or draft.authority_snapshot_hash != revision.authority_snapshot_hash
+            or it_authority_hash(trusted_context) != revision.authority_snapshot_hash
+        ):
+            return self._fail(
+                session,
+                workflow,
+                revision,
+                WorkflowState.EXECUTION_FAILED,
+                "DRAFT_INTEGRITY_FAILURE",
+            )
+        if (
+            revision.ruleset_version != IT_RULESET_VERSION
+            or revision.calendar_version != IT_CALENDAR_VERSION
+            or draft.ruleset_version != IT_RULESET_VERSION
+        ):
+            return self._fail(
+                session,
+                workflow,
+                revision,
+                WorkflowState.STALE,
+                "AUTHORITY_CHANGED",
+            )
+        existing = self._it_tickets.find_by_source_action(session, workflow.action_id)
+        if existing is not None:
+            if not _it_ticket_matches(workflow, revision, draft, existing):
+                return self._fail(
+                    session,
+                    workflow,
+                    revision,
+                    WorkflowState.EXECUTION_FAILED,
+                    "ADOPTION_MISMATCH",
+                )
+            return self._succeed_it(session, workflow, revision, existing, adopted=True)
+        self._raise_failpoint("raise_before_it_ticket_insert", action_id=workflow.action_id)
+        try:
+            ticket = self._it_tickets.persist(
+                session,
+                NewITTicket(
+                    employee_id=workflow.owner_employee_id,
+                    owner_subject_id=workflow.owner_subject_id,
+                    category=draft.category,
+                    summary=draft.summary,
+                    description=draft.description,
+                    urgency=draft.urgency,
+                    status=ITTicketStatus.OPEN,
+                    source_action_id=workflow.action_id,
+                    source_action_revision=revision.revision,
+                    created_at=now,
+                ),
+            )
+        except IntegrityError as exc:
+            session.rollback()
+            if not is_it_ticket_source_unique_violation(exc):
+                raise
+            raise _IntegrityConflict(workflow.action_id) from exc
+        self._raise_failpoint("raise_after_it_ticket_insert", action_id=workflow.action_id)
+        return self._succeed_it(session, workflow, revision, ticket, adopted=False)
+
     def _recover_after_conflict(self, action_id: UUID) -> AtomicExecutionResult:
         with self._session_factory() as session:
             _apply_transaction_timeouts(session)
@@ -308,6 +406,36 @@ class AtomicConfirmedExecutor:
             workflow = session.get(ActionWorkflow, revision.action_id)
             if workflow is None:
                 raise WorkflowIntegrityError("conflict-recovery workflow was not found")
+            if workflow.action_type == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+                ticket = self._it_tickets.find_by_source_action(session, workflow.action_id)
+                if ticket is None:
+                    result = self._fail(
+                        session,
+                        workflow,
+                        revision,
+                        WorkflowState.EXECUTION_FAILED,
+                        "UNIQUE_CONFLICT_UNRESOLVED",
+                    )
+                else:
+                    draft = parse_authoritative_it_draft(revision.draft_payload)
+                    if not _it_ticket_matches(workflow, revision, draft, ticket):
+                        result = self._fail(
+                            session,
+                            workflow,
+                            revision,
+                            WorkflowState.EXECUTION_FAILED,
+                            "ADOPTION_MISMATCH",
+                        )
+                    else:
+                        result = self._succeed_it(
+                            session,
+                            workflow,
+                            revision,
+                            ticket,
+                            adopted=True,
+                        )
+                session.commit()
+                return result
             acquire_employee_lock(session, workflow.owner_employee_id)
             now = database_now(session)
             if _ttl_expired(revision, now):
@@ -351,10 +479,13 @@ class AtomicConfirmedExecutor:
             params["cooling"] = cooling
         statement = text(
             f"""
-            SELECT action_id
-            FROM action_revisions
-            WHERE {" AND ".join(filters)}
-            ORDER BY confirmed_at, action_id
+            SELECT revisions.action_id
+            FROM action_revisions AS revisions
+            JOIN action_workflows AS workflows
+              ON workflows.action_id = revisions.action_id
+             AND workflows.current_revision = revisions.revision
+            WHERE {" AND ".join(f"revisions.{item}" for item in filters)}
+            ORDER BY revisions.confirmed_at, revisions.action_id
             FOR NO KEY UPDATE SKIP LOCKED
             LIMIT 1
             """
@@ -364,12 +495,17 @@ class AtomicConfirmedExecutor:
         locked_id = session.execute(statement, params).scalar_one_or_none()
         if locked_id is None:
             return None
-        return session.execute(
-            select(ActionRevision).where(
-                ActionRevision.action_id == locked_id,
-                ActionRevision.revision == V4_REVISION,
-            )
-        ).scalar_one()
+        workflow = session.get(ActionWorkflow, locked_id)
+        if workflow is None:
+            raise WorkflowIntegrityError("claimed action workflow was not found")
+        # The selecting query already holds a NO KEY UPDATE lock on the current
+        # revision. Re-reading without upgrading to FOR UPDATE preserves the
+        # V4 lost-response uniqueness race, whose competing insert needs a
+        # compatible foreign-key KEY SHARE lock on this revision.
+        revision = self._workflows.get_current_revision(session, workflow)
+        if revision is None:
+            raise WorkflowIntegrityError("claimed current revision was not found")
+        return revision
 
     def _classify(
         self,
@@ -461,6 +597,7 @@ class AtomicConfirmedExecutor:
         self._audit(
             session,
             workflow,
+            revision,
             from_state=from_state,
             to_state=WorkflowState.SUCCEEDED.value,
             event_type=AUDIT_EXECUTION_SUCCEEDED,
@@ -478,6 +615,36 @@ class AtomicConfirmedExecutor:
             adopted=adopted,
         )
 
+    def _succeed_it(
+        self,
+        session: Session,
+        workflow: ActionWorkflow,
+        revision: ActionRevision,
+        ticket: ITTicket,
+        *,
+        adopted: bool,
+    ) -> AtomicExecutionResult:
+        from_state = revision.state
+        revision.state = WorkflowState.SUCCEEDED.value
+        session.flush()
+        self._raise_failpoint("raise_after_succeeded_update")
+        self._audit(
+            session,
+            workflow,
+            revision,
+            from_state=from_state,
+            to_state=WorkflowState.SUCCEEDED.value,
+            event_type=AUDIT_EXECUTION_SUCCEEDED,
+            metadata={"ticket_id": ticket.ticket_id, "adopted": adopted},
+        )
+        return AtomicExecutionResult(
+            workflow.action_id,
+            WorkflowState.SUCCEEDED.value,
+            AtomicOutcome.SUCCEEDED,
+            ticket_id=ticket.ticket_id,
+            adopted=adopted,
+        )
+
     def _fail(
         self,
         session: Session,
@@ -492,6 +659,7 @@ class AtomicConfirmedExecutor:
         self._audit(
             session,
             workflow,
+            revision,
             from_state=from_state,
             to_state=state.value,
             event_type=event_type,
@@ -520,6 +688,7 @@ class AtomicConfirmedExecutor:
         self._audit(
             session,
             workflow,
+            revision,
             from_state=from_state,
             to_state=WorkflowState.EXPIRED.value,
             event_type=AUDIT_ACTION_EXPIRED,
@@ -535,6 +704,7 @@ class AtomicConfirmedExecutor:
         self,
         session: Session,
         workflow: ActionWorkflow,
+        revision: ActionRevision,
         *,
         from_state: str,
         to_state: str,
@@ -552,6 +722,7 @@ class AtomicConfirmedExecutor:
                 from_state=from_state,
                 to_state=to_state,
                 safe_metadata=metadata,
+                revision=revision.revision,
             ),
         )
 
@@ -559,15 +730,55 @@ class AtomicConfirmedExecutor:
         with self._session_factory() as session:
             self.last_observation_backend_pid = _backend_pid(session)
             try:
-                revision = self._workflows.lock_revision(session, action_id=action_id)
+                workflow = self._workflows.lock_workflow(session, action_id)
+                revision = self._workflows.lock_current_revision(session, workflow)
             except WorkflowRowNotFoundError:
                 session.rollback()
                 return AtomicExecutionResult(action_id, None, AtomicOutcome.LOST_ACK)
             self._hold("hold_after_lost_ack_lock")
-            leave = self._leave_queries.find_by_source_action_id(session, action_id)
-            classified = self._classify_lost_ack_observation(session, revision, leave)
+            if workflow.action_type == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+                ticket = self._it_tickets.find_by_source_action(session, action_id)
+                classified = self._classify_it_lost_ack_observation(
+                    workflow,
+                    revision,
+                    ticket,
+                )
+            else:
+                leave = self._leave_queries.find_by_source_action_id(session, action_id)
+                classified = self._classify_lost_ack_observation(session, revision, leave)
             session.commit()
             return classified
+
+    def _classify_it_lost_ack_observation(
+        self,
+        workflow: ActionWorkflow,
+        revision: ActionRevision,
+        ticket: ITTicket | None,
+    ) -> AtomicExecutionResult:
+        if revision.state == WorkflowState.CONFIRMED.value and ticket is None:
+            return AtomicExecutionResult(
+                revision.action_id,
+                WorkflowState.CONFIRMED.value,
+                AtomicOutcome.TRANSIENT,
+            )
+        if revision.state == WorkflowState.SUCCEEDED.value and ticket is not None:
+            try:
+                draft = parse_authoritative_it_draft(revision.draft_payload)
+            except ValueError:
+                draft = None
+            if draft is not None and _it_ticket_matches(workflow, revision, draft, ticket):
+                return AtomicExecutionResult(
+                    revision.action_id,
+                    WorkflowState.SUCCEEDED.value,
+                    AtomicOutcome.SUCCEEDED,
+                    ticket_id=ticket.ticket_id,
+                )
+        return AtomicExecutionResult(
+            revision.action_id,
+            revision.state,
+            AtomicOutcome.LOST_ACK,
+            ticket_id=None if ticket is None else ticket.ticket_id,
+        )
 
     def _classify_lost_ack_observation(
         self,
@@ -698,7 +909,9 @@ def classify_execution_failure(exc: BaseException) -> FailureScope:
 
     if isinstance(exc, _IntegrityConflict):
         return FailureScope.CONFLICT
-    if isinstance(exc, IntegrityError) and is_leave_unique_violation(exc):
+    if isinstance(exc, IntegrityError) and (
+        is_leave_unique_violation(exc) or is_it_ticket_source_unique_violation(exc)
+    ):
         return FailureScope.CONFLICT
     if isinstance(exc, IntegrityError | _TransientExecution):
         return FailureScope.ACTION
@@ -734,6 +947,19 @@ def action_leave_trusted_equivalent(
         calendar_version=revision.calendar_version,
         ruleset_version=revision.ruleset_version,
         leave=leave,
+    )
+
+
+def _it_ticket_matches(workflow, revision, draft, ticket: ITTicket) -> bool:
+    return (
+        ticket.employee_id == workflow.owner_employee_id
+        and ticket.owner_subject_id == workflow.owner_subject_id
+        and ticket.category == draft.category.value
+        and ticket.summary == draft.summary
+        and ticket.description == draft.description
+        and ticket.urgency == draft.urgency.value
+        and ticket.source_action_id == workflow.action_id
+        and ticket.source_action_revision == revision.revision
     )
 
 

@@ -24,6 +24,7 @@ from app.agent.loop_models import (
 )
 from app.agent.models import (
     KnowledgeToolData,
+    PreparedITSupportTicketToolData,
     PreparedLeaveRequestToolData,
     ToolResult,
     ToolResultStatus,
@@ -37,6 +38,7 @@ from app.agent.relative_weekday import (
 )
 from app.api.knowledge_models import KnowledgeCitation
 from app.identity import AuthenticatedEmployeeContext
+from app.it.domain import PreparedITSupportTicket
 from app.knowledge.clock import MelbourneClock, TrustedClock
 
 MAX_MODEL_ROUNDS_PER_TURN = 7
@@ -109,6 +111,7 @@ class AgentService:
         citation_identities: set[tuple[str, str, str, str, int | None]] = set()
         tool_calls_attempted = 0
         prepared_leave_request: LeaveRequestDraft | None = None
+        prepared_it_support_ticket: PreparedITSupportTicket | None = None
         usage: AgentProviderUsage | None = None
 
         for model_round in range(1, MAX_MODEL_ROUNDS_PER_TURN + 1):
@@ -120,6 +123,7 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    prepared_it_support_ticket=prepared_it_support_ticket,
                     provider_failure=exc.failure,
                     usage=usage,
                 )
@@ -130,6 +134,7 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    prepared_it_support_ticket=prepared_it_support_ticket,
                     usage=usage,
                 )
             except AgentProviderError as exc:
@@ -138,6 +143,7 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    prepared_it_support_ticket=prepared_it_support_ticket,
                     provider_failure=exc.failure,
                     usage=usage,
                 )
@@ -148,6 +154,7 @@ class AgentService:
                     rounds=model_round,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    prepared_it_support_ticket=prepared_it_support_ticket,
                     usage=usage,
                 )
             pending_responses = ()
@@ -159,6 +166,7 @@ class AgentService:
                     answer=turn.final_text,
                     citations=tuple(citations),
                     prepared_leave_request=prepared_leave_request,
+                    prepared_it_support_ticket=prepared_it_support_ticket,
                     tool_calls_attempted=tool_calls_attempted,
                     model_rounds=model_round,
                     usage=usage,
@@ -174,6 +182,7 @@ class AgentService:
                         status=AgentRunStatus.TOOL_BUDGET_EXHAUSTED,
                         citations=tuple(citations),
                         prepared_leave_request=prepared_leave_request,
+                        prepared_it_support_ticket=prepared_it_support_ticket,
                         safe_message="The assistant reached its tool-call limit.",
                         tool_calls_attempted=tool_calls_attempted,
                         model_rounds=model_round,
@@ -198,6 +207,12 @@ class AgentService:
                     result.data, PreparedLeaveRequestToolData
                 ):
                     prepared_leave_request = result.data.draft
+                    prepared_it_support_ticket = None
+                elif result.status is ToolResultStatus.SUCCESS and isinstance(
+                    result.data, PreparedITSupportTicketToolData
+                ):
+                    prepared_it_support_ticket = result.data.draft
+                    prepared_leave_request = None
                 responses.append(
                     AgentToolResponse(
                         name=_function_response_name(
@@ -216,6 +231,7 @@ class AgentService:
             rounds=MAX_MODEL_ROUNDS_PER_TURN,
             citations=tuple(citations),
             prepared_leave_request=prepared_leave_request,
+            prepared_it_support_ticket=prepared_it_support_ticket,
             usage=usage,
         )
 
@@ -296,12 +312,14 @@ def _unable(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    prepared_it_support_ticket: PreparedITSupportTicket | None = None,
     usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
         status=AgentRunStatus.UNABLE_TO_COMPLETE,
         citations=citations,
         prepared_leave_request=prepared_leave_request,
+        prepared_it_support_ticket=prepared_it_support_ticket,
         safe_message=message,
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
@@ -315,6 +333,7 @@ def _provider_unavailable(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    prepared_it_support_ticket: PreparedITSupportTicket | None = None,
     provider_failure: AgentProviderFailureDetail | None = None,
     usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
@@ -322,6 +341,7 @@ def _provider_unavailable(
         status=AgentRunStatus.PROVIDER_UNAVAILABLE,
         citations=citations,
         prepared_leave_request=prepared_leave_request,
+        prepared_it_support_ticket=prepared_it_support_ticket,
         safe_message="The assistant provider is temporarily unavailable.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,
@@ -336,6 +356,7 @@ def _provider_rate_limited(
     rounds: int,
     citations: tuple[KnowledgeCitation, ...] = (),
     prepared_leave_request: LeaveRequestDraft | None = None,
+    prepared_it_support_ticket: PreparedITSupportTicket | None = None,
     provider_failure: AgentProviderFailureDetail | None = None,
     usage: AgentProviderUsage | None = None,
 ) -> AgentRunResult:
@@ -343,6 +364,7 @@ def _provider_rate_limited(
         status=AgentRunStatus.PROVIDER_RATE_LIMITED,
         citations=citations,
         prepared_leave_request=prepared_leave_request,
+        prepared_it_support_ticket=prepared_it_support_ticket,
         safe_message="The assistant provider is busy. Please try again later.",
         tool_calls_attempted=tool_calls,
         model_rounds=rounds,

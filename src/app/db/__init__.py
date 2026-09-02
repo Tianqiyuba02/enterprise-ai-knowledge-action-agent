@@ -7,6 +7,7 @@ from app.db.workflow_models import (
     ActionRevision,
     ActionWorkflow,
     ConfirmationChallenge,
+    ITTicket,
     LeaveRequest,
     PublicHoliday,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "ConfirmationChallenge",
     "Document",
     "DocumentChunk",
+    "ITTicket",
     "LeaveRequest",
     "PublicHoliday",
 ]

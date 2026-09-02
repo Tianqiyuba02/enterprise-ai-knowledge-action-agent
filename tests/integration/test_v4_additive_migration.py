@@ -118,7 +118,7 @@ def _insert_action(connection: Connection) -> uuid.UUID:
 def test_alembic_head_includes_applied_v4_migrations(additive_engine: Engine) -> None:
     with additive_engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0006_v4_remove_legacy_execution"
+    assert version == "0007_v5_m2_multi_domain_actions"
 
 
 def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: Engine) -> None:
@@ -133,6 +133,7 @@ def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: En
         "confirmation_challenges",
         "action_audit_events",
         "leave_requests",
+        "it_tickets",
     } <= table_names
     assert "workflow_outbox" not in table_names
     assert "action_execution_ledger" not in table_names
@@ -169,22 +170,58 @@ def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: En
     )
 
 
-def test_revision_two_is_rejected(connection: Connection) -> None:
+def test_m2_schema_accepts_a_second_immutable_revision(connection: Connection) -> None:
     action_id = _insert_action(connection)
-    with pytest.raises(IntegrityError):
+    connection.execute(
+        text(
+            """
+            INSERT INTO action_revisions (
+                revision_id, action_id, revision, state, draft_payload, draft_hash,
+                authority_snapshot_hash, business_request_key, ruleset_version,
+                calendar_version, action_expires_at
+            ) VALUES (
+                :revision_id, :action_id, 2, :state, '{}'::jsonb, :draft_hash,
+                :authority_hash, :business_key, 'it-support-v1',
+                'not-applicable', :expires_at
+            )
+            """
+        ),
+        {
+            "revision_id": uuid.uuid4(),
+            "action_id": action_id,
+            "state": WorkflowState.SUPERSEDED.value,
+            "draft_hash": _sha(f"draft-2:{action_id}"),
+            "authority_hash": _sha(f"authority-2:{action_id}"),
+            "business_key": f"revision-2-{action_id}",
+            "expires_at": datetime.now(UTC) + timedelta(hours=1),
+        },
+    )
+    connection.execute(
+        text("UPDATE action_workflows SET current_revision = 2 WHERE action_id = :action_id"),
+        {"action_id": action_id},
+    )
+    assert (
         connection.execute(
-            text("UPDATE action_workflows SET current_revision = 2 WHERE action_id = :action_id"),
+            text("SELECT current_revision FROM action_workflows WHERE action_id = :action_id"),
             {"action_id": action_id},
-        )
+        ).scalar_one()
+        == 2
+    )
 
 
-def test_superseded_is_not_a_workflow_state(connection: Connection) -> None:
+def test_superseded_is_a_valid_m2_revision_state(connection: Connection) -> None:
     action_id = _insert_action(connection)
-    with pytest.raises(IntegrityError):
+    connection.execute(
+        text("UPDATE action_revisions SET state = 'SUPERSEDED' WHERE action_id = :action_id"),
+        {"action_id": action_id},
+    )
+    assert (
         connection.execute(
-            text("UPDATE action_revisions SET state = 'SUPERSEDED' WHERE action_id = :action_id"),
+            text("SELECT state FROM action_revisions WHERE action_id = :action_id"),
             {"action_id": action_id},
-        )
+        ).scalar_one()
+        == WorkflowState.SUPERSEDED.value
+    )
 
 
 def test_confirmation_challenges_have_no_plaintext_token_column(additive_engine: Engine) -> None:

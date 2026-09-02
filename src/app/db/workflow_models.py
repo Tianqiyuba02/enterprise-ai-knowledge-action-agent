@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    Sequence,
     Text,
     UniqueConstraint,
     func,
@@ -23,6 +25,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.it.domain import ITTicketCategory, ITTicketStatus, ITTicketUrgency
 from app.workflow.calendar import V4_CALENDAR_JURISDICTION, V4_CALENDAR_VERSION
 from app.workflow.domain import (
     FINAL_TARGET_WORKFLOW_STATES,
@@ -42,6 +45,10 @@ ACTION_TYPE_SQL = sql_in_clause(ActionType)
 ACTOR_TYPE_SQL = sql_in_clause(ActorType)
 LEAVE_STATUS_SQL = sql_in_clause(LeaveRequestStatus)
 LEAVE_TYPE_SQL = sql_in_clause(LeaveType)
+IT_TICKET_CATEGORY_SQL = sql_in_clause(ITTicketCategory)
+IT_TICKET_URGENCY_SQL = sql_in_clause(ITTicketUrgency)
+IT_TICKET_STATUS_SQL = sql_in_clause(ITTicketStatus)
+IT_TICKET_NUMBER_SEQUENCE = Sequence("it_ticket_number_seq", start=3001)
 
 
 class PublicHoliday(Base):
@@ -88,12 +95,12 @@ class PublicHoliday(Base):
 
 
 class ActionWorkflow(Base):
-    """Durable owner-scoped action identity. V4 supports revision=1 only."""
+    """Durable owner-scoped action identity and authoritative current revision."""
 
     __tablename__ = "action_workflows"
     __table_args__ = (
         CheckConstraint(
-            f"current_revision = {V4_REVISION}",
+            "current_revision >= 1",
             name="ck_action_workflows_current_revision",
         ),
         CheckConstraint(
@@ -138,12 +145,12 @@ class ActionWorkflow(Base):
 
 
 class ActionRevision(Base):
-    """Single V4 revision carrying the hashed canonical draft and workflow state."""
+    """Immutable draft revision carrying its hash and mutable workflow state."""
 
     __tablename__ = "action_revisions"
     __table_args__ = (
         UniqueConstraint("action_id", "revision", name="uq_action_revisions_action_revision"),
-        CheckConstraint(f"revision = {V4_REVISION}", name="ck_action_revisions_revision"),
+        CheckConstraint("revision >= 1", name="ck_action_revisions_revision"),
         CheckConstraint(
             f"state IN ({WORKFLOW_STATE_SQL})",
             name="ck_action_revisions_state",
@@ -391,4 +398,68 @@ class LeaveRequest(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class ITTicket(Base):
+    """PostgreSQL-authoritative employee IT support ticket."""
+
+    __tablename__ = "it_tickets"
+    __table_args__ = (
+        UniqueConstraint("source_action_id", name="uq_it_tickets_source_action_id"),
+        CheckConstraint(
+            f"category IN ({IT_TICKET_CATEGORY_SQL})",
+            name="ck_it_tickets_category",
+        ),
+        CheckConstraint(
+            f"urgency IN ({IT_TICKET_URGENCY_SQL})",
+            name="ck_it_tickets_urgency",
+        ),
+        CheckConstraint(
+            f"status IN ({IT_TICKET_STATUS_SQL})",
+            name="ck_it_tickets_status",
+        ),
+        CheckConstraint("ticket_id ~ '^TKT-[0-9]+$'", name="ck_it_tickets_ticket_id"),
+        CheckConstraint("btrim(employee_id) <> ''", name="ck_it_tickets_employee_id_nonempty"),
+        CheckConstraint(
+            "btrim(owner_subject_id) <> ''",
+            name="ck_it_tickets_owner_subject_id_nonempty",
+        ),
+        CheckConstraint("btrim(summary) <> ''", name="ck_it_tickets_summary_nonempty"),
+        CheckConstraint("btrim(description) <> ''", name="ck_it_tickets_description_nonempty"),
+        CheckConstraint(
+            "(source_action_id IS NULL AND source_action_revision IS NULL) OR "
+            "(source_action_id IS NOT NULL AND source_action_revision IS NOT NULL)",
+            name="ck_it_tickets_source_action_pair",
+        ),
+        ForeignKeyConstraint(
+            ["source_action_id", "source_action_revision"],
+            ["action_revisions.action_id", "action_revisions.revision"],
+            name="fk_it_tickets_source_revision",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_it_tickets_owner", "owner_subject_id", "employee_id", "created_at"),
+        Index("ix_it_tickets_status", "status"),
+    )
+
+    ticket_number: Mapped[int] = mapped_column(
+        BigInteger,
+        IT_TICKET_NUMBER_SEQUENCE,
+        primary_key=True,
+    )
+    ticket_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    employee_id: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_subject_id: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    urgency: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    source_action_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    source_action_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

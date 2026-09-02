@@ -172,3 +172,14 @@ class DemoRepository:
         if ticket is None or ticket.employee_id != employee_id:
             return None
         return ticket
+
+    def list_tickets(self, employee_id: str) -> tuple[TicketRecord, ...]:
+        """Return deterministic tickets for tests using the explicit in-memory double."""
+
+        return tuple(
+            sorted(
+                (ticket for ticket in self._tickets.values() if ticket.employee_id == employee_id),
+                key=lambda ticket: (ticket.created_at, ticket.ticket_id),
+                reverse=True,
+            )
+        )

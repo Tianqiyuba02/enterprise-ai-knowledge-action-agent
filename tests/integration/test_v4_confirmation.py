@@ -26,6 +26,7 @@ from app.workflow.canonical import business_request_key
 from app.workflow.challenge_repository import ChallengeRepository
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.domain import ActionType, ChallengeStatus, LeaveType, WorkflowState
+from app.workflow.executable_preparation import serialize_canonical_draft
 from app.workflow.tokens import hash_confirmation_token
 from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowRepository
 
@@ -154,7 +155,11 @@ def _create_action(
             jurisdiction="AU-VIC",
             action_type=ActionType.SUBMIT_ANNUAL_LEAVE,
             state=WorkflowState.AWAITING_CONFIRMATION,
-            draft_payload={"leave_type": "annual", "reason": "Family visit"},
+            draft_payload=serialize_canonical_draft(
+                draft,
+                scheduled_work_days=1,
+                snapshot=snapshot,
+            ),
             draft_hash=draft.fingerprint(),
             authority_snapshot_hash=snapshot.fingerprint(),
             business_request_key=business_request_key(

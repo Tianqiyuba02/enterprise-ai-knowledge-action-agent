@@ -5,7 +5,8 @@ Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** au
 RAG implementation released as `v0.3.0`, **Product Milestone V3** Agent + Tools released
 as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution released as
 `v0.5.0`. The repository also contains the unreleased **V5 M1 Enterprise Portal
-Experience**, which consumes the sealed V4 backend without changing its execution semantics.
+Experience** and **V5 M2 Multi-Domain Action + Trust** implementation. M2 adds a second,
+IT-support action while preserving the sealed V4 annual-leave execution semantics.
 
 This is a local portfolio system, not a production-ready HR platform. The approved
 product plan is in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -22,7 +23,8 @@ later simplified PostgreSQL-authoritative execution path.
 | V3 — Agent + Tools | ✅ Complete — `v0.4.0` |
 | V4 — Safe Action Execution | ✅ Complete — `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
 | V5 M1 — Enterprise Portal Experience | ✅ Implemented and locally verified; unreleased |
-| V5 M2/M3 | Not started; outside the M1 scope |
+| V5 M2 — Multi-Domain Action + Trust | ✅ Implemented and locally verified; unreleased |
+| V5 M3 | Not started; outside the M2 scope |
 
 ### V0 Verification
 
@@ -212,6 +214,27 @@ The LLM remains READ/PREPARE-only. Chat text such as "yes, submit it" is non-aut
 Review page confirms only through the existing V4 challenge endpoint, and the existing worker
 remains solely responsible for executing `CONFIRMED` actions.
 
+## What V5 M2 adds (unreleased)
+
+M2 proves the control plane across HR and IT without introducing a generic workflow engine:
+
+- `create_it_support_ticket` as a second explicit action type with domain-specific validation;
+- PostgreSQL-authoritative IT ticket reads, seeded demo tickets, safe ticket-number allocation,
+  and exactly-one `source_action_id` linkage;
+- per-employee-initiation PREPARE idempotency that does not use ticket content or model output;
+- immutable editable IT drafts (`r1` becomes `SUPERSEDED`, `r2` becomes current) with fresh
+  revision-bound confirmation authority;
+- explicit worker dispatch to either the sealed Annual Leave handler or the IT Ticket handler;
+- atomic ticket creation, `SUCCEEDED` state, and audit evidence in one transaction, including
+  authoritative lost-commit-ack recovery;
+- typed HR/IT Action list and detail projections with revision-aware employee-safe audit events;
+- an IT Support portal with New request, My tickets, Help articles, domain-specific Review, and
+  exact persisted-draft display; and
+- the synthetic `SOP-IT-003` request and triage guide for governed IT citations.
+
+Chat remains non-authoritative, and neither the model nor browser controls employee identity,
+ticket identity/status, workflow identity, hashes, timestamps, expiry, or audit authority.
+
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed;
@@ -277,8 +300,9 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 | `GET` | `/api/v1/health` | Typed liveness response |
 | `POST` | `/api/v1/chat` | Existing schema-validated Gemini capability |
 | `POST` | `/api/v1/knowledge/query` | Authenticated grounded policy answer with citations |
-| `POST` | `/api/v1/assistant/query` | Authenticated bounded read/prepare orchestration; may persist a V4 action |
-| `GET` | `/api/v1/actions/{action_id}` | Authenticated owner read of a persisted V4 action |
+| `POST` | `/api/v1/assistant/query` | Authenticated bounded read/prepare orchestration; may persist an HR or IT action |
+| `GET` | `/api/v1/actions/{action_id}` | Authenticated owner read of a persisted current action revision |
+| `POST` | `/api/v1/actions/{action_id}/revisions` | Append an owner-scoped editable IT draft revision |
 | `POST` | `/api/v1/actions/{action_id}/confirmation-challenges` | Issue an out-of-band confirmation challenge |
 | `POST` | `/api/v1/actions/{action_id}/confirm` | Confirm a challenged action with the returned token |
 | `POST` | `/api/v1/actions/{action_id}/cancel` | Cancel an owner action that is still cancellable |
@@ -287,13 +311,14 @@ curl -H 'X-Demo-Session: demo-v1-7f4c2a91' \
 | `GET` | `/api/v1/me/leave/balances` | Authenticated employee's seeded balances |
 | `GET` | `/api/v1/me/leave/summary` | Effective balances plus submitted annual-leave history |
 | `GET` | `/api/v1/me/actions` | Owner-scoped action list for My Requests |
+| `GET` | `/api/v1/me/tickets` | Owner-scoped PostgreSQL ticket list |
 | `GET` | `/api/v1/me/tickets/{ticket_id}` | Ownership-scoped ticket status/details |
 | `GET` | `/api/v1/knowledge/documents` | Approved/effective/applicable policy revisions |
 | `GET` | `/api/v1/knowledge/documents/{doc_code}/versions/{version}` | Applicable policy revision and citation sections |
 
-Chat, knowledge, and assistant queries require `GEMINI_API_KEY`; knowledge-backed and V4 action
-requests also require PostgreSQL. Health and seeded `/me/*` reads start and work without those
-dependencies.
+Chat, knowledge, and assistant queries require `GEMINI_API_KEY`; knowledge-backed and executable
+action requests also require PostgreSQL. Profile and leave-balance reads remain synthetic demo
+data, while runtime IT ticket reads are PostgreSQL-only.
 
 Confirmed V4 actions are executed by the internal poller, not by chat text:
 
@@ -301,7 +326,7 @@ Confirmed V4 actions are executed by the internal poller, not by chat text:
 uv run enterprise-ai-workflow-worker --once
 ```
 
-## Run the M1 portal
+## Run the V5 portal
 
 Keep PostgreSQL, the API, and the worker available as described above. In a separate terminal:
 
@@ -350,7 +375,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-The M1 frontend has its own gates:
+The V5 frontend has its own gates:
 
 ```bash
 cd ui
@@ -394,7 +419,7 @@ only after milestone review and merge to `main`. `v0.5.0` is published.
 
 ```text
 enterprise-ai-knowledge-action-agent/
-├── corpus/v2/              # 12 fictitious authority-labelled Markdown documents
+├── corpus/v2/              # 13 fictitious authority-labelled Markdown documents
 ├── docs/                   # approved kickoff, ADRs, implementation/evaluation evidence
 ├── evals/                  # development/holdout JSONL and machine-readable reports
 ├── infra/compose.yaml      # database-only PostgreSQL + pgvector
@@ -407,12 +432,14 @@ enterprise-ai-knowledge-action-agent/
 │   ├── evaluation/         # typed metrics, reports, runner, and resumable CLI
 │   ├── grounding/          # untrusted-evidence prompt and structured generation
 │   ├── ingestion/          # parser, checksum, chunking, transaction, and CLI
+│   ├── it/                 # M2 ticket contracts and PostgreSQL repository
 │   ├── knowledge/          # applicability, retrieval, citations, and query service
 │   ├── llm/                # preserved V0/V1 Gemini analysis boundary
 │   ├── repositories/       # seeded V1 employee data
 │   ├── services/           # V1 application services
-│   └── workflow/           # V4 PREPARE, confirmation, poller, and atomic leave execution
-├── tests/                  # V0–V4 unit/API tests and gated PostgreSQL integration tests
+│   └── workflow/           # shared action controls plus explicit HR/IT execution dispatch
+├── tests/                  # V0–V5 unit/API tests and gated PostgreSQL integration tests
+├── ui/                     # V5 Next.js employee portal
 ├── .env.example
 ├── .gitignore
 ├── .python-version
@@ -445,3 +472,8 @@ execution. It is not a production HR platform: identity is still synthetic demo 
 corpus is fictitious, and Development evaluation coverage is provider-limited (11/15 applicable
 cases). A V4 holdout was not created. The original kickoff LangGraph/checkpoint design is
 historical and is not the live execution path.
+
+M2 does not add production authentication, external IT service integrations, assignment/SLA
+automation, comments, attachments, notifications, or conversation memory. Ticket status is a
+small synthetic lifecycle projection, and employees can create and read tickets but cannot manage
+an external help-desk workflow.

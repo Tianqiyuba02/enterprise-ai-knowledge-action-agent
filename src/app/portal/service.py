@@ -1,4 +1,4 @@
-"""Owner-scoped M1 read models. This module has no mutation or execution authority."""
+"""Owner-scoped V5 read models. This module has no mutation or execution authority."""
 
 from datetime import date
 from decimal import Decimal
@@ -10,10 +10,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.portal_models import (
     ActionAuditEventResponse,
+    ActionDetail,
     ActionDetailResponse,
+    ActionListItem,
     ActionListItemResponse,
     ActionListResponse,
     AuthoritativeAnnualLeaveDraftResponse,
+    AuthoritativeITSupportTicketDraftResponse,
+    ITActionDetailResponse,
+    ITActionListItemResponse,
+    ITTicketResultResponse,
     LeaveBalanceProjectionResponse,
     LeaveRequestResultResponse,
     LeaveSummaryResponse,
@@ -23,7 +29,13 @@ from app.api.portal_models import (
     PolicySectionResponse,
 )
 from app.db.models import Document, DocumentChunk
-from app.db.workflow_models import ActionAuditEvent, ActionRevision, ActionWorkflow, LeaveRequest
+from app.db.workflow_models import (
+    ActionAuditEvent,
+    ActionRevision,
+    ActionWorkflow,
+    ITTicket,
+    LeaveRequest,
+)
 from app.errors import (
     ActionNotFoundError,
     EmployeeNotFoundError,
@@ -34,13 +46,16 @@ from app.identity import AuthenticatedEmployeeContext
 from app.knowledge.context import KnowledgeApplicabilityContext
 from app.repositories.demo import DemoRepository
 from app.workflow.canonical import quantize_hours
-from app.workflow.domain import WorkflowState
+from app.workflow.domain import ActionType, WorkflowState
 from app.workflow.time import database_now
 
 _EMPLOYEE_SAFE_AUDIT_METADATA_FIELDS: dict[str, frozenset[str]] = {
     "EXECUTION_FAILED": frozenset({"failure_kind"}),
     "ACTION_STALE": frozenset({"failure_kind"}),
     "ACTION_EXPIRED": frozenset({"reason"}),
+    "EXECUTION_SUCCEEDED": frozenset({"ticket_id"}),
+    "ACTION_REVISION_SUPERSEDED": frozenset({"superseded_by_revision"}),
+    "ACTION_REVISION_CREATED": frozenset({"supersedes_revision"}),
 }
 _MAX_EMPLOYEE_AUDIT_METADATA_LENGTH = 64
 
@@ -139,9 +154,15 @@ class PortalReadService:
                     .limit(limit)
                 ).all()
                 action_ids = [workflow.action_id for workflow, _revision in rows]
-                results = _leave_results_by_action(session, action_ids)
+                leave_results = _leave_results_by_action(session, action_ids)
+                ticket_results = _it_results_by_action(session, action_ids)
                 items = tuple(
-                    _action_list_item(workflow, revision, results.get(workflow.action_id))
+                    _action_list_item(
+                        workflow,
+                        revision,
+                        leave_results.get(workflow.action_id),
+                        ticket_results.get(workflow.action_id),
+                    )
                     for workflow, revision in rows
                 )
         except SQLAlchemyError as exc:
@@ -152,7 +173,7 @@ class PortalReadService:
         self,
         action_id: UUID,
         context: AuthenticatedEmployeeContext,
-    ) -> ActionDetailResponse:
+    ) -> ActionDetail:
         subject_id = _require_subject(context)
         try:
             with self._session_factory() as session:
@@ -172,9 +193,6 @@ class PortalReadService:
                 if row is None:
                     raise ActionNotFoundError
                 workflow, revision = row
-                result = session.scalar(
-                    select(LeaveRequest).where(LeaveRequest.source_action_id == action_id)
-                )
                 audits = tuple(
                     session.scalars(
                         select(ActionAuditEvent)
@@ -182,25 +200,44 @@ class PortalReadService:
                         .order_by(ActionAuditEvent.created_at, ActionAuditEvent.event_id)
                     )
                 )
+                common = {
+                    "action_id": workflow.action_id,
+                    "revision": revision.revision,
+                    "action_type": workflow.action_type,
+                    "state": WorkflowState(revision.state),
+                    "created_at": workflow.created_at,
+                    "updated_at": revision.updated_at,
+                    "action_expires_at": revision.action_expires_at,
+                    "confirmed_at": revision.confirmed_at,
+                    "confirmed_expires_at": revision.confirmed_expires_at,
+                    "confirmation_required": (
+                        revision.state == WorkflowState.AWAITING_CONFIRMATION.value
+                    ),
+                    "manual_review_required": revision.manual_review_required,
+                    "audit_events": tuple(_audit_event(item) for item in audits),
+                }
+                if workflow.action_type == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+                    ticket = session.scalar(
+                        select(ITTicket).where(ITTicket.source_action_id == action_id)
+                    )
+                    return ITActionDetailResponse(
+                        **common,
+                        authoritative_draft=(
+                            AuthoritativeITSupportTicketDraftResponse.model_validate(
+                                revision.draft_payload
+                            )
+                        ),
+                        result=None if ticket is None else _it_result(ticket),
+                    )
+                result = session.scalar(
+                    select(LeaveRequest).where(LeaveRequest.source_action_id == action_id)
+                )
                 return ActionDetailResponse(
-                    action_id=workflow.action_id,
-                    revision=revision.revision,
-                    action_type=workflow.action_type,
-                    state=WorkflowState(revision.state),
+                    **common,
                     authoritative_draft=AuthoritativeAnnualLeaveDraftResponse.model_validate(
                         revision.draft_payload
                     ),
-                    created_at=workflow.created_at,
-                    updated_at=revision.updated_at,
-                    action_expires_at=revision.action_expires_at,
-                    confirmed_at=revision.confirmed_at,
-                    confirmed_expires_at=revision.confirmed_expires_at,
-                    confirmation_required=(
-                        revision.state == WorkflowState.AWAITING_CONFIRMATION.value
-                    ),
-                    manual_review_required=revision.manual_review_required,
                     result=None if result is None else _leave_result(result),
-                    audit_events=tuple(_audit_event(item) for item in audits),
                 )
         except ActionNotFoundError:
             raise
@@ -305,11 +342,51 @@ def _leave_results_by_action(
     return {row.source_action_id: row for row in rows}
 
 
+def _it_result(row: ITTicket) -> ITTicketResultResponse:
+    return ITTicketResultResponse(
+        ticket_id=row.ticket_id,
+        category=row.category,
+        summary=row.summary,
+        urgency=row.urgency,
+        status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _it_results_by_action(
+    session: Session,
+    action_ids: list[UUID],
+) -> dict[UUID, ITTicket]:
+    if not action_ids:
+        return {}
+    rows = session.scalars(select(ITTicket).where(ITTicket.source_action_id.in_(action_ids)))
+    return {row.source_action_id: row for row in rows if row.source_action_id is not None}
+
+
 def _action_list_item(
     workflow: ActionWorkflow,
     revision: ActionRevision,
-    result: LeaveRequest | None,
-) -> ActionListItemResponse:
+    leave_result: LeaveRequest | None,
+    ticket_result: ITTicket | None,
+) -> ActionListItem:
+    if workflow.action_type == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+        draft = AuthoritativeITSupportTicketDraftResponse.model_validate(revision.draft_payload)
+        return ITActionListItemResponse(
+            action_id=workflow.action_id,
+            revision=revision.revision,
+            action_type=workflow.action_type,
+            state=WorkflowState(revision.state),
+            category=draft.category,
+            summary=draft.summary,
+            urgency=draft.urgency,
+            created_at=workflow.created_at,
+            updated_at=revision.updated_at,
+            action_expires_at=revision.action_expires_at,
+            confirmed_expires_at=revision.confirmed_expires_at,
+            confirmation_required=(revision.state == WorkflowState.AWAITING_CONFIRMATION.value),
+            result=None if ticket_result is None else _it_result(ticket_result),
+        )
     draft = AuthoritativeAnnualLeaveDraftResponse.model_validate(revision.draft_payload)
     return ActionListItemResponse(
         action_id=workflow.action_id,
@@ -325,7 +402,7 @@ def _action_list_item(
         action_expires_at=revision.action_expires_at,
         confirmed_expires_at=revision.confirmed_expires_at,
         confirmation_required=(revision.state == WorkflowState.AWAITING_CONFIRMATION.value),
-        result=None if result is None else _leave_result(result),
+        result=None if leave_result is None else _leave_result(leave_result),
     )
 
 
@@ -340,6 +417,7 @@ def _audit_event(row: ActionAuditEvent) -> ActionAuditEventResponse:
     return ActionAuditEventResponse(
         event_id=row.event_id,
         event_type=row.event_type,
+        revision=getattr(row, "revision", 1),
         actor_type=row.actor_type,
         from_state=row.from_state,
         to_state=row.to_state,

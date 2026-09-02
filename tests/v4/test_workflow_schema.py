@@ -56,7 +56,7 @@ def test_v4_tables_are_registered_and_obsolete_tables_are_absent() -> None:
     assert "document_chunks" in table_names
 
 
-def test_workflow_state_machine_is_the_final_seven_states() -> None:
+def test_workflow_state_machine_includes_m2_superseded_state() -> None:
     assert {state.value for state in WorkflowState} == {
         "AWAITING_CONFIRMATION",
         "CONFIRMED",
@@ -65,6 +65,7 @@ def test_workflow_state_machine_is_the_final_seven_states() -> None:
         "CANCELLED",
         "EXPIRED",
         "STALE",
+        "SUPERSEDED",
     }
     assert {state.value for state in FINAL_TARGET_WORKFLOW_STATES} == {
         state.value for state in WorkflowState
@@ -85,12 +86,12 @@ def test_workflow_state_machine_is_the_final_seven_states() -> None:
     }
 
 
-def test_revision_one_is_enforced_on_workflow_and_revision_tables() -> None:
+def test_positive_current_and_action_revisions_are_enforced() -> None:
     assert V4_REVISION == 1
     workflow_sql = _constraint_sql(ActionWorkflow.__table__, "ck_action_workflows_current_revision")
     revision_sql = _constraint_sql(ActionRevision.__table__, "ck_action_revisions_revision")
-    assert "current_revision = 1" in workflow_sql
-    assert "revision = 1" in revision_sql
+    assert "current_revision >= 1" in workflow_sql
+    assert "revision >= 1" in revision_sql
 
 
 def test_revision_state_constraint_covers_final_target_states_only() -> None:
