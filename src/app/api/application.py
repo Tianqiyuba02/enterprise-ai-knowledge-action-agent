@@ -12,6 +12,7 @@ from app.api.errors import register_error_handlers
 from app.api.routes import actions, assistant, chat, health, knowledge, me
 from app.knowledge.query_service import KnowledgeQueryService
 from app.llm.client import GeminiStructuredClient
+from app.portal.service import PortalReadService
 from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
 from app.services.employee import EmployeeService
@@ -28,13 +29,14 @@ def create_app(
     llm_client: GeminiStructuredClient | None = None,
     knowledge_query_service: KnowledgeQueryService | None = None,
     agent_service: AgentService | None = None,
+    portal_read_service: PortalReadService | None = None,
 ) -> FastAPI:
     """Construct an isolated application suitable for runtime and offline tests."""
 
     demo_repository = repository or DemoRepository()
     app = FastAPI(
         title="Enterprise AI Knowledge & Action Agent",
-        description="Released V1/V2 APIs plus the authenticated V3 read assistant.",
+        description="V1–V4 authoritative APIs plus M1 employee-portal read projections.",
         version=__version__,
     )
     app.state.demo_repository = demo_repository
@@ -44,6 +46,7 @@ def create_app(
     app.state.knowledge_query_service = knowledge_query_service
     app.state.knowledge_engine = None
     app.state.agent_service = agent_service
+    app.state.portal_read_service = portal_read_service
 
     register_error_handlers(app)
 

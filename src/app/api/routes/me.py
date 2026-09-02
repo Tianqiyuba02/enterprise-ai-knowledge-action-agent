@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 
 from app.api.dependencies import (
     get_authenticated_employee,
     get_employee_service,
     get_it_service,
+    get_portal_read_service,
 )
 from app.api.models import (
     EmployeeProfileResponse,
@@ -16,7 +17,9 @@ from app.api.models import (
     LeaveBalancesResponse,
     TicketResponse,
 )
+from app.api.portal_models import ActionListResponse, LeaveSummaryResponse
 from app.identity import AuthenticatedEmployeeContext
+from app.portal.service import PortalReadService
 from app.services.employee import EmployeeService
 from app.services.it import ITService
 
@@ -54,6 +57,37 @@ def get_my_leave_balances(
     return LeaveBalancesResponse(
         balances=tuple(LeaveBalanceResponse.model_validate(balance) for balance in balances)
     )
+
+
+@router.get(
+    "/leave/summary",
+    response_model=LeaveSummaryResponse,
+    responses={
+        **AUTH_RESPONSES,
+        503: {"model": ErrorResponse, "description": "Portal read unavailable"},
+    },
+)
+def get_my_leave_summary(
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    service: Annotated[PortalReadService, Depends(get_portal_read_service)],
+) -> LeaveSummaryResponse:
+    return service.leave_summary(context)
+
+
+@router.get(
+    "/actions",
+    response_model=ActionListResponse,
+    responses={
+        **AUTH_RESPONSES,
+        503: {"model": ErrorResponse, "description": "Portal read unavailable"},
+    },
+)
+def list_my_actions(
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    service: Annotated[PortalReadService, Depends(get_portal_read_service)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> ActionListResponse:
+    return service.list_actions(context, limit=limit)
 
 
 @router.get(
