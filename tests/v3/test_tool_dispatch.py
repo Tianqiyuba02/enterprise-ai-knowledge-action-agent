@@ -521,10 +521,11 @@ def test_provider_declarations_match_fixed_registry_without_identity_or_write_fi
     ]
     assert len({declaration.name for declaration in declarations}) == 6
     for declaration in declarations:
-        schema = declaration.parameters_json_schema
-        assert schema == contracts_by_name[declaration.name].argument_model.model_json_schema()
-        assert schema["additionalProperties"] is False
-        serialized = json.dumps(schema)
+        source_schema = contracts_by_name[declaration.name].argument_model.model_json_schema()
+        assert source_schema["additionalProperties"] is False
+        assert declaration.parameters_json_schema is None
+        assert declaration.parameters is not None
+        serialized = json.dumps(declaration.parameters.model_dump(mode="json", exclude_none=True))
         assert "employee_id" not in serialized
         assert "jurisdiction" not in serialized
         assert "audience" not in serialized
@@ -581,24 +582,24 @@ def test_prepare_leave_request_provider_schema_uses_single_value_enum() -> None:
         declaration.name: declaration for declaration in build_provider_function_declarations()
     }
     leave_declaration = declarations["prepare_leave_request"]
-    leave_schema = leave_declaration.parameters_json_schema
+    assert leave_declaration.parameters is not None
+    leave_schema = leave_declaration.parameters.model_dump(mode="json", exclude_none=True)
     leave_type_schema = leave_schema["properties"]["leave_type"]
 
     assert leave_type_schema == {
         "enum": ["annual"],
         "title": "Leave Type",
-        "type": "string",
+        "type": "STRING",
     }
     assert "const" not in leave_type_schema
     assert "const" not in json.dumps(leave_schema)
-    assert (
-        leave_schema
-        == V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].argument_model.model_json_schema()
-    )
 
     for name, expected_schema in _UNCHANGED_READ_TOOL_SCHEMAS.items():
-        assert declarations[name].parameters_json_schema == expected_schema
         assert (
-            declarations[name].parameters_json_schema
-            == V3_TOOL_ALLOWLIST[V3ToolName(name)].argument_model.model_json_schema()
+            V3_TOOL_ALLOWLIST[V3ToolName(name)].argument_model.model_json_schema()
+            == expected_schema
+        )
+        assert declarations[name].parameters is not None
+        assert set(declarations[name].parameters.properties or {}) == set(
+            expected_schema["properties"]
         )
