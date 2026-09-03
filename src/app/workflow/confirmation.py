@@ -89,7 +89,7 @@ class ConfirmationService:
         with self._session_factory() as session:
             workflow, revision = self._lock_owned_revision(session, action_id, context)
             now = database_now(session)
-            self._normalize_expiry(session, workflow, revision, now, context)
+            self.normalize_locked_expiry(session, workflow, revision, now, context)
             session.commit()
             return _action_view(workflow, revision)
 
@@ -104,7 +104,7 @@ class ConfirmationService:
         with self._session_factory() as session:
             workflow, revision = self._lock_owned_revision(session, action_id, context)
             now = database_now(session)
-            self._normalize_expiry(session, workflow, revision, now, context)
+            self.normalize_locked_expiry(session, workflow, revision, now, context)
             if revision.state != WorkflowState.AWAITING_CONFIRMATION.value:
                 raise ActionConflictError
             self._supersede_active_challenge(session, revision, now, context)
@@ -161,7 +161,7 @@ class ConfirmationService:
         with self._session_factory() as session:
             workflow, revision = self._lock_owned_revision(session, action_id, context)
             now = database_now(session)
-            self._normalize_expiry(session, workflow, revision, now, context)
+            self.normalize_locked_expiry(session, workflow, revision, now, context)
             challenge = self._challenges.lock_challenge(session, challenge_id)
             if challenge is None:
                 self._failed(session, workflow, revision, context, "challenge_not_found")
@@ -248,7 +248,7 @@ class ConfirmationService:
         with self._session_factory() as session:
             workflow, revision = self._lock_owned_revision(session, action_id, context)
             now = database_now(session)
-            self._normalize_expiry(session, workflow, revision, now, context)
+            self.normalize_locked_expiry(session, workflow, revision, now, context)
             state = WorkflowState(revision.state)
             if state == WorkflowState.CANCELLED:
                 session.commit()
@@ -300,7 +300,7 @@ class ConfirmationService:
             revision = self._workflows.lock_current_revision(session, workflow)
             now = database_now(session)
             actor = context or AuthenticatedEmployeeContext(employee_id=workflow.owner_employee_id)
-            self._normalize_expiry(session, workflow, revision, now, actor)
+            self.normalize_locked_expiry(session, workflow, revision, now, actor)
             session.commit()
             return _action_view(workflow, revision)
 
@@ -326,7 +326,7 @@ class ConfirmationService:
             raise ActionNotFoundError from None
         return workflow, revision
 
-    def _normalize_expiry(
+    def normalize_locked_expiry(
         self,
         session: Session,
         workflow: ActionWorkflow,
@@ -334,6 +334,7 @@ class ConfirmationService:
         now,
         context: AuthenticatedEmployeeContext,
     ) -> None:
+        """Normalize a caller-locked current revision inside the caller's transaction."""
         state = WorkflowState(revision.state)
         expired = False
         if state == WorkflowState.AWAITING_CONFIRMATION and revision.action_expires_at <= now:

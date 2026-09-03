@@ -19,7 +19,7 @@ from app.it.domain import (
 from app.workflow.action_creation import require_v4_execution_identity
 from app.workflow.audit_repository import AuditRepository, NewAuditEvent
 from app.workflow.challenge_repository import ChallengeRepository
-from app.workflow.confirmation import AUDIT_CHALLENGE_SUPERSEDED, ActionView
+from app.workflow.confirmation import AUDIT_CHALLENGE_SUPERSEDED, ActionView, ConfirmationService
 from app.workflow.domain import ActionType, ActorType, ChallengeStatus, WorkflowState
 from app.workflow.errors import WorkflowRowNotFoundError
 from app.workflow.time import database_now
@@ -40,6 +40,7 @@ class ITActionRevisionService:
         self._workflows = WorkflowRepository()
         self._challenges = ChallengeRepository()
         self._audits = AuditRepository()
+        self._confirmation = ConfirmationService(self._session_factory, self._settings)
 
     def create_revision(
         self,
@@ -56,11 +57,19 @@ class ITActionRevisionService:
                 raise ActionConflictError
             if current.revision != request.expected_revision:
                 raise ActionConflictError
+            now = database_now(session)
+            self._confirmation.normalize_locked_expiry(
+                session,
+                workflow,
+                current,
+                now,
+                context,
+            )
             if current.state != WorkflowState.AWAITING_CONFIRMATION.value:
+                session.commit()
                 raise ActionConflictError
             parse_authoritative_it_draft(current.draft_payload)
 
-            now = database_now(session)
             self._supersede_challenge(session, current, now, subject_id)
             previous_revision = current.revision
             next_revision = previous_revision + 1

@@ -7,6 +7,7 @@ import threading
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import UUID, uuid4
 
@@ -25,13 +26,22 @@ from app.api.dependencies import DEMO_IDENTITY_BINDINGS
 from app.config import KnowledgeSettings
 from app.db.session import create_knowledge_session_factory
 from app.errors import ActionConflictError, ConfirmationInvalidError
+from app.grounding.models import GroundedAnswerDraft
+from app.ingestion.models import EmbeddingProfile, IngestionOutcome
+from app.ingestion.repository import KnowledgeIngestionRepository
+from app.ingestion.service import KnowledgeIngestionService
 from app.it.domain import (
     ITTicketCategory,
     ITTicketUrgency,
     PreparedITSupportTicket,
     ReviseITSupportTicketRequest,
 )
+from app.knowledge.context import KnowledgeApplicabilityContext
 from app.knowledge.query_service import KnowledgeQueryService
+from app.knowledge.repository import KnowledgeRetrievalRepository
+from app.knowledge.service import KnowledgeRetrievalService
+from app.knowledge.vocabulary import AudienceGroup, Jurisdiction
+from app.portal.service import PortalReadService
 from app.repositories.demo import DemoRepository
 from app.services.employee import EmployeeService
 from app.services.it import ITService
@@ -145,6 +155,85 @@ def _confirm(
 def _count(engine: Engine, sql: str, **params: object) -> int:
     with engine.connect() as connection:
         return int(connection.execute(text(sql), params).scalar_one())
+
+
+class _DeterministicITEmbedder:
+    profile = EmbeddingProfile()
+
+    def embed_documents(self, contents, *, title):
+        assert title == "IT Support Request and Triage Guide"
+        vectors = []
+        for content in contents:
+            vector = [0.0] * 768
+            vector[0 if "## Urgency guidance" in content else 1] = 1.0
+            vectors.append(tuple(vector))
+        return tuple(vectors)
+
+
+class _DeterministicITQueryEmbedder:
+    def embed_query(self, query):
+        assert "high urgency" in query
+        return (1.0, *([0.0] * 767))
+
+
+class _FixedClock:
+    def today(self):
+        return date(2026, 9, 3)
+
+
+class _DeterministicITGrounder:
+    def generate(self, question, referenced_evidence):
+        assert "high urgency" in question
+        assert referenced_evidence[0].evidence.doc_code == "SOP-IT-003"
+        assert referenced_evidence[0].evidence.anchor == "urgency-guidance"
+        return GroundedAnswerDraft(
+            status="answered",
+            answer="Use high urgency when essential work is blocked without a safe workaround.",
+            evidence_refs=("E1",),
+        )
+
+
+def test_actual_sop_it_003_is_ingested_retrievable_and_policy_resolvable(
+    engine: Engine,
+) -> None:
+    session_factory = create_knowledge_session_factory(engine)
+    ingestion = KnowledgeIngestionService(
+        repository=KnowledgeIngestionRepository(session_factory),
+        embedder=_DeterministicITEmbedder(),
+    )
+    result = ingestion.ingest_file(Path("corpus/v2/13-it-support-request-guide.md"))
+    applicability = KnowledgeApplicabilityContext(
+        jurisdiction=Jurisdiction.AU_VIC,
+        audience_groups=frozenset({AudienceGroup.ALL_EMPLOYEES, AudienceGroup.MELBOURNE_EMPLOYEES}),
+    )
+    retrieval = KnowledgeRetrievalService(
+        embedder=_DeterministicITQueryEmbedder(),
+        repository=KnowledgeRetrievalRepository(session_factory),
+        clock=_FixedClock(),
+    )
+    response = KnowledgeQueryService(
+        retrieval=retrieval,
+        generator=_DeterministicITGrounder(),
+    ).query("When should an IT request use high urgency?", applicability)
+    destination = PortalReadService(session_factory, DemoRepository()).policy_document(
+        "SOP-IT-003",
+        "1.0",
+        applicability,
+        trusted_today=date(2026, 9, 3),
+    )
+
+    assert result.outcome is IngestionOutcome.INSERTED
+    assert result.chunk_count == 5
+    assert response.citations[0].model_dump() == {
+        "doc_code": "SOP-IT-003",
+        "title": "IT Support Request and Triage Guide",
+        "version": "1.0",
+        "section_anchor": "urgency-guidance",
+        "page": None,
+    }
+    assert destination.doc_code == "SOP-IT-003"
+    assert destination.version == "1.0"
+    assert any(section.anchor == "urgency-guidance" for section in destination.sections)
 
 
 def test_seeded_tickets_are_postgres_backed_listed_and_owner_isolated(
@@ -303,6 +392,74 @@ def test_edit_appends_revision_and_old_challenge_cannot_authorize_current(
             confirmation_token=old_challenge.confirmation_token,
             context=ALEX,
         )
+
+
+def test_expired_unswept_it_revision_cannot_be_edited_into_fresh_ttl(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+) -> None:
+    created = _create(session_factory, isolated_settings)
+    assert created.action_id is not None
+    confirmation = ConfirmationService(session_factory, isolated_settings)
+    confirmation.issue_challenge(action_id=created.action_id, context=ALEX)
+    with session_factory() as session:
+        expired_at = session.execute(
+            text(
+                "UPDATE action_revisions "
+                "SET action_expires_at = clock_timestamp() - interval '1 second' "
+                "WHERE action_id = :action_id AND revision = 1 "
+                "RETURNING action_expires_at"
+            ),
+            {"action_id": created.action_id},
+        ).scalar_one()
+        session.commit()
+
+    with pytest.raises(ActionConflictError):
+        ITActionRevisionService(session_factory, isolated_settings).create_revision(
+            action_id=created.action_id,
+            request=ReviseITSupportTicketRequest(
+                expected_revision=1,
+                category=ITTicketCategory.HARDWARE,
+                summary="Dock is not detected",
+                description="The approved laptop no longer detects its synthetic dock.",
+                urgency=ITTicketUrgency.MEDIUM,
+            ),
+            context=ALEX,
+        )
+
+    with session_factory() as session:
+        revisions = session.execute(
+            text(
+                "SELECT revision, state, action_expires_at "
+                "FROM action_revisions WHERE action_id = :action_id ORDER BY revision"
+            ),
+            {"action_id": created.action_id},
+        ).all()
+        current_revision = session.execute(
+            text("SELECT current_revision FROM action_workflows WHERE action_id = :action_id"),
+            {"action_id": created.action_id},
+        ).scalar_one()
+        challenge_status = session.execute(
+            text(
+                "SELECT status FROM confirmation_challenges "
+                "WHERE action_id = :action_id AND revision = 1"
+            ),
+            {"action_id": created.action_id},
+        ).scalar_one()
+        expiry_audits = session.execute(
+            text(
+                "SELECT count(*) FROM action_audit_events "
+                "WHERE action_id = :action_id AND revision = 1 "
+                "AND event_type = 'ACTION_EXPIRED'"
+            ),
+            {"action_id": created.action_id},
+        ).scalar_one()
+
+    assert [(row.revision, row.state) for row in revisions] == [(1, WorkflowState.EXPIRED.value)]
+    assert revisions[0].action_expires_at == expired_at
+    assert current_revision == 1
+    assert challenge_status == "SUPERSEDED"
+    assert expiry_audits == 1
 
 
 def test_revision_api_allows_only_owned_it_business_fields(

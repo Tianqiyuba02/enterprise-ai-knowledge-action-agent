@@ -147,6 +147,19 @@ def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: En
     with additive_engine.connect() as connection:
         documents = connection.execute(text("SELECT count(*) FROM documents")).scalar_one()
         chunks = connection.execute(text("SELECT count(*) FROM document_chunks")).scalar_one()
+        it_guide = connection.execute(
+            text(
+                """
+                SELECT d.status, d.embedding_model_id, d.embedding_dimension,
+                       count(dc.id) AS section_count,
+                       array_agg(dc.anchor ORDER BY dc.chunk_index) AS anchors
+                FROM documents d
+                JOIN document_chunks dc ON dc.document_id = d.id
+                WHERE d.doc_code = 'SOP-IT-003' AND d.version = '1.0'
+                GROUP BY d.id
+                """
+            )
+        ).one()
         holidays = connection.execute(
             text(
                 """
@@ -162,8 +175,13 @@ def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: En
             },
         ).all()
 
-    assert documents == 12
-    assert chunks == 42
+    assert documents == 13
+    assert chunks == 47
+    assert it_guide.status == "approved"
+    assert it_guide.embedding_model_id == "gemini-embedding-2"
+    assert it_guide.embedding_dimension == 768
+    assert it_guide.section_count == 5
+    assert "urgency-guidance" in it_guide.anchors
     assert len(holidays) == 14
     assert [(row.holiday_date, row.holiday_name) for row in holidays] == list(
         VIC_2026_STATEWIDE_HOLIDAYS
