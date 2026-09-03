@@ -122,7 +122,6 @@ class GeminiAgentClient:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             max_output_tokens=1_024,
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
-            temperature=0,
         )
 
     def start(
