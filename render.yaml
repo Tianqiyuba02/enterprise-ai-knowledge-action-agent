@@ -70,7 +70,7 @@ projects:
               - key: GEMINI_MAX_ATTEMPTS
                 value: "1"
               - key: AGENT_TIMEOUT_SECONDS
-                value: "5"
+                value: "30"
               - key: AGENT_MAX_ATTEMPTS
                 value: "1"
               - key: DATABASE_POOL_SIZE

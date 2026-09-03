@@ -88,6 +88,7 @@ def test_render_blueprint_exposes_only_the_next_portal() -> None:
     assert "region: singapore" in blueprint
     assert 'postgresMajorVersion: "17"' in blueprint
     assert "enterprise-ai-demo-worker --poll-seconds 1" in blueprint
+    assert '- key: AGENT_TIMEOUT_SECONDS\n                value: "30"' in blueprint
 
 
 def test_browser_bff_does_not_accept_identity_authority_or_execute_routes() -> None:
