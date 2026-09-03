@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useRef, useState } from "react";
 
-import type { AssistantResponse } from "@/lib/contracts";
+import type { AssistantResponse, DemoReadiness, GuidedScenario } from "@/lib/contracts";
 import { formatDate, formatHours, sentenceCase } from "@/lib/format";
 
 type ConversationMessage = {
@@ -25,14 +25,21 @@ type ConversationMessage = {
   error?: boolean;
 };
 
-const suggestions = [
-  "How much annual leave do I have?",
-  "What does the annual leave policy say?",
-  "Prepare annual leave from 12 October 2026 to 16 October 2026 for a family trip.",
-  "My laptop cannot connect to the office Wi-Fi. Prepare an IT support request.",
+const fallbackScenarios: GuidedScenario[] = [
+  { id: "carry-over", label: "Carry over leave", prompt: "Can I carry over unused annual leave? Cite the applicable policy.", available: true, note: null },
+  { id: "next-friday", label: "Book next Friday", prompt: "Prepare annual leave for next Friday.", available: true, note: null },
+  { id: "broken-laptop", label: "Broken laptop", prompt: "My laptop is broken. Prepare a high-urgency hardware IT support request.", available: true, note: null },
 ];
 
-export function AssistantWorkspace({ firstName }: { firstName: string }) {
+export function AssistantWorkspace({
+  firstName,
+  readiness,
+  scenarios,
+}: {
+  firstName: string;
+  readiness: DemoReadiness | null;
+  scenarios: GuidedScenario[];
+}) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -54,10 +61,23 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: trimmed, initiation_id: crypto.randomUUID() }),
+        signal: AbortSignal.timeout(60_000),
       });
-      const payload = (await response.json()) as AssistantResponse | { message?: string };
+      const payload = (await response.json()) as AssistantResponse | { message?: string; error_code?: string };
       if (!response.ok) {
-        throw new Error("message" in payload && payload.message ? payload.message : "The assistant is unavailable.");
+        const code = "error_code" in payload ? payload.error_code : undefined;
+        const safeMessage = code === "demo_capacity_reached"
+          ? "This shared demo has reached its current usage allowance. Please try again later."
+          : code === "demo_maintenance"
+            ? "The demo is refreshing its synthetic data. Please try again shortly."
+            : code === "assistant_deadline_exceeded" || code?.includes("timeout")
+              ? "The assistant took too long to respond. Nothing was submitted. Please try again."
+              : code?.includes("model") || code?.includes("provider")
+                ? "The AI provider is temporarily unavailable. No action was submitted."
+                : "message" in payload && payload.message
+                  ? payload.message
+                  : "The assistant service is unavailable. Nothing was submitted.";
+        throw new Error(safeMessage);
       }
       const result = payload as AssistantResponse;
       setMessages((current) => [
@@ -84,6 +104,16 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
     }
   }
 
+  const guided = scenarios.length ? scenarios : fallbackScenarios;
+  const unavailable = readiness?.maintenance || readiness?.database === false;
+  const serviceLabel = readiness?.maintenance
+    ? "Refreshing demo"
+    : readiness && !readiness.worker
+      ? "Worker delayed"
+      : readiness?.status === "ready"
+        ? "Ready"
+        : "Limited availability";
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void send(input);
@@ -105,18 +135,18 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
             <p className="eyebrow">Governed employee assistant</p>
             <h1>How can I help, {firstName}?</h1>
           </div>
-          <span className="online-indicator"><i /> Ready</span>
+          <span className="online-indicator" data-ready={readiness?.status === "ready" || undefined}><i /> {serviceLabel}</span>
         </header>
 
         <div className="conversation" aria-live="polite">
           {messages.length === 0 ? (
             <div className="conversation-empty">
-              <p>Ask about company policy or prepare an annual leave request.</p>
+              <p>Try a guided employee task or ask about a governed policy.</p>
               <div className="suggestion-grid">
-                {suggestions.map((suggestion, index) => (
-                  <button type="button" onClick={() => void send(suggestion)} key={suggestion}>
+                {guided.map((scenario, index) => (
+                  <button type="button" onClick={() => void send(scenario.prompt)} key={scenario.id} disabled={!scenario.available || unavailable} title={scenario.note ?? scenario.prompt}>
                     <span>{String(index + 1).padStart(2, "0")}</span>
-                    {suggestion}
+                    <strong>{scenario.label}</strong>
                     <ArrowRight aria-hidden="true" size={15} />
                   </button>
                 ))}
@@ -196,9 +226,9 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
             maxLength={4000}
             rows={2}
             placeholder="Ask a policy question, prepare leave, or report an IT issue…"
-            disabled={pending}
+            disabled={pending || unavailable}
           />
-          <button type="submit" disabled={pending || !input.trim()} aria-label="Send message">
+          <button type="submit" disabled={pending || unavailable || !input.trim()} aria-label="Send message">
             <CornerDownLeft aria-hidden="true" size={17} />
           </button>
           <small>Enter to send · Shift + Enter for a new line</small>

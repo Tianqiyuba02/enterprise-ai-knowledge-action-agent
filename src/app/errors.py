@@ -74,3 +74,17 @@ class PolicyDocumentNotFoundError(ApplicationError):
 
     error_code = "policy_document_not_found"
     public_message = "The requested policy document was not found."
+
+
+class DemoCapacityReachedError(ApplicationError):
+    """Raised when an atomic public-demo allowance cannot be reserved."""
+
+    error_code = "demo_capacity_reached"
+    public_message = "The public demo has reached its current usage limit. Please try again later."
+
+
+class DemoMaintenanceError(ApplicationError):
+    """Raised while the private deterministic reset owns the mutation boundary."""
+
+    error_code = "demo_maintenance"
+    public_message = "The demo is refreshing its sample data. Please try again shortly."

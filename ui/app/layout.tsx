@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { PortalShell } from "@/components/portal-shell";
+import { DemoIntroduction } from "@/components/demo-introduction";
 import { backendFetch } from "@/lib/backend";
 import type { EmployeeProfile } from "@/lib/contracts";
 import { getServerPersona } from "@/lib/server-persona";
@@ -30,6 +31,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <PortalShell persona={persona} profile={profile}>
           {children}
         </PortalShell>
+        <DemoIntroduction />
       </body>
     </html>
   );

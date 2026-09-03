@@ -57,9 +57,11 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
   const [reviewed, setReviewed] = useState(false);
   const [pending, setPending] = useState<"challenge" | "confirm" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [executionSlow, setExecutionSlow] = useState(false);
 
   useEffect(() => {
     if (detail.state !== "CONFIRMED") return;
+    const slowTimer = window.setTimeout(() => setExecutionSlow(true), 12_000);
     const interval = window.setInterval(async () => {
       const response = await fetch(`/api/portal/actions/${detail.action_id}/detail`, {
         cache: "no-store",
@@ -67,9 +69,15 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
       if (!response.ok) return;
       const next = (await response.json()) as AnnualLeaveActionDetail;
       setDetail(next);
-      if (TERMINAL_STATES.has(next.state)) window.clearInterval(interval);
+      if (TERMINAL_STATES.has(next.state)) {
+        window.clearInterval(interval);
+        window.clearTimeout(slowTimer);
+      }
     }, 1200);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(slowTimer);
+    };
   }, [detail.action_id, detail.state]);
 
   async function beginAuthorization() {
@@ -178,7 +186,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
         ) : detail.state === "CONFIRMED" ? (
           <div className="execution-queued" role="status">
             <LoaderCircle aria-hidden="true" className="spin" size={20} />
-            <div><strong>Authorized and queued</strong><p>The existing V4 worker is processing this request. This page will update automatically.</p></div>
+            <div><strong>{executionSlow ? "Authorized — processing is taking longer than usual" : "Authorized and queued"}</strong><p>{executionSlow ? "No leave request has been submitted yet. Do not authorize it again; the private worker may be delayed and this page will keep checking safely." : "The existing V4 worker is processing this request. This page will update automatically."}</p></div>
           </div>
         ) : canReview ? (
           <div className="authorization-panel">

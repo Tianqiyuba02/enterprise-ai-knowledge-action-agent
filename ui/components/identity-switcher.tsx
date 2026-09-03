@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -27,6 +27,16 @@ export function IdentitySwitcher({ current }: { current: PersonaId }) {
       router.refresh();
     } finally {
       setPending(null);
+    }
+  }
+
+  async function startFresh() {
+    window.localStorage.clear();
+    await selectPersona("alex");
+    if (current === "alex") {
+      detailsRef.current?.removeAttribute("open");
+      router.push("/");
+      router.refresh();
     }
   }
 
@@ -66,6 +76,10 @@ export function IdentitySwitcher({ current }: { current: PersonaId }) {
           );
         })}
         <p className="identity-note">Identity is resolved on the server.</p>
+        <button className="start-fresh" type="button" onClick={() => void startFresh()} disabled={pending !== null}>
+          <RotateCcw aria-hidden="true" size={14} />
+          <span><strong>Start fresh</strong><small>Clear this browser’s presentation state</small></span>
+        </button>
       </div>
     </details>
   );

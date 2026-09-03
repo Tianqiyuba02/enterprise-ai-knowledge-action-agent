@@ -1,5 +1,28 @@
 export type PersonaId = "alex" | "sam";
 
+export type DemoReadiness = {
+  status: "ready" | "degraded" | "maintenance";
+  database: boolean;
+  migration: boolean;
+  knowledge: boolean;
+  maintenance: boolean;
+  worker: boolean;
+  worker_heartbeat_at: string | null;
+  last_successful_reset_at: string | null;
+  document_count: number;
+  chunk_count: number;
+};
+
+export type GuidedScenario = {
+  id: string;
+  label: string;
+  prompt: string;
+  available: boolean;
+  note: string | null;
+};
+
+export type GuidedScenarios = { items: GuidedScenario[] };
+
 export type EmployeeProfile = {
   employee_id: string;
   full_name: string;

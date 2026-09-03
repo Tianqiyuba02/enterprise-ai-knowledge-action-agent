@@ -40,7 +40,7 @@ export function DataUnavailable({ detail }: { detail?: string }) {
       <AlertCircle aria-hidden="true" size={20} />
       <div>
         <strong>Portal data is temporarily unavailable</strong>
-        <p>{detail ?? "Check that the employee service is running, then try again."}</p>
+        <p>{detail ?? "The shared demo service may be refreshing. Please try again shortly."}</p>
       </div>
     </div>
   );

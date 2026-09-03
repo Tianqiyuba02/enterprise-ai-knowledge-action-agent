@@ -5,8 +5,9 @@ Milestone V1** FastAPI and trusted-identity backend, **Product Milestone V2** au
 RAG implementation released as `v0.3.0`, **Product Milestone V3** Agent + Tools released
 as `v0.4.0`, and **Product Milestone V4** safe annual-leave action execution released as
 `v0.5.0`. The repository also contains the unreleased **V5 M1 Enterprise Portal
-Experience** and **V5 M2 Multi-Domain Action + Trust** implementation. M2 adds a second,
-IT-support action while preserving the sealed V4 annual-leave execution semantics.
+Experience**, **V5 M2 Multi-Domain Action + Trust**, and **V5 M3 Public Live Demo**
+implementation. M2 adds a second, IT-support action; M3 packages the same sealed action
+semantics as a bounded public portfolio demo.
 
 This is a local portfolio system, not a production-ready HR platform. The approved
 product plan is in [`docs/project-kickoff-approved-1.0.md`](docs/project-kickoff-approved-1.0.md).
@@ -24,7 +25,7 @@ later simplified PostgreSQL-authoritative execution path.
 | V4 — Safe Action Execution | ✅ Complete — `v0.5.0`; Development evaluation CLOSED — PARTIAL / PROVIDER-LIMITED |
 | V5 M1 — Enterprise Portal Experience | ✅ Implemented and locally verified; unreleased |
 | V5 M2 — Multi-Domain Action + Trust | ✅ Implemented and locally verified; unreleased |
-| V5 M3 | Not started; outside the M2 scope |
+| V5 M3 — Public Live Demo | ✅ Implemented locally; deployment not yet authorized |
 
 ### V0 Verification
 
@@ -347,6 +348,48 @@ another terminal:
 uv run enterprise-ai-workflow-worker --poll-seconds 1
 ```
 
+## V5 M3 public-demo deployment
+
+M3 adds a reproducible Render Blueprint without creating any cloud resources during the
+implementation gate. The Blueprint provisions one public Next.js portal/BFF, one private FastAPI
+service, one private confirmed-action worker, one private scheduled reset job, and one Singapore
+PostgreSQL 17 database. Only the portal has a public URL. The BFF uses a server-only internal key
+for private API calls and a separate signed HttpOnly visitor cookie solely for usage accounting;
+neither value is employee authority.
+
+The backend image is shared by the API, worker, bootstrap, and reset commands. The portal uses its
+own production image:
+
+```bash
+docker build -t enterprise-ai-demo-backend .
+docker build -t enterprise-ai-demo-portal ./ui
+```
+
+The reviewed first-deployment sequence is:
+
+1. Review and select an exact M3 commit, then provision `render.yaml` in the Render dashboard.
+2. Confirm the Singapore database has no public IP allow-list and supply `GEMINI_API_KEY` through
+   Render secret configuration. Generated internal and cookie keys must remain server-only.
+3. Let the private API pre-deploy command run `enterprise-ai-demo-bootstrap`. It migrates to
+   `0008_v5_m3_public_demo`, ingests through the existing governed path only when the expected
+   13-document/47-chunk baseline is missing, and fails closed if verification is incomplete.
+4. Run `enterprise-ai-demo-reset` privately once, then start one API and one worker replica. The
+   worker command is `enterprise-ai-demo-worker --poll-seconds 1`.
+5. Verify worker heartbeat and the safe readiness projection through the portal before sharing the
+   public URL. Complete deterministic HR, IT, identity-isolation, and citation smoke checks.
+6. Only with separate Product Owner authorization, run one live guided Gemini smoke. Do not run a
+   provider evaluation suite as part of deployment.
+
+The scheduled reset enters maintenance, waits for active state-changing requests, restores only
+the synthetic mutable baseline, verifies it, and leaves maintenance only on success. It preserves
+governed knowledge, versioned holidays, and the three intended seed tickets. The public “Start
+fresh” control clears only that browser's presentation state; it is not a database-reset endpoint.
+
+For rollback, disable the public portal, retain the database, select the last reviewed application
+image/commit for all runtime services, run its compatible migration checks, and re-enable traffic
+only after private readiness and deterministic smoke checks pass. Do not downgrade the database or
+delete shared state as an automatic rollback step.
+
 ## Run the V0 CLI
 
 Pass one question as a quoted argument:
@@ -477,3 +520,9 @@ M2 does not add production authentication, external IT service integrations, ass
 automation, comments, attachments, notifications, or conversation memory. Ticket status is a
 small synthetic lifecycle projection, and employees can create and read tickets but cannot manage
 an external help-desk workflow.
+
+M3 remains a shared synthetic portfolio demo, not a production platform. Its quotas are deliberately
+conservative, it uses one worker, and it does not add production SSO, tenancy, a WAF, Redis, or a
+monitoring product. Known 2027–2028 Victorian holidays are versioned for guided-date preflight;
+unresolved AFL Grand Final Friday dates and requests outside the reviewed horizon fail closed. The
+sealed V4 annual-leave executor keeps its existing calendar semantics.

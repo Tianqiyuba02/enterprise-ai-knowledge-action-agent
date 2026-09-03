@@ -1,0 +1,107 @@
+previews:
+  generation: off
+
+projects:
+  - name: enterprise-ai-public-demo
+    environments:
+      - name: production
+        networking:
+          isolation: enabled
+        envVarGroups:
+          - name: enterprise-ai-demo-shared-secrets
+            envVars:
+              - key: INTERNAL_PORTAL_KEY
+                generateValue: true
+              - key: VISITOR_COOKIE_SECRET
+                generateValue: true
+        databases:
+          - name: enterprise-ai-demo-db
+            databaseName: enterprise_ai_demo
+            user: enterprise_ai_demo
+            plan: 0.5c-1g
+            region: singapore
+            postgresMajorVersion: "17"
+            diskSizeGB: 15
+            ipAllowList: []
+        services:
+          - type: web
+            name: enterprise-ai-demo-portal
+            runtime: docker
+            plan: 0.5c-512mb
+            region: singapore
+            rootDir: ui
+            dockerContext: .
+            dockerfilePath: ./Dockerfile
+            healthCheckPath: /api/health
+            autoDeployTrigger: off
+            envVars:
+              - fromGroup: enterprise-ai-demo-shared-secrets
+              - key: BACKEND_HOSTPORT
+                fromService:
+                  type: pserv
+                  name: enterprise-ai-demo-api
+                  property: hostport
+              - key: GITHUB_REPOSITORY_URL
+                value: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent
+          - type: pserv
+            name: enterprise-ai-demo-api
+            runtime: docker
+            plan: 0.5c-512mb
+            region: singapore
+            dockerContext: .
+            dockerfilePath: ./Dockerfile
+            dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+            preDeployCommand: enterprise-ai-demo-bootstrap
+            autoDeployTrigger: off
+            envVars: &backend-env
+              - fromGroup: enterprise-ai-demo-shared-secrets
+              - key: APP_DATABASE_URL
+                fromDatabase:
+                  name: enterprise-ai-demo-db
+                  property: connectionString
+              - key: PUBLIC_DEMO_MODE
+                value: "true"
+              - key: GEMINI_API_KEY
+                sync: false
+              - key: GEMINI_MODEL
+                value: gemini-3.5-flash
+              - key: GEMINI_TIMEOUT_SECONDS
+                value: "5"
+              - key: GEMINI_MAX_ATTEMPTS
+                value: "1"
+              - key: AGENT_TIMEOUT_SECONDS
+                value: "5"
+              - key: AGENT_MAX_ATTEMPTS
+                value: "1"
+              - key: DATABASE_POOL_SIZE
+                value: "4"
+              - key: DATABASE_MAX_OVERFLOW
+                value: "1"
+          - type: worker
+            name: enterprise-ai-demo-worker
+            runtime: docker
+            plan: 0.5c-512mb
+            region: singapore
+            dockerContext: .
+            dockerfilePath: ./Dockerfile
+            dockerCommand: enterprise-ai-demo-worker --poll-seconds 1
+            autoDeployTrigger: off
+            envVars: *backend-env
+          - type: cron
+            name: enterprise-ai-demo-reset
+            runtime: docker
+            plan: 0.5c-512mb
+            region: singapore
+            schedule: "17 18 * * *"
+            dockerContext: .
+            dockerfilePath: ./Dockerfile
+            dockerCommand: enterprise-ai-demo-reset
+            autoDeployTrigger: off
+            envVars:
+              - fromGroup: enterprise-ai-demo-shared-secrets
+              - key: APP_DATABASE_URL
+                fromDatabase:
+                  name: enterprise-ai-demo-db
+                  property: connectionString
+              - key: PUBLIC_DEMO_MODE
+                value: "true"
