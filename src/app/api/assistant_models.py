@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -22,6 +23,8 @@ from app.agent.errors import (
 from app.agent.leave_models import LeavePreparationStatus, LeaveRequestDraft
 from app.agent.loop_models import MAX_AGENT_CITATIONS, AgentRunResult, AgentRunStatus
 from app.api.knowledge_models import KnowledgeCitation
+from app.api.portal_models import AuthoritativeActionDraft
+from app.it.domain import ITTicketCategory, ITTicketUrgency, PreparedITSupportTicket
 
 StrictMessage = Annotated[
     str,
@@ -39,6 +42,7 @@ class AssistantAPIModel(BaseModel):
 
 class AssistantQueryRequest(AssistantAPIModel):
     message: StrictMessage
+    initiation_id: UUID | None = None
 
 
 class AssistantPublicStatus(StrEnum):
@@ -71,6 +75,22 @@ class PreparedLeaveRequestAction(AssistantAPIModel):
         return float(value)
 
 
+class PreparedITSupportTicketAction(AssistantAPIModel):
+    type: Literal["it_support_ticket"] = "it_support_ticket"
+    category: ITTicketCategory
+    summary: str
+    description: str
+    urgency: ITTicketUrgency
+    non_executing: Literal[True] = True
+    authority: Literal["preview"] = "preview"
+
+
+PreparedAction = Annotated[
+    PreparedLeaveRequestAction | PreparedITSupportTicketAction,
+    Field(discriminator="type"),
+]
+
+
 class AssistantActionStatus(StrEnum):
     NOT_CREATED = "not_created"
     CREATED = "created"
@@ -87,6 +107,7 @@ class AssistantActionNotCreatedReason(StrEnum):
     INVALID_PREPARATION = "invalid_preparation"
     AUTHORITY_INCONSISTENT = "authority_inconsistent"
     RETRYABLE_CONFLICT = "retryable_conflict"
+    MISSING_INITIATION_ID = "missing_initiation_id"
 
 
 class AssistantDurableAction(AssistantAPIModel):
@@ -94,7 +115,7 @@ class AssistantDurableAction(AssistantAPIModel):
     revision: int
     action_type: str
     state: str
-    draft: dict[str, object]
+    draft: AuthoritativeActionDraft
     action_expires_at: datetime
     confirmation_required: StrictBool
     authority: Literal["authoritative"] = "authoritative"
@@ -105,7 +126,7 @@ class AssistantQueryResponse(AssistantAPIModel):
     answer: PublicText | None = None
     citations: tuple[KnowledgeCitation, ...] = Field(max_length=MAX_AGENT_CITATIONS)
     message: PublicText | None = None
-    prepared_action: PreparedLeaveRequestAction | None = None
+    prepared_action: PreparedAction | None = None
     action: AssistantDurableAction | None = None
     action_status: AssistantActionStatus | None = None
     action_not_created_reason: AssistantActionNotCreatedReason | None = None
@@ -130,7 +151,10 @@ def map_agent_result(result: AgentRunResult) -> AssistantQueryResponse:
             status=AssistantPublicStatus.COMPLETED,
             answer=result.answer,
             citations=result.citations,
-            prepared_action=_map_prepared_action(result.prepared_leave_request),
+            prepared_action=_map_prepared_action(
+                result.prepared_leave_request,
+                result.prepared_it_support_ticket,
+            ),
         )
     if result.status in {
         AgentRunStatus.UNABLE_TO_COMPLETE,
@@ -141,7 +165,10 @@ def map_agent_result(result: AgentRunResult) -> AssistantQueryResponse:
             answer=None,
             citations=result.citations,
             message="The assistant could not complete the request.",
-            prepared_action=_map_prepared_action(result.prepared_leave_request),
+            prepared_action=_map_prepared_action(
+                result.prepared_leave_request,
+                result.prepared_it_support_ticket,
+            ),
         )
     if result.status is AgentRunStatus.PROVIDER_RATE_LIMITED:
         raise AssistantModelRateLimitedError
@@ -150,20 +177,28 @@ def map_agent_result(result: AgentRunResult) -> AssistantQueryResponse:
 
 def _map_prepared_action(
     draft: LeaveRequestDraft | None,
-) -> PreparedLeaveRequestAction | None:
-    if draft is None:
-        return None
-    return PreparedLeaveRequestAction(
-        type="leave_request",
-        leave_type=draft.leave_type,
-        start_date=draft.start_date,
-        end_date=draft.end_date,
-        scheduled_work_days=draft.scheduled_work_days,
-        requested_hours=draft.requested_hours,
-        current_balance_hours=draft.current_balance_hours,
-        projected_balance_hours=draft.projected_balance_hours,
-        preparation_status=draft.preparation_status,
-        reason=draft.reason,
-        public_holiday_check_required=draft.public_holiday_check_required,
-        non_executing=True,
-    )
+    it_draft: PreparedITSupportTicket | None,
+) -> PreparedAction | None:
+    if draft is not None:
+        return PreparedLeaveRequestAction(
+            type="leave_request",
+            leave_type=draft.leave_type,
+            start_date=draft.start_date,
+            end_date=draft.end_date,
+            scheduled_work_days=draft.scheduled_work_days,
+            requested_hours=draft.requested_hours,
+            current_balance_hours=draft.current_balance_hours,
+            projected_balance_hours=draft.projected_balance_hours,
+            preparation_status=draft.preparation_status,
+            reason=draft.reason,
+            public_holiday_check_required=draft.public_holiday_check_required,
+            non_executing=True,
+        )
+    if it_draft is not None:
+        return PreparedITSupportTicketAction(
+            category=it_draft.category,
+            summary=it_draft.summary,
+            description=it_draft.description,
+            urgency=it_draft.urgency,
+        )
+    return None

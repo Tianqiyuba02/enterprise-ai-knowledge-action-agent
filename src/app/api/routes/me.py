@@ -15,6 +15,7 @@ from app.api.models import (
     ErrorResponse,
     LeaveBalanceResponse,
     LeaveBalancesResponse,
+    TicketListResponse,
     TicketResponse,
 )
 from app.api.portal_models import ActionListResponse, LeaveSummaryResponse
@@ -91,12 +92,31 @@ def list_my_actions(
 
 
 @router.get(
+    "/tickets",
+    response_model=TicketListResponse,
+    responses={
+        **AUTH_RESPONSES,
+        503: {"model": ErrorResponse, "description": "Ticket store unavailable"},
+    },
+)
+def list_my_tickets(
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    service: Annotated[ITService, Depends(get_it_service)],
+) -> TicketListResponse:
+    tickets = service.list_my_tickets(context)
+    return TicketListResponse(
+        items=tuple(TicketResponse.model_validate(ticket) for ticket in tickets),
+        total=len(tickets),
+    )
+
+
+@router.get(
     "/tickets/{ticket_id}",
     response_model=TicketResponse,
     responses=AUTH_RESPONSES,
 )
 def get_my_ticket(
-    ticket_id: Annotated[str, Path(pattern=r"^TKT-\d{4}$")],
+    ticket_id: Annotated[str, Path(pattern=r"^TKT-[0-9]+$")],
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     service: Annotated[ITService, Depends(get_it_service)],
 ) -> TicketResponse:

@@ -21,6 +21,7 @@ def test_tool_registry_has_no_action_or_execution_tools() -> None:
         V3ToolName.GET_MY_LEAVE_BALANCES.value,
         V3ToolName.GET_MY_TICKET.value,
         V3ToolName.PREPARE_LEAVE_REQUEST.value,
+        V3ToolName.PREPARE_IT_SUPPORT_TICKET.value,
     }
     assert all(forbidden not in names for forbidden in FORBIDDEN_TOOLS)
     dispatcher = (ROOT / "src" / "app" / "agent" / "dispatcher.py").read_text(encoding="utf-8")

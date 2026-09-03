@@ -449,7 +449,29 @@ def test_created_action_is_returned_without_orchestration() -> None:
     from app.workflow.action_creation import ActionCreationDisposition, ActionCreationResult
 
     action_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-    persisted_draft = {"reason": "appointment", "requested_hours": "7.60"}
+    persisted_draft = {
+        "action_type": "submit_annual_leave",
+        "leave_type": "annual",
+        "start_date": "2026-08-28",
+        "end_date": "2026-08-28",
+        "requested_hours": "7.60",
+        "projected_balance_hours": "68.40",
+        "readiness": "READY",
+        "reason": "appointment",
+        "calendar_version": "au-vic-2026-v1",
+        "ruleset_version": "annual-leave-v1",
+        "authority_snapshot_hash": "a" * 64,
+        "scheduled_work_days": 1,
+        "stable_authority": {
+            "employee_id": "EMP-1001",
+            "jurisdiction": "AU-VIC",
+            "work_days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+            "hours_per_day": "7.60",
+            "timezone": "Australia/Melbourne",
+            "calendar_version": "au-vic-2026-v1",
+            "ruleset_version": "annual-leave-v1",
+        },
+    }
 
     class CreatedActions:
         def create_or_reuse(self, context, prepared):
@@ -488,7 +510,7 @@ def test_created_action_is_returned_without_orchestration() -> None:
     )
     assert response.action is not None
     assert response.action.action_id == str(action_id)
-    assert response.action.draft == persisted_draft
+    assert response.action.draft.model_dump(mode="json") == persisted_draft
     assert response.action.authority == "authoritative"
     assert response.action.confirmation_required is True
     assert response.action_status is AssistantActionStatus.CREATED

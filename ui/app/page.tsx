@@ -2,6 +2,7 @@ import {
   ArrowRight,
   BookOpenText,
   CalendarCheck2,
+  Headphones,
   MessageCircleMore,
   Sparkles,
 } from "lucide-react";
@@ -84,11 +85,13 @@ export default async function HomePage() {
           </span>
           <div>
             <p className="eyebrow">Ready for your review</p>
-            <strong>
-              Annual leave · {formatDate(attention.start_date)}–{formatDate(attention.end_date)}
-            </strong>
+            <strong>{attention.action_type === "submit_annual_leave"
+              ? `Annual leave · ${formatDate(attention.start_date)}–${formatDate(attention.end_date)}`
+              : `IT Support · ${attention.summary}`}</strong>
           </div>
-          <Link href={`/leave/review/${attention.action_id}`}>
+          <Link href={attention.action_type === "submit_annual_leave"
+            ? `/leave/review/${attention.action_id}`
+            : `/it/review/${attention.action_id}`}>
             Review authoritative draft <ArrowRight aria-hidden="true" size={16} />
           </Link>
         </section>
@@ -108,14 +111,22 @@ export default async function HomePage() {
               {actions.map((action) => (
                 <Link className="request-row" href={`/requests/${action.action_id}`} key={action.action_id}>
                   <span className="request-icon">
-                    <CalendarCheck2 aria-hidden="true" size={19} />
+                    {action.action_type === "submit_annual_leave"
+                      ? <CalendarCheck2 aria-hidden="true" size={19} />
+                      : <Headphones aria-hidden="true" size={19} />}
                   </span>
                   <span className="request-main">
-                    <strong>Annual leave</strong>
-                    <small>
-                      {formatDate(action.start_date)}–{formatDate(action.end_date)} ·{" "}
-                      {formatHours(action.requested_hours)}
-                    </small>
+                    {action.action_type === "submit_annual_leave" ? (
+                      <>
+                        <strong>Annual leave</strong>
+                        <small>{formatDate(action.start_date)}–{formatDate(action.end_date)} · {formatHours(action.requested_hours)}</small>
+                      </>
+                    ) : (
+                      <>
+                        <strong>IT Support</strong>
+                        <small>{action.summary} · {action.urgency} urgency</small>
+                      </>
+                    )}
                   </span>
                   <StatusPill state={action.state} />
                   <ArrowRight className="row-arrow" aria-hidden="true" size={16} />

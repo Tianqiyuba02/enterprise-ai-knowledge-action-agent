@@ -9,6 +9,7 @@ const tones: Record<WorkflowState, string> = {
   CANCELLED: "neutral",
   EXPIRED: "neutral",
   STALE: "danger",
+  SUPERSEDED: "neutral",
 };
 
 export function StatusPill({ state }: { state: WorkflowState }) {

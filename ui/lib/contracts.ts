@@ -19,7 +19,8 @@ export type WorkflowState =
   | "EXECUTION_FAILED"
   | "CANCELLED"
   | "EXPIRED"
-  | "STALE";
+  | "STALE"
+  | "SUPERSEDED";
 
 export type StableAuthority = {
   employee_id: string;
@@ -46,6 +47,22 @@ export type AnnualLeaveDraft = {
   scheduled_work_days: number;
   stable_authority: StableAuthority;
 };
+
+export type ITTicketCategory = "access" | "hardware" | "software" | "network";
+export type ITTicketUrgency = "low" | "medium" | "high";
+export type ITTicketStatus = "open" | "in_progress" | "resolved";
+
+export type ITSupportTicketDraft = {
+  action_type: "create_it_support_ticket";
+  category: ITTicketCategory;
+  summary: string;
+  description: string;
+  urgency: ITTicketUrgency;
+  ruleset_version: "it-support-v1";
+  authority_snapshot_hash: string;
+};
+
+export type AuthoritativeDraft = AnnualLeaveDraft | ITSupportTicketDraft;
 
 export type LeaveRequestResult = {
   leave_request_id: string;
@@ -75,7 +92,7 @@ export type LeaveSummary = {
   computed_at: string;
 };
 
-export type ActionListItem = {
+export type AnnualLeaveActionListItem = {
   action_id: string;
   revision: number;
   action_type: "submit_annual_leave";
@@ -92,6 +109,34 @@ export type ActionListItem = {
   result: LeaveRequestResult | null;
 };
 
+export type ITTicketResult = {
+  ticket_id: string;
+  category: ITTicketCategory;
+  summary: string;
+  urgency: ITTicketUrgency;
+  status: ITTicketStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ITActionListItem = {
+  action_id: string;
+  revision: number;
+  action_type: "create_it_support_ticket";
+  state: WorkflowState;
+  category: ITTicketCategory;
+  summary: string;
+  urgency: ITTicketUrgency;
+  created_at: string;
+  updated_at: string;
+  action_expires_at: string;
+  confirmed_expires_at: string | null;
+  confirmation_required: boolean;
+  result: ITTicketResult | null;
+};
+
+export type ActionListItem = AnnualLeaveActionListItem | ITActionListItem;
+
 export type ActionList = {
   items: ActionListItem[];
   total: number;
@@ -100,6 +145,7 @@ export type ActionList = {
 export type AuditEvent = {
   event_id: string;
   event_type: string;
+  revision: number;
   actor_type: string;
   from_state: string | null;
   to_state: string | null;
@@ -107,7 +153,7 @@ export type AuditEvent = {
   created_at: string;
 };
 
-export type ActionDetail = {
+export type AnnualLeaveActionDetail = {
   action_id: string;
   revision: number;
   action_type: "submit_annual_leave";
@@ -123,6 +169,38 @@ export type ActionDetail = {
   result: LeaveRequestResult | null;
   audit_events: AuditEvent[];
 };
+
+export type ITActionDetail = {
+  action_id: string;
+  revision: number;
+  action_type: "create_it_support_ticket";
+  state: WorkflowState;
+  authoritative_draft: ITSupportTicketDraft;
+  created_at: string;
+  updated_at: string;
+  action_expires_at: string;
+  confirmed_at: string | null;
+  confirmed_expires_at: string | null;
+  confirmation_required: boolean;
+  manual_review_required: boolean;
+  result: ITTicketResult | null;
+  audit_events: AuditEvent[];
+};
+
+export type ActionDetail = AnnualLeaveActionDetail | ITActionDetail;
+
+export type Ticket = {
+  ticket_id: string;
+  category: ITTicketCategory;
+  summary: string;
+  description: string;
+  urgency: ITTicketUrgency;
+  status: ITTicketStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TicketList = { items: Ticket[]; total: number };
 
 export type PolicyDocumentSummary = {
   doc_code: string;
@@ -164,9 +242,9 @@ export type KnowledgeCitation = {
 export type DurableAction = {
   action_id: string;
   revision: number;
-  action_type: string;
+  action_type: "submit_annual_leave" | "create_it_support_ticket";
   state: WorkflowState;
-  draft: AnnualLeaveDraft;
+  draft: AuthoritativeDraft;
   action_expires_at: string;
   confirmation_required: boolean;
   authority: "authoritative";
@@ -186,9 +264,9 @@ export type AssistantResponse = {
 export type ActionResponse = {
   action_id: string;
   revision: number;
-  action_type: string;
+  action_type: "submit_annual_leave" | "create_it_support_ticket";
   state: WorkflowState;
-  draft: AnnualLeaveDraft;
+  draft: AuthoritativeDraft;
   action_expires_at: string;
   confirmed_expires_at: string | null;
   confirmation_required: boolean;

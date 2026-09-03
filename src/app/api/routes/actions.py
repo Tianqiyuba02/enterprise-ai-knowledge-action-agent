@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import (
     get_authenticated_employee,
     get_confirmation_service,
+    get_it_action_revision_service,
     get_portal_read_service,
 )
 from app.api.models import (
@@ -16,10 +17,12 @@ from app.api.models import (
     ConfirmationChallengeResponse,
     ErrorResponse,
 )
-from app.api.portal_models import ActionDetailResponse
+from app.api.portal_models import ActionDetail
 from app.identity import AuthenticatedEmployeeContext
+from app.it.domain import ReviseITSupportTicketRequest
 from app.portal.service import PortalReadService
 from app.workflow.confirmation import ActionView, ConfirmationService, IssuedChallenge
+from app.workflow.it_revision import ITActionRevisionService
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -46,7 +49,7 @@ def get_action(
 
 @router.get(
     "/{action_id}/detail",
-    response_model=ActionDetailResponse,
+    response_model=ActionDetail,
     responses={
         **ACTION_RESPONSES,
         503: {"model": ErrorResponse, "description": "Portal read unavailable"},
@@ -57,10 +60,26 @@ def get_action_detail(
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     confirmation: Annotated[ConfirmationService, Depends(get_confirmation_service)],
     portal: Annotated[PortalReadService, Depends(get_portal_read_service)],
-) -> ActionDetailResponse:
+) -> ActionDetail:
     # Preserve the V4 read-side expiry normalization before projecting detail.
     confirmation.get_action(action_id=action_id, context=context)
     return portal.action_detail(action_id=action_id, context=context)
+
+
+@router.post(
+    "/{action_id}/revisions",
+    response_model=ActionResponse,
+    responses=ACTION_RESPONSES,
+)
+def create_action_revision(
+    action_id: UUID,
+    payload: ReviseITSupportTicketRequest,
+    context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
+    service: Annotated[ITActionRevisionService, Depends(get_it_action_revision_service)],
+) -> ActionResponse:
+    return _action_response(
+        service.create_revision(action_id=action_id, request=payload, context=context)
+    )
 
 
 @router.post(

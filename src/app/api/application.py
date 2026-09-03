@@ -30,18 +30,21 @@ def create_app(
     knowledge_query_service: KnowledgeQueryService | None = None,
     agent_service: AgentService | None = None,
     portal_read_service: PortalReadService | None = None,
+    it_service: ITService | None = None,
 ) -> FastAPI:
     """Construct an isolated application suitable for runtime and offline tests."""
 
     demo_repository = repository or DemoRepository()
     app = FastAPI(
         title="Enterprise AI Knowledge & Action Agent",
-        description="V1–V4 authoritative APIs plus M1 employee-portal read projections.",
+        description="V1–V4 authoritative APIs plus V5 M1/M2 employee-portal capabilities.",
         version=__version__,
     )
     app.state.demo_repository = demo_repository
     app.state.employee_service = EmployeeService(demo_repository)
-    app.state.it_service = ITService(demo_repository)
+    app.state.it_service = it_service or (
+        ITService(demo_repository) if repository is not None else None
+    )
     app.state.chat_service = ChatService(llm_client) if llm_client is not None else None
     app.state.knowledge_query_service = knowledge_query_service
     app.state.knowledge_engine = None

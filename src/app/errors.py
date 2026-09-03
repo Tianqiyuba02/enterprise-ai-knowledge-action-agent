@@ -63,7 +63,7 @@ class ActionCreationIdentityError(ApplicationError):
 
 
 class PortalReadUnavailableError(ApplicationError):
-    """Raised when an M1 owner-scoped read projection cannot query PostgreSQL."""
+    """Raised when an owner-scoped portal projection cannot query PostgreSQL."""
 
     error_code = "portal_read_unavailable"
     public_message = "The employee portal data is temporarily unavailable."

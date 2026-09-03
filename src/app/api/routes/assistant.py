@@ -30,4 +30,4 @@ def query_assistant(
     ],
     service: Annotated[AssistantApplicationService, Depends(get_assistant_application_service)],
 ) -> AssistantQueryResponse:
-    return service.query(payload.message, context)
+    return service.query(payload.message, context, initiation_id=payload.initiation_id)

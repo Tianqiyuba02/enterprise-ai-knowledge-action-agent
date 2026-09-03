@@ -12,6 +12,7 @@ from app.agent.models import (
     KnowledgeToolData,
     LeaveBalancesToolData,
     LeaveBalanceToolItem,
+    PreparedITSupportTicketToolData,
     PreparedLeaveRequestToolData,
     ProfileToolData,
     ProviderToolRequest,
@@ -24,6 +25,7 @@ from app.embeddings.client import EmbeddingClientError
 from app.errors import ApplicationError, EmployeeNotFoundError, TicketNotFoundError
 from app.grounding.client import GroundedGenerationError
 from app.identity import AuthenticatedEmployeeContext
+from app.it.domain import PrepareITSupportTicketArguments, prepared_it_ticket
 from app.knowledge.applicability import ApplicabilityContextError, resolve_knowledge_applicability
 from app.knowledge.errors import KnowledgeDatabaseError, KnowledgeRetrievalError
 from app.knowledge.query_service import KnowledgeQueryService
@@ -103,6 +105,11 @@ class ToolDispatcher:
                     canonical_name,
                     PrepareLeaveRequestArguments.model_validate(validated_arguments),
                     context,
+                )
+            if contract.handler is ToolHandlerName.PREPARE_IT_SUPPORT_TICKET:
+                return self._prepare_it_support_ticket(
+                    canonical_name,
+                    PrepareITSupportTicketArguments.model_validate(validated_arguments),
                 )
             return ToolResult.failure(
                 canonical_name.value,
@@ -234,6 +241,16 @@ class ToolDispatcher:
         return ToolResult.success(
             tool_name.value,
             PreparedLeaveRequestToolData(draft=draft),
+        )
+
+    def _prepare_it_support_ticket(
+        self,
+        tool_name: V3ToolName,
+        arguments: PrepareITSupportTicketArguments,
+    ) -> ToolResult:
+        return ToolResult.success(
+            tool_name.value,
+            PreparedITSupportTicketToolData(draft=prepared_it_ticket(arguments)),
         )
 
 

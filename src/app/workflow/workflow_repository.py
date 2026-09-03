@@ -35,6 +35,20 @@ class NewWorkflowRevision:
     action_id: UUID | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class NewActionRevision:
+    action_id: UUID
+    revision: int
+    state: WorkflowState
+    draft_payload: dict[str, Any]
+    draft_hash: str
+    authority_snapshot_hash: str
+    business_request_key: str
+    ruleset_version: str
+    calendar_version: str
+    action_expires_at: datetime
+
+
 class WorkflowRepository:
     """Create and load revision=1 workflows with optional row locking."""
 
@@ -73,6 +87,28 @@ class WorkflowRepository:
 
     def get_workflow(self, session: Session, action_id: UUID) -> ActionWorkflow | None:
         return session.get(ActionWorkflow, action_id)
+
+    def create_revision(
+        self,
+        session: Session,
+        spec: NewActionRevision,
+    ) -> ActionRevision:
+        row = ActionRevision(
+            revision_id=uuid4(),
+            action_id=spec.action_id,
+            revision=spec.revision,
+            state=spec.state.value,
+            draft_payload=spec.draft_payload,
+            draft_hash=spec.draft_hash,
+            authority_snapshot_hash=spec.authority_snapshot_hash,
+            business_request_key=spec.business_request_key,
+            ruleset_version=spec.ruleset_version,
+            calendar_version=spec.calendar_version,
+            action_expires_at=spec.action_expires_at,
+        )
+        session.add(row)
+        session.flush()
+        return row
 
     def get_revision(
         self,
@@ -127,6 +163,24 @@ class WorkflowRepository:
         if row is None:
             raise WorkflowRowNotFoundError("action revision was not found for locking")
         return row
+
+    def lock_current_revision(
+        self,
+        session: Session,
+        workflow: ActionWorkflow,
+    ) -> ActionRevision:
+        return self.lock_revision(
+            session,
+            action_id=workflow.action_id,
+            revision=workflow.current_revision,
+        )
+
+    def get_current_revision(
+        self,
+        session: Session,
+        workflow: ActionWorkflow,
+    ) -> ActionRevision | None:
+        return self.get_revision(session, workflow.action_id, workflow.current_revision)
 
     def apply_revision_state(
         self,

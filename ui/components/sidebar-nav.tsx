@@ -4,6 +4,7 @@ import {
   BookOpenText,
   CalendarDays,
   House,
+  Headphones,
   MessageCircleMore,
   Rows3,
 } from "lucide-react";
@@ -14,6 +15,7 @@ const links = [
   { href: "/", label: "Home", icon: House, exact: true },
   { href: "/assistant", label: "Assistant", icon: MessageCircleMore },
   { href: "/leave", label: "My leave", icon: CalendarDays },
+  { href: "/it", label: "IT Support", icon: Headphones },
   { href: "/requests", label: "My requests", icon: Rows3 },
   { href: "/policies", label: "Policy library", icon: BookOpenText },
 ];

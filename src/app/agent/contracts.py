@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.agent.leave_models import PrepareLeaveRequestArguments
 from app.agent.models import GetMyTicketArguments, KnowledgeQueryArguments, NoToolArguments
+from app.it.domain import PrepareITSupportTicketArguments
 
 MAX_TOOL_CALLS_PER_TURN: Final = 5
 
@@ -19,6 +20,7 @@ class V3ToolName(StrEnum):
     GET_MY_LEAVE_BALANCES = "get_my_leave_balances"
     GET_MY_TICKET = "get_my_ticket"
     PREPARE_LEAVE_REQUEST = "prepare_leave_request"
+    PREPARE_IT_SUPPORT_TICKET = "prepare_it_support_ticket"
 
 
 class ToolCapability(StrEnum):
@@ -32,6 +34,7 @@ class ToolHandlerName(StrEnum):
     GET_MY_LEAVE_BALANCES = "get_my_leave_balances"
     GET_MY_TICKET = "get_my_ticket"
     PREPARE_LEAVE_REQUEST = "prepare_leave_request"
+    PREPARE_IT_SUPPORT_TICKET = "prepare_it_support_ticket"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +97,16 @@ V3_TOOL_ALLOWLIST: Final = MappingProxyType(
             ),
             argument_model=PrepareLeaveRequestArguments,
             handler=ToolHandlerName.PREPARE_LEAVE_REQUEST,
+        ),
+        V3ToolName.PREPARE_IT_SUPPORT_TICKET: ToolContract(
+            name=V3ToolName.PREPARE_IT_SUPPORT_TICKET,
+            capability=ToolCapability.PREPARE,
+            description=(
+                "Prepare a non-executing IT support ticket draft using only category, summary, "
+                "description, and urgency. It does not create or authorize a ticket."
+            ),
+            argument_model=PrepareITSupportTicketArguments,
+            handler=ToolHandlerName.PREPARE_IT_SUPPORT_TICKET,
         ),
     }
 )

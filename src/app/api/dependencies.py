@@ -30,6 +30,8 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 from app.workflow.action_creation import ActionCreationService
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.it_action_creation import ITActionCreationService
+from app.workflow.it_revision import ITActionRevisionService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
 DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
@@ -80,7 +82,19 @@ def get_employee_service(request: Request) -> EmployeeService:
 
 
 def get_it_service(request: Request) -> ITService:
-    return cast(ITService, request.app.state.it_service)
+    service = cast(ITService | None, request.app.state.it_service)
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITService(session_factory=factory)
+    request.app.state.it_service = service
+    return service
 
 
 def get_chat_service(request: Request) -> ChatService:
@@ -137,8 +151,24 @@ def get_confirmation_service(request: Request) -> ConfirmationService:
     return service
 
 
+def get_it_action_revision_service(request: Request) -> ITActionRevisionService:
+    service = getattr(request.app.state, "it_action_revision_service", None)
+    if service is not None:
+        return cast(ITActionRevisionService, service)
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITActionRevisionService(factory, settings)
+    request.app.state.it_action_revision_service = service
+    return service
+
+
 def get_portal_read_service(request: Request) -> PortalReadService:
-    """Build owner-scoped M1 projections over the existing V2/V4 tables."""
+    """Build owner-scoped V5 projections over the existing authoritative tables."""
 
     service = cast(
         PortalReadService | None,
@@ -204,6 +234,22 @@ def get_action_creation_service(request: Request):
     return service
 
 
+def get_it_action_creation_service(request: Request) -> ITActionCreationService:
+    service = getattr(request.app.state, "it_action_creation_service", None)
+    if service is not None:
+        return cast(ITActionCreationService, service)
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITActionCreationService(factory, settings)
+    request.app.state.it_action_creation_service = service
+    return service
+
+
 def get_assistant_application_service(request: Request) -> AssistantApplicationService:
     existing = getattr(request.app.state, "assistant_application_service", None)
     if existing is not None:
@@ -211,6 +257,7 @@ def get_assistant_application_service(request: Request) -> AssistantApplicationS
     service = AssistantApplicationService(
         get_agent_service(request),
         get_action_creation_service(request),
+        get_it_action_creation_service(request),
     )
     request.app.state.assistant_application_service = service
     return service

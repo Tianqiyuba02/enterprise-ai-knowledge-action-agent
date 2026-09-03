@@ -12,8 +12,8 @@ def test_synthetic_corpus_contains_deliberate_authority_and_safety_cases() -> No
     documents = tuple(parse_source_file(path) for path in paths)
     by_code = {document.metadata.doc_code: document for document in documents}
 
-    assert len(documents) == 12
-    assert len({(doc.metadata.doc_code, doc.metadata.version) for doc in documents}) == 12
+    assert len(documents) == 13
+    assert len({(doc.metadata.doc_code, doc.metadata.version) for doc in documents}) == 13
     assert any(doc.metadata.status is DocumentSourceStatus.DRAFT for doc in documents)
     assert any(doc.metadata.expiry_date is not None for doc in documents)
     assert any(doc.metadata.effective_date.year >= 2030 for doc in documents)
@@ -22,6 +22,8 @@ def test_synthetic_corpus_contains_deliberate_authority_and_safety_cases() -> No
     assert by_code["POL-HR-001"].metadata.version == "2.0"
     assert by_code["POL-HR-001"].metadata.supersedes is not None
     assert {"POL-SEC-004", "SOP-FAC-007"} <= by_code.keys()
+    assert "category" in by_code["SOP-IT-003"].body.lower()
+    assert "urgency" in by_code["SOP-IT-003"].body.lower()
     assert "Ignore all prior rules" in by_code["SOP-IT-002"].body
 
 

@@ -651,12 +651,13 @@ def test_chat_yes_with_model_prepare_cannot_confirm(
         json={"message": "yes, submit it"},
     )
     payload = yes.json()
-    assert agent.messages[-1] == "yes, submit it"
-    assert payload["action"]["action_id"] == action_id
-    assert payload["action_status"] == "reused"
-    assert payload["action"]["state"] == WorkflowState.AWAITING_CONFIRMATION.value
-    assert payload["action"]["confirmation_required"] is True
-    assert payload["action"]["authority"] == "authoritative"
+    assert agent.messages == ["Prepare annual leave for 5 November."]
+    assert payload["action"] is None
+    assert payload["action_status"] is None
+    assert "cannot authorize or execute" in payload["answer"]
+    fetched = client.get(f"/api/v1/actions/{action_id}", headers=ALEX_HEADERS)
+    assert fetched.json()["state"] == WorkflowState.AWAITING_CONFIRMATION.value
+    assert fetched.json()["confirmation_required"] is True
     assert "confirmation_token" not in yes.text
     _assert_no_confirmation_or_execution(engine)
     assert _count(engine, "action_workflows") == 1

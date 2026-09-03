@@ -1,11 +1,18 @@
-import { ArrowRight, CheckCircle2, CircleAlert, Fingerprint, ScrollText } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  Fingerprint,
+  ScrollText,
+  ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BackLink, DataUnavailable, PageIntro } from "@/components/shared";
 import { StatusPill } from "@/components/status-pill";
 import { backendFetch, PortalApiError } from "@/lib/backend";
-import type { ActionDetail } from "@/lib/contracts";
+import type { ActionDetail, AnnualLeaveActionDetail, ITActionDetail } from "@/lib/contracts";
 import { formatDate, formatDateTime, formatHours, sentenceCase } from "@/lib/format";
 
 export const metadata = { title: "Request detail" };
@@ -36,7 +43,7 @@ function terminalMetadataValue(detail: ActionDetail, key: "failure_kind" | "reas
   return typeof value === "string" ? value : null;
 }
 
-function employeeOutcome(detail: ActionDetail): EmployeeOutcome | null {
+function employeeOutcome(detail: AnnualLeaveActionDetail): EmployeeOutcome | null {
   const state = detail.state as TerminalNonSuccessState;
   if (state === "EXECUTION_FAILED") {
     const failureKind = terminalMetadataValue(detail, "failure_kind");
@@ -85,6 +92,120 @@ function employeeOutcome(detail: ActionDetail): EmployeeOutcome | null {
   return null;
 }
 
+function itEmployeeOutcome(detail: ITActionDetail): EmployeeOutcome {
+  if (detail.state === "SUCCEEDED") {
+    return {
+      title: detail.result ? `${detail.result.ticket_id} was created.` : "Your IT ticket was created.",
+      reason: null,
+      impact: "The IT team can now triage this issue.",
+      nextStep: "Follow its latest status in My Tickets.",
+      tone: "neutral",
+    };
+  }
+  if (detail.state === "CONFIRMED") {
+    return {
+      title: "Your request is authorized and queued.",
+      reason: null,
+      impact: "No ticket number is available until the internal worker records it.",
+      nextStep: "This page will show the outcome after processing.",
+      tone: "neutral",
+    };
+  }
+  if (detail.state === "AWAITING_CONFIRMATION") {
+    return {
+      title: "This IT request is waiting for your review.",
+      reason: null,
+      impact: "Nothing has been submitted and no ticket exists yet.",
+      nextStep: "Review the exact draft before authorizing ticket creation.",
+      tone: "neutral",
+    };
+  }
+  const failureKind = terminalMetadataValue(detail, "failure_kind");
+  return {
+    title: detail.state === "CANCELLED"
+      ? "This IT request was cancelled."
+      : detail.state === "EXPIRED"
+        ? "This IT request expired."
+        : detail.state === "STALE"
+          ? "This IT request is no longer current."
+          : "The IT ticket could not be created.",
+    reason: failureKind === "DRAFT_INTEGRITY_FAILURE"
+      ? "The saved draft could not be verified safely."
+      : failureKind === "AUTHORITY_CHANGED"
+        ? "Trusted request information changed after preparation."
+        : null,
+    impact: "Nothing was submitted and no IT ticket was created.",
+    nextStep: "Prepare a new IT request if support is still needed.",
+    tone: detail.state === "CANCELLED" || detail.state === "EXPIRED" ? "neutral" : "danger",
+  };
+}
+
+function ITRequestDetail({ detail }: { detail: ITActionDetail }) {
+  const draft = detail.authoritative_draft;
+  const outcome = itEmployeeOutcome(detail);
+  return (
+    <div className="page-shell detail-page">
+      <BackLink href="/requests">All requests</BackLink>
+      <PageIntro
+        eyebrow={`Request ${detail.action_id.slice(0, 8).toUpperCase()}`}
+        title="IT support request"
+        description={`Created ${formatDateTime(detail.created_at)} · Revision ${detail.revision}`}
+        action={<StatusPill state={detail.state} />}
+      />
+      <section className="panel detail-primary outcome-first">
+        <p className="eyebrow">Outcome</p>
+        <h2>{outcome.title}</h2>
+        {outcome.reason ? <p><b>Known reason:</b> {outcome.reason}</p> : null}
+        <p>{outcome.impact} {outcome.nextStep}</p>
+        {detail.state === "AWAITING_CONFIRMATION" ? (
+          <Link className="button button-primary" href={`/it/review/${detail.action_id}`}>
+            Review exact draft <ArrowRight aria-hidden="true" size={14} />
+          </Link>
+        ) : null}
+      </section>
+      <section className="detail-grid detail-secondary-grid">
+        <article className="panel detail-primary">
+          <div className="detail-title">
+            <span><ScrollText aria-hidden="true" size={20} /></span>
+            <div><p className="eyebrow">Request</p><h2>Issue details</h2></div>
+          </div>
+          <dl className="definition-grid">
+            <div><dt>Category</dt><dd>{sentenceCase(draft.category)}</dd></div>
+            <div><dt>Urgency</dt><dd>{sentenceCase(draft.urgency)}</dd></div>
+            <div className="definition-wide"><dt>Summary</dt><dd>{draft.summary}</dd></div>
+            <div className="definition-wide"><dt>Description</dt><dd>{draft.description}</dd></div>
+            {detail.result ? <div className="definition-wide"><dt>Ticket</dt><dd>{detail.result.ticket_id} · {sentenceCase(detail.result.status)}</dd></div> : null}
+          </dl>
+        </article>
+        <aside className="panel authority-card">
+          <ShieldCheck aria-hidden="true" size={21} />
+          <p className="eyebrow">Sources &amp; checks</p>
+          <h2>Trusted and revision-bound</h2>
+          <dl>
+            <div><dt>Action type</dt><dd>IT support ticket</dd></div>
+            <div><dt>Ruleset</dt><dd>{draft.ruleset_version}</dd></div>
+            <div><dt>Revision</dt><dd>{detail.revision}</dd></div>
+          </dl>
+          <small title={draft.authority_snapshot_hash}>Snapshot {draft.authority_snapshot_hash.slice(0, 12)}…</small>
+        </aside>
+      </section>
+      <details className="panel technical-evidence">
+        <summary>Show technical evidence</summary>
+        <div><p>Action ID <code>{detail.action_id}</code></p><p>Current revision {detail.revision}</p></div>
+        <ol className="audit-timeline">
+          {detail.audit_events.map((event) => (
+            <li key={event.event_id}>
+              <span aria-hidden="true" />
+              <div><strong>{sentenceCase(event.event_type)}</strong><p>Revision {event.revision}</p></div>
+              <time dateTime={event.created_at}>{formatDateTime(event.created_at)}</time>
+            </li>
+          ))}
+        </ol>
+      </details>
+    </div>
+  );
+}
+
 export default async function RequestDetailPage({ params }: { params: Promise<{ actionId: string }> }) {
   const { actionId } = await params;
   let detail: ActionDetail;
@@ -93,6 +214,9 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
   } catch (error) {
     if (error instanceof PortalApiError && error.status === 404) notFound();
     return <div className="page-shell"><DataUnavailable /></div>;
+  }
+  if (detail.action_type === "create_it_support_ticket") {
+    return <ITRequestDetail detail={detail} />;
   }
   const draft = detail.authoritative_draft;
   const outcome = employeeOutcome(detail);

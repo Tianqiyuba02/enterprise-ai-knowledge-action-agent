@@ -6,6 +6,7 @@ import {
   Bot,
   CalendarRange,
   CornerDownLeft,
+  Headphones,
   LoaderCircle,
   ShieldCheck,
   UserRound,
@@ -28,6 +29,7 @@ const suggestions = [
   "How much annual leave do I have?",
   "What does the annual leave policy say?",
   "Prepare annual leave from 12 October 2026 to 16 October 2026 for a family trip.",
+  "My laptop cannot connect to the office Wi-Fi. Prepare an IT support request.",
 ];
 
 export function AssistantWorkspace({ firstName }: { firstName: string }) {
@@ -51,7 +53,7 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
       const response = await fetch("/api/portal/assistant/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: trimmed, initiation_id: crypto.randomUUID() }),
       });
       const payload = (await response.json()) as AssistantResponse | { message?: string };
       if (!response.ok) {
@@ -144,17 +146,27 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
                   {message.response?.action ? (
                     <div className="prepared-card">
                       <div className="prepared-card-top">
-                        <span><CalendarRange aria-hidden="true" size={18} /></span>
-                        <div><small>Authoritative persisted draft</small><strong>Annual leave request</strong></div>
+                        <span>{message.response.action.action_type === "submit_annual_leave"
+                          ? <CalendarRange aria-hidden="true" size={18} />
+                          : <Headphones aria-hidden="true" size={18} />}</span>
+                        <div><small>Authoritative persisted draft</small><strong>{message.response.action.action_type === "submit_annual_leave" ? "Annual leave request" : "IT support request"}</strong></div>
                         <span className="authority-badge"><ShieldCheck aria-hidden="true" size={13} /> Authoritative</span>
                       </div>
-                      <dl>
-                        <div><dt>Dates</dt><dd>{formatDate(message.response.action.draft.start_date)} – {formatDate(message.response.action.draft.end_date)}</dd></div>
-                        <div><dt>Duration</dt><dd>{formatHours(message.response.action.draft.requested_hours)}</dd></div>
-                        <div><dt>Balance after</dt><dd>{formatHours(message.response.action.draft.projected_balance_hours)}</dd></div>
-                      </dl>
-                      <p className="prepared-note">Chat cannot submit this request. Review and authorize it on the independent review surface.</p>
-                      <Link className="button button-primary" href={`/leave/review/${message.response.action.action_id}`}>
+                      {message.response.action.draft.action_type === "submit_annual_leave" ? (
+                        <dl>
+                          <div><dt>Dates</dt><dd>{formatDate(message.response.action.draft.start_date)} – {formatDate(message.response.action.draft.end_date)}</dd></div>
+                          <div><dt>Duration</dt><dd>{formatHours(message.response.action.draft.requested_hours)}</dd></div>
+                          <div><dt>Balance after</dt><dd>{formatHours(message.response.action.draft.projected_balance_hours)}</dd></div>
+                        </dl>
+                      ) : (
+                        <dl>
+                          <div><dt>Summary</dt><dd>{message.response.action.draft.summary}</dd></div>
+                          <div><dt>Category</dt><dd>{sentenceCase(message.response.action.draft.category)}</dd></div>
+                          <div><dt>Urgency</dt><dd>{sentenceCase(message.response.action.draft.urgency)}</dd></div>
+                        </dl>
+                      )}
+                      <p className="prepared-note">Chat cannot authorize or execute this request. Review it on the independent review surface.</p>
+                      <Link className="button button-primary" href={message.response.action.action_type === "submit_annual_leave" ? `/leave/review/${message.response.action.action_id}` : `/it/review/${message.response.action.action_id}`}>
                         Review exact draft <ArrowRight aria-hidden="true" size={15} />
                       </Link>
                     </div>
@@ -183,7 +195,7 @@ export function AssistantWorkspace({ firstName }: { firstName: string }) {
             onKeyDown={onComposerKeyDown}
             maxLength={4000}
             rows={2}
-            placeholder="Ask a policy question or prepare annual leave…"
+            placeholder="Ask a policy question, prepare leave, or report an IT issue…"
             disabled={pending}
           />
           <button type="submit" disabled={pending || !input.trim()} aria-label="Send message">
