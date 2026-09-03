@@ -78,6 +78,7 @@ class _MeteredAgentSession:
         try:
             turn = self._inner.next(tool_responses)
         except Exception as exc:
+            failure = getattr(exc, "failure", None)
             logger.warning(
                 json.dumps(
                     {
@@ -85,6 +86,11 @@ class _MeteredAgentSession:
                         "service": "api",
                         "outcome": "unavailable",
                         "exception_category": type(exc).__name__,
+                        "failure_kind": getattr(getattr(failure, "kind", None), "value", None),
+                        "http_status_code": getattr(failure, "http_status_code", None),
+                        "symbolic_status": getattr(
+                            getattr(failure, "symbolic_status", None), "value", None
+                        ),
                     },
                     separators=(",", ":"),
                 )
