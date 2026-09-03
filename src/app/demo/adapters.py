@@ -23,21 +23,30 @@ _request_deadline: ContextVar[float | None] = ContextVar("public_demo_deadline",
 logger = logging.getLogger(__name__)
 
 
+def _public_demo_declaration(
+    declaration: types.FunctionDeclaration,
+) -> types.FunctionDeclaration:
+    schema = declaration.parameters_json_schema
+    if not isinstance(schema, dict) or not schema.get("properties"):
+        return declaration.model_copy(update={"parameters": None, "parameters_json_schema": None})
+    return declaration.model_copy(
+        update={
+            "parameters": types.Schema.from_json_schema(
+                json_schema=types.JSONSchema.model_validate(schema),
+                raise_error_on_unsupported_field=True,
+            ),
+            "parameters_json_schema": None,
+        }
+    )
+
+
 def _public_demo_agent_config(
     config: types.GenerateContentConfig,
 ) -> types.GenerateContentConfig:
     """Adapt the sealed agent contract to the current public Gemini wire schema."""
 
     declarations = tuple(
-        declaration.model_copy(
-            update={
-                "parameters": types.Schema.from_json_schema(
-                    json_schema=types.JSONSchema.model_validate(declaration.parameters_json_schema),
-                    raise_error_on_unsupported_field=True,
-                ),
-                "parameters_json_schema": None,
-            }
-        )
+        _public_demo_declaration(declaration)
         for declaration in build_provider_function_declarations()
     )
     return config.model_copy(

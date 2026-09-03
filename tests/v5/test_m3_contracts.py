@@ -39,7 +39,10 @@ def test_public_demo_normalizes_provider_schema_without_changing_sealed_registry
     assert adapted.temperature is None
     declarations = adapted.tools[0].function_declarations
     assert len(declarations) == len(original_declarations)
-    assert all(declaration.parameters is not None for declaration in declarations)
+    no_argument_names = {"get_my_profile", "get_my_leave_balances"}
+    assert {
+        declaration.name for declaration in declarations if declaration.parameters is None
+    } == no_argument_names
     assert all(declaration.parameters_json_schema is None for declaration in declarations)
     serialized = json.dumps(adapted.model_dump(mode="json", exclude_none=True))
     assert "employee_id" not in serialized
