@@ -1,16 +1,20 @@
 """Deterministic M3 public-demo contracts with no provider calls."""
 
+import json
 from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from google.genai import types
 from pydantic import SecretStr
 
+from app.agent.provider import build_provider_function_declarations
 from app.api.application import create_app
 from app.config import PublicDemoSettings
 from app.demo.adapters import (
     PublicDemoAssistantApplicationService,
     QuotaActionCreationService,
+    _public_demo_agent_config,
     _request_deadline,
 )
 from app.demo.calendar import DemoHolidayCalendarService
@@ -19,6 +23,28 @@ from app.errors import DemoCapacityReachedError
 from app.workflow.action_creation import ActionCreationDisposition
 
 ROOT = Path(__file__).parents[2]
+
+
+def test_public_demo_normalizes_provider_schema_without_changing_sealed_registry() -> None:
+    original_declarations = build_provider_function_declarations()
+    original = types.GenerateContentConfig(
+        temperature=0,
+        tools=[types.Tool(function_declarations=list(original_declarations))],
+    )
+
+    adapted = _public_demo_agent_config(original)
+
+    assert original.temperature == 0
+    assert original_declarations[0].parameters_json_schema is not None
+    assert adapted.temperature is None
+    declarations = adapted.tools[0].function_declarations
+    assert len(declarations) == len(original_declarations)
+    assert all(declaration.parameters is not None for declaration in declarations)
+    assert all(declaration.parameters_json_schema is None for declaration in declarations)
+    serialized = json.dumps(adapted.model_dump(mode="json", exclude_none=True))
+    assert "employee_id" not in serialized
+    assert "jurisdiction" not in serialized
+    assert "audience" not in serialized
 
 
 def test_public_demo_defaults_match_frozen_capacity_contract() -> None:

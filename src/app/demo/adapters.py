@@ -10,7 +10,10 @@ from contextvars import ContextVar
 from datetime import date
 from typing import Any
 
+from google.genai import types
+
 from app.agent.loop_models import AgentModelTurn
+from app.agent.provider import build_provider_function_declarations
 from app.api.assistant_application import AssistantApplicationService, _is_standalone_authorization
 from app.demo.service import DemoControlService
 from app.workflow.action_creation import ActionCreationDisposition, ActionCreationResult
@@ -18,6 +21,31 @@ from app.workflow.action_creation import ActionCreationDisposition, ActionCreati
 _visitor_id: ContextVar[str | None] = ContextVar("public_demo_visitor_id", default=None)
 _request_deadline: ContextVar[float | None] = ContextVar("public_demo_deadline", default=None)
 logger = logging.getLogger(__name__)
+
+
+def _public_demo_agent_config(
+    config: types.GenerateContentConfig,
+) -> types.GenerateContentConfig:
+    """Adapt the sealed agent contract to the current public Gemini wire schema."""
+
+    declarations = tuple(
+        declaration.model_copy(
+            update={
+                "parameters": types.Schema.from_json_schema(
+                    json_schema=types.JSONSchema.model_validate(declaration.parameters_json_schema),
+                    raise_error_on_unsupported_field=True,
+                ),
+                "parameters_json_schema": None,
+            }
+        )
+        for declaration in build_provider_function_declarations()
+    )
+    return config.model_copy(
+        update={
+            "temperature": None,
+            "tools": [types.Tool(function_declarations=list(declarations))],
+        }
+    )
 
 
 @contextmanager
@@ -57,8 +85,12 @@ class MeteredAgentClient:
 
     def start(self, user_message: str, trusted_today: date):
         deadline = _request_deadline.get() or time.monotonic() + self._deadline_seconds
+        session = self._inner.start(user_message, trusted_today)
+        config = getattr(session, "_config", None)
+        if isinstance(config, types.GenerateContentConfig):
+            session._config = _public_demo_agent_config(config)
         return _MeteredAgentSession(
-            self._inner.start(user_message, trusted_today),
+            session,
             self._control,
             deadline,
         )

@@ -18,12 +18,7 @@ def build_provider_function_declarations() -> tuple[types.FunctionDeclaration, .
         types.FunctionDeclaration(
             name=contract.name.value,
             description=contract.description,
-            parameters=types.Schema.from_json_schema(
-                json_schema=types.JSONSchema.model_validate(
-                    contract.argument_model.model_json_schema()
-                ),
-                raise_error_on_unsupported_field=True,
-            ),
+            parameters_json_schema=contract.argument_model.model_json_schema(),
         )
         for contract in V3_TOOL_ALLOWLIST.values()
     )
