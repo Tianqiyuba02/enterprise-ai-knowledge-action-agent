@@ -88,6 +88,7 @@ def test_render_blueprint_exposes_only_the_next_portal() -> None:
     assert "region: singapore" in blueprint
     assert 'postgresMajorVersion: "17"' in blueprint
     assert "enterprise-ai-demo-worker --poll-seconds 1" in blueprint
+    assert '- key: GEMINI_TIMEOUT_SECONDS\n                value: "30"' in blueprint
     assert '- key: AGENT_TIMEOUT_SECONDS\n                value: "30"' in blueprint
 
 
