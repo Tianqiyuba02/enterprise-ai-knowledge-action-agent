@@ -6,6 +6,8 @@ A production-minded portfolio prototype showing how probabilistic AI can prepare
 
 > The deployed portal uses shared synthetic identities and synthetic business systems. Do not enter personal, confidential, password, or employer information.
 
+Current source version: **1.0.0 release candidate**. The `v1.0.0` tag and GitHub Release remain pending the final release gate.
+
 ![Northstar employee portal Home page using synthetic Alex data](docs/assets/portal-home.png)
 
 ## What this demonstrates
