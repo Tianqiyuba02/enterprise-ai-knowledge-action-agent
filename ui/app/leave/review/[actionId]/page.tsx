@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ReviewAuthorization } from "@/components/review-authorization";
 import { BackLink, DataUnavailable } from "@/components/shared";
-import { backendFetch, PortalApiError } from "@/lib/backend";
+import { backendFetch, isMissingPortalResource } from "@/lib/backend";
 import type { ActionDetail } from "@/lib/contracts";
 
 export const metadata = { title: "Review annual leave" };
@@ -13,7 +13,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ actionI
   try {
     detail = await backendFetch<ActionDetail>(`/actions/${encodeURIComponent(actionId)}/detail`);
   } catch (error) {
-    if (error instanceof PortalApiError && error.status === 404) notFound();
+    if (isMissingPortalResource(error)) notFound();
     return <div className="page-shell"><DataUnavailable /></div>;
   }
   if (detail.action_type !== "submit_annual_leave") notFound();

@@ -58,7 +58,7 @@ export default async function LeavePage() {
             {personal ? formatDays(personal.available_hours, profile.hours_per_day) : "—"}
           </strong>
           <span>{personal ? formatHours(personal.available_hours) : "Unavailable"}</span>
-          <p className="card-footnote">Read-only in this milestone</p>
+          <p className="card-footnote">Read-only capability</p>
         </article>
         <article className="balance-card balance-card-context">
           <CalendarDays aria-hidden="true" size={22} />

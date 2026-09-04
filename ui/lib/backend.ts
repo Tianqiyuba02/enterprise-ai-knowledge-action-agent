@@ -15,6 +15,10 @@ export class PortalApiError extends Error {
   }
 }
 
+export function isMissingPortalResource(error: unknown): error is PortalApiError {
+  return error instanceof PortalApiError && [400, 404, 422].includes(error.status);
+}
+
 function backendUrl(): string {
   const configured = process.env.BACKEND_URL ?? process.env.BACKEND_HOSTPORT;
   const value = configured ?? "http://127.0.0.1:8000";

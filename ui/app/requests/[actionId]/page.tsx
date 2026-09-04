@@ -11,7 +11,7 @@ import { notFound } from "next/navigation";
 
 import { BackLink, DataUnavailable, PageIntro } from "@/components/shared";
 import { StatusPill } from "@/components/status-pill";
-import { backendFetch, PortalApiError } from "@/lib/backend";
+import { backendFetch, isMissingPortalResource } from "@/lib/backend";
 import type { ActionDetail, AnnualLeaveActionDetail, ITActionDetail } from "@/lib/contracts";
 import { formatDate, formatDateTime, formatHours, sentenceCase } from "@/lib/format";
 
@@ -186,7 +186,10 @@ function ITRequestDetail({ detail }: { detail: ITActionDetail }) {
             <div><dt>Ruleset</dt><dd>{draft.ruleset_version}</dd></div>
             <div><dt>Revision</dt><dd>{detail.revision}</dd></div>
           </dl>
-          <small title={draft.authority_snapshot_hash}>Snapshot {draft.authority_snapshot_hash.slice(0, 12)}…</small>
+          <details className="technical-snapshot">
+            <summary>Technical evidence</summary>
+            <small title={draft.authority_snapshot_hash}>Snapshot {draft.authority_snapshot_hash.slice(0, 12)}…</small>
+          </details>
         </aside>
       </section>
       <details className="panel technical-evidence">
@@ -212,7 +215,7 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
   try {
     detail = await backendFetch<ActionDetail>(`/actions/${encodeURIComponent(actionId)}/detail`);
   } catch (error) {
-    if (error instanceof PortalApiError && error.status === 404) notFound();
+    if (isMissingPortalResource(error)) notFound();
     return <div className="page-shell"><DataUnavailable /></div>;
   }
   if (detail.action_type === "create_it_support_ticket") {
@@ -268,15 +271,18 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
         </article>
         <aside className="panel authority-card">
           <Fingerprint aria-hidden="true" size={21} />
-          <p className="eyebrow">Authority snapshot</p>
-          <h2>Trusted at preparation</h2>
+          <p className="eyebrow">Verified at preparation</p>
+          <h2>Trusted business context</h2>
           <dl>
             <div><dt>Employee</dt><dd>{draft.stable_authority.employee_id}</dd></div>
             <div><dt>Jurisdiction</dt><dd>{draft.stable_authority.jurisdiction}</dd></div>
             <div><dt>Calendar</dt><dd>{draft.calendar_version}</dd></div>
             <div><dt>Ruleset</dt><dd>{draft.ruleset_version}</dd></div>
           </dl>
-          <small title={draft.authority_snapshot_hash}>Snapshot {draft.authority_snapshot_hash.slice(0, 12)}…</small>
+          <details className="technical-snapshot">
+            <summary>Technical evidence</summary>
+            <small title={draft.authority_snapshot_hash}>Snapshot {draft.authority_snapshot_hash.slice(0, 12)}…</small>
+          </details>
         </aside>
       </section>
       <section className="panel audit-panel">

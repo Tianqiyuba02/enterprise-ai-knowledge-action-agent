@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ITReviewAuthorization } from "@/components/it-review-authorization";
 import { BackLink, DataUnavailable } from "@/components/shared";
-import { backendFetch, PortalApiError } from "@/lib/backend";
+import { backendFetch, isMissingPortalResource } from "@/lib/backend";
 import type { ActionDetail } from "@/lib/contracts";
 
 export const metadata = { title: "Review IT support" };
@@ -19,7 +19,7 @@ export default async function ITReviewPage({
       `/actions/${encodeURIComponent(actionId)}/detail`,
     );
   } catch (error) {
-    if (error instanceof PortalApiError && error.status === 404) notFound();
+    if (isMissingPortalResource(error)) notFound();
     return <div className="page-shell"><DataUnavailable /></div>;
   }
   if (detail.action_type !== "create_it_support_ticket") notFound();

@@ -23,6 +23,7 @@ import type {
   ITTicketUrgency,
 } from "@/lib/contracts";
 import { formatDateTime, sentenceCase } from "@/lib/format";
+import { reviewStatusCopy } from "@/lib/review-copy";
 
 const TERMINAL_STATES = new Set([
   "SUCCEEDED",
@@ -219,7 +220,7 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
           <div>
             <p className="eyebrow">Independent authorization</p>
             <h1>Review IT support</h1>
-            <p>This is a draft — nothing has been submitted yet.</p>
+            <p>{reviewStatusCopy(detail.state, "it")}</p>
           </div>
           <StatusPill state={detail.state} />
         </div>
@@ -234,6 +235,7 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
             <label>
               Category
               <select
+                name="category"
                 value={category}
                 onChange={(event) => setCategory(event.target.value as ITTicketCategory)}
                 disabled={!canReview || challenge !== null}
@@ -247,6 +249,7 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
             <label>
               Urgency
               <select
+                name="urgency"
                 value={urgency}
                 onChange={(event) => setUrgency(event.target.value as ITTicketUrgency)}
                 disabled={!canReview || challenge !== null}
@@ -259,6 +262,8 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
             <label className="it-edit-wide">
               Summary
               <input
+                name="summary"
+                autoComplete="off"
                 value={summary}
                 onChange={(event) => setSummary(event.target.value)}
                 maxLength={160}
@@ -268,6 +273,8 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
             <label className="it-edit-wide">
               Description
               <textarea
+                name="description"
+                autoComplete="off"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 maxLength={2000}
@@ -289,8 +296,11 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
           ) : null}
           <div className="draft-proof">
             <Fingerprint aria-hidden="true" size={17} />
-            <span>Authority snapshot</span>
-            <code>{draft.authority_snapshot_hash.slice(0, 16)}…</code>
+            <span>Verified at preparation</span>
+            <details>
+              <summary>Technical evidence</summary>
+              <code>{draft.authority_snapshot_hash.slice(0, 16)}…</code>
+            </details>
           </div>
         </article>
 
@@ -352,7 +362,7 @@ export function ITReviewAuthorization({ initialDetail }: { initialDetail: ITActi
             </button>
           </div>
         ) : (
-          <div className="terminal-note"><CircleAlert size={20} /><div><strong>This request can no longer be authorized.</strong><p>Its current state is {sentenceCase(detail.state)}.</p></div></div>
+          <div className="terminal-note"><CircleAlert size={20} /><div><strong>This request can no longer be authorized.</strong><p>{reviewStatusCopy(detail.state, "it")}</p></div></div>
         )}
         {error ? <div className="form-error" role="alert"><CircleAlert size={17} />{error}</div> : null}
       </section>

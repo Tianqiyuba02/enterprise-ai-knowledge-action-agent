@@ -2,7 +2,7 @@ import { FileCheck2 } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { BackLink, DataUnavailable } from "@/components/shared";
-import { backendFetch, PortalApiError } from "@/lib/backend";
+import { backendFetch, isMissingPortalResource } from "@/lib/backend";
 import type { PolicyDocumentDetail } from "@/lib/contracts";
 import { formatDate } from "@/lib/format";
 
@@ -29,7 +29,7 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ d
       `/knowledge/documents/${encodeURIComponent(docCode)}/versions/${encodeURIComponent(version)}`,
     );
   } catch (error) {
-    if (error instanceof PortalApiError && error.status === 404) notFound();
+    if (isMissingPortalResource(error)) notFound();
     return <div className="page-shell"><DataUnavailable /></div>;
   }
   return (
