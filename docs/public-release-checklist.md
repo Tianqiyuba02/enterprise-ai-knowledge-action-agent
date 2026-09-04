@@ -20,6 +20,8 @@ gitleaks git . --redact --no-banner --exit-code 1
 
 The scan must cover all reachable commits, branches, and tags. Investigate every finding against the source commit. Do not add broad allowlists for credential-shaped text. Synthetic demo identifiers may be documented narrowly only if the scanner produces a demonstrated false positive.
 
+The checked-in allowlist is intentionally limited to known SHA-256 business request keys and exact test-source literals. Do not broaden it to credential patterns; investigate every new finding.
+
 Also inspect tracked files directly:
 
 ```bash
