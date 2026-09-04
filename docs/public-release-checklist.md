@@ -15,10 +15,10 @@ Run this checklist again at the final release gate, immediately before changing 
 Install a current reputable `gitleaks` release through its verified package channel, then run from the repository root:
 
 ```bash
-gitleaks git . --redact --no-banner --exit-code 1
+gitleaks git . --log-opts="--all" --config .gitleaks.toml --redact --no-banner --exit-code 1
 ```
 
-The scan must cover all reachable commits, branches, and tags. Investigate every finding against the source commit. Do not add broad allowlists for credential-shaped text. Synthetic demo identifiers may be documented narrowly only if the scanner produces a demonstrated false positive.
+The `--log-opts="--all"` argument is required so gitleaks receives patches from every local ref, rather than only the current `HEAD`. Investigate every finding against the source commit. Do not add broad allowlists for credential-shaped text. Synthetic demo identifiers may be documented narrowly only if the scanner produces a demonstrated false positive.
 
 The checked-in allowlist is intentionally limited to known SHA-256 business request keys and exact test-source literals. Do not broaden it to credential patterns; investigate every new finding.
 
@@ -31,10 +31,39 @@ git ls-files -z | xargs -0 rg -n -i \
 
 An empty direct scan does not replace the full-history scanner.
 
+Refresh and inventory the intended publication refs before accepting the scan:
+
+```bash
+git fetch --prune --tags origin
+git for-each-ref --format='%(refname) %(objecttype) %(objectname) %(*objectname)' \
+  refs/remotes/origin refs/tags
+git rev-list --remotes=origin --tags --not HEAD
+git stash list
+git ls-remote origin refs/stash
+```
+
+The `git rev-list` and remote `refs/stash` checks must both be empty: every intended remote branch and tag must already be contained in the reviewed candidate, and the historical stash must remain local. Record the branch and annotated-tag inventory without printing ignored environment files or secret values.
+
 ## Dependency and build evidence
 
-- `uvx pip-audit`
-- `cd ui && npm audit --audit-level=high`
+- Export and audit the project's locked production dependency set, excluding the project itself and development dependencies:
+
+  ```bash
+  uv export --frozen --no-dev --no-emit-project --no-hashes \
+    --format requirements.txt \
+    --output-file /tmp/enterprise-ai-production-requirements.txt
+  uvx pip-audit --no-deps \
+    --requirement /tmp/enterprise-ai-production-requirements.txt
+  ```
+
+- Audit the exact frontend lockfile from a clean install:
+
+  ```bash
+  cd ui
+  npm ci --no-audit --fund=false
+  npm audit --audit-level=high
+  ```
+
 - backend and frontend production Docker builds
 - Render Blueprint validation against the official schema
 - deterministic default, PostgreSQL integration, frontend, and browser gates

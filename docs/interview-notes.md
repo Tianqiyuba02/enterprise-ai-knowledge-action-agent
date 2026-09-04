@@ -12,7 +12,7 @@ Applicability filtering occurs in SQL before vector ranking. The server derives 
 
 ## Trusted identity
 
-The public browser stores only an HttpOnly persona selector. The Next.js BFF maps it to one of two fixed synthetic demo credentials on the server. FastAPI resolves the employee. The browser cannot submit arbitrary `employee_id` authority and never receives the backend demo-session values.
+The public browser uses two HttpOnly cookies. `enterprise-portal-persona` is the allow-listed persona/session selector; the Next.js BFF maps it to one of two fixed synthetic demo credentials on the server. `northstar-demo-visitor` carries an HMAC-signed visitor identity used for quota accounting. FastAPI resolves the employee. The browser cannot submit arbitrary `employee_id` authority and never receives the backend demo-session values.
 
 ## Revision-bound human authorization
 

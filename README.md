@@ -144,7 +144,7 @@ Normal CI never uses a Gemini key, Render credential, live provider, or public d
 
 ## Deployment
 
-The reviewed Render Blueprint declares one public Next.js portal/BFF, private FastAPI and worker services, a private reset job, and PostgreSQL/pgvector. Automatic deploy is disabled: a deployment must select the exact reviewed source commit. The configured Assistant deadline is 30 seconds.
+The reviewed Render Blueprint declares one public Next.js portal/BFF, private FastAPI and worker services, a private reset job, and PostgreSQL/pgvector. Automatic deploy is disabled: a deployment must select the exact reviewed source commit. Render sets both `GEMINI_TIMEOUT_SECONDS` and `AGENT_TIMEOUT_SECONDS` to 30 seconds. The separate public-demo request deadline is `DEMO_ASSISTANT_DEADLINE_SECONDS`; because the Blueprint does not override it, the validated application default is 45 seconds.
 
 See [Deployment](docs/deployment.md) for configuration names, migrations, governed bootstrap, reset, readiness, and rollback. Private resource identifiers and secret values are intentionally omitted.
 
