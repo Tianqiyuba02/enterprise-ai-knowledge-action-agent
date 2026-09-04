@@ -102,7 +102,7 @@ def refuse_engine_targets_shared_database(engine: Engine) -> None:
 
 
 @contextmanager
-def isolated_test_engine(*, prefix: str) -> Iterator[Engine]:
+def isolated_test_engine(*, prefix: str, migration_target: str = "head") -> Iterator[Engine]:
     """Create, migrate, and drop a unique database. Never mutates the shared development DB."""
 
     live = load_knowledge_settings()
@@ -124,7 +124,7 @@ def isolated_test_engine(*, prefix: str) -> Iterator[Engine]:
         os.environ["APP_DATABASE_URL"] = isolated_url
         try:
             refuse_shared_development_database(os.environ["APP_DATABASE_URL"], shared_url)
-            command.upgrade(AlembicConfig("alembic.ini"), "head")
+            command.upgrade(AlembicConfig("alembic.ini"), migration_target)
         finally:
             restore_app_database_url(previous)
         engine = create_knowledge_engine(isolated_settings)
