@@ -90,12 +90,12 @@ def test_render_blueprint_exposes_only_the_next_portal() -> None:
     assert "enterprise-ai-demo-worker --poll-seconds 1" in blueprint
     assert '- key: GEMINI_TIMEOUT_SECONDS\n                value: "30"' in blueprint
     assert '- key: AGENT_TIMEOUT_SECONDS\n                value: "30"' in blueprint
-    assert "GITHUB_REPOSITORY_URL" not in blueprint
+    assert '- key: GITHUB_REPOSITORY_URL\n                value: ""' in blueprint
 
 
 def test_public_about_only_renders_a_configured_repository_link() -> None:
     about = (ROOT / "ui/app/about/page.tsx").read_text()
-    assert "const repository = process.env.GITHUB_REPOSITORY_URL;" in about
+    assert "const repository = process.env.GITHUB_REPOSITORY_URL?.trim();" in about
     assert "action={repository ?" in about
     assert "github.com/Tianqiyuba02" not in about
 

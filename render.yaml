@@ -41,6 +41,8 @@ projects:
                   type: pserv
                   name: enterprise-ai-demo-api
                   property: hostport
+              - key: GITHUB_REPOSITORY_URL
+                value: ""
           - type: pserv
             name: enterprise-ai-demo-api
             runtime: docker

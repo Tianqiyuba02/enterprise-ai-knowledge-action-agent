@@ -6,7 +6,7 @@ import { PageIntro } from "@/components/shared";
 export const metadata = { title: "About this demo" };
 
 export default function AboutPage() {
-  const repository = process.env.GITHUB_REPOSITORY_URL;
+  const repository = process.env.GITHUB_REPOSITORY_URL?.trim();
   return (
     <div className="page-shell about-page">
       <PageIntro
