@@ -2,18 +2,26 @@ import hashlib
 import json
 import os
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from isolated_postgres import shared_development_settings
+from isolated_postgres import (
+    isolated_settings_for_engine,
+    isolated_test_engine,
+    restore_app_database_url,
+)
 from sqlalchemy import Connection, Engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from app.db.session import create_knowledge_engine
+from app.db.session import create_knowledge_session_factory
+from app.ingestion.models import EmbeddingProfile, IngestionOutcome
+from app.ingestion.repository import KnowledgeIngestionRepository
+from app.ingestion.service import KnowledgeIngestionService
 from app.workflow.calendar import (
     V4_CALENDAR_JURISDICTION,
     V4_CALENDAR_VERSION,
@@ -39,16 +47,55 @@ pytestmark = [
 ]
 
 
+class _DeterministicCorpusEmbedder:
+    profile = EmbeddingProfile()
+
+    def embed_documents(
+        self,
+        contents: Sequence[str],
+        *,
+        title: str,
+    ) -> tuple[tuple[float, ...], ...]:
+        assert title
+        return tuple(
+            tuple([float(index + 1) / 100] * self.profile.dimension)
+            for index, _content in enumerate(contents)
+        )
+
+
 @pytest.fixture(scope="session")
 def additive_engine() -> Iterator[Engine]:
-    settings = shared_development_settings()
-    config = AlembicConfig("alembic.ini")
-    command.upgrade(config, "head")
-    engine = create_knowledge_engine(settings)
-    try:
+    with isolated_test_engine(
+        prefix="knowledge_agent_v4_additive",
+        migration_target="0001_v2_knowledge",
+    ) as engine:
+        with engine.connect() as connection:
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "0001_v2_knowledge"
+            )
+            assert connection.execute(text("SELECT count(*) FROM documents")).scalar_one() == 0
+
+        settings = isolated_settings_for_engine(engine)
+        service = KnowledgeIngestionService(
+            repository=KnowledgeIngestionRepository(create_knowledge_session_factory(engine)),
+            embedder=_DeterministicCorpusEmbedder(),
+        )
+        results = service.ingest_directory(Path("corpus/v2"))
+        assert len(results) == 13
+        assert all(result.outcome is IngestionOutcome.INSERTED for result in results)
+        assert sum(result.chunk_count for result in results) == 47
+        it_guide = next(result for result in results if result.doc_code == "SOP-IT-003")
+        assert it_guide.version == "1.0"
+        assert it_guide.chunk_count == 5
+
+        previous = os.environ.get("APP_DATABASE_URL")
+        os.environ["APP_DATABASE_URL"] = settings.database_url.get_secret_value()
+        try:
+            command.upgrade(AlembicConfig("alembic.ini"), "head")
+        finally:
+            restore_app_database_url(previous)
         yield engine
-    finally:
-        engine.dispose()
 
 
 @pytest.fixture
