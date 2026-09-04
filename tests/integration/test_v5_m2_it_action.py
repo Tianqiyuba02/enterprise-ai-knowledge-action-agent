@@ -493,6 +493,54 @@ def test_revision_api_allows_only_owned_it_business_fields(
     assert "employee_id" not in revised.json()["draft"]
 
 
+def test_revision_api_rejects_sealed_annual_leave_action(
+    isolated_settings: KnowledgeSettings,
+    session_factory: sessionmaker[Session],
+    client: TestClient,
+) -> None:
+    leave = LeaveRequestDraft(
+        leave_type="annual",
+        start_date=date(2026, 10, 21),
+        end_date=date(2026, 10, 21),
+        scheduled_work_days=1,
+        requested_hours=Decimal("7.60"),
+        current_balance_hours=Decimal("76.00"),
+        projected_balance_hours=Decimal("68.40"),
+        preparation_status=LeavePreparationStatus.READY,
+        reason="Family visit",
+        public_holiday_check_required=True,
+        non_executing=True,
+    )
+    created = ActionCreationService(session_factory, isolated_settings).create_or_reuse(ALEX, leave)
+    assert created.action_id is not None
+
+    response = client.post(
+        f"/api/v1/actions/{created.action_id}/revisions",
+        headers=ALEX_HEADERS,
+        json={
+            "expected_revision": 1,
+            "category": "hardware",
+            "summary": "Dock is not detected",
+            "description": "The approved laptop no longer detects its synthetic dock.",
+            "urgency": "medium",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "action_conflict"
+    with session_factory() as session:
+        revision_count = session.execute(
+            text("SELECT count(*) FROM action_revisions WHERE action_id = :action_id"),
+            {"action_id": created.action_id},
+        ).scalar_one()
+        current_revision = session.execute(
+            text("SELECT current_revision FROM action_workflows WHERE action_id = :action_id"),
+            {"action_id": created.action_id},
+        ).scalar_one()
+    assert revision_count == 1
+    assert current_revision == 1
+
+
 def test_confirmation_edit_race_serializes_to_one_authoritative_outcome(
     isolated_settings: KnowledgeSettings,
     session_factory: sessionmaker[Session],

@@ -20,6 +20,7 @@ import type {
   ConfirmationChallenge,
 } from "@/lib/contracts";
 import { formatDate, formatDateTime, formatHours } from "@/lib/format";
+import { reviewStatusCopy } from "@/lib/review-copy";
 
 const TERMINAL_STATES = new Set([
   "SUCCEEDED",
@@ -151,7 +152,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
           <div>
             <p className="eyebrow">Independent authorization</p>
             <h1>Review annual leave</h1>
-            <p>This is a draft — nothing has been submitted yet.</p>
+            <p>{reviewStatusCopy(detail.state, "leave")}</p>
           </div>
           <StatusPill state={detail.state} />
         </div>
@@ -172,8 +173,11 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
           </dl>
           <div className="draft-proof">
             <Fingerprint aria-hidden="true" size={17} />
-            <span>Authority snapshot</span>
-            <code>{draft.authority_snapshot_hash.slice(0, 16)}…</code>
+            <span>Verified at preparation</span>
+            <details>
+              <summary>Technical evidence</summary>
+              <code>{draft.authority_snapshot_hash.slice(0, 16)}…</code>
+            </details>
           </div>
         </article>
 
@@ -186,7 +190,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
         ) : detail.state === "CONFIRMED" ? (
           <div className="execution-queued" role="status">
             <LoaderCircle aria-hidden="true" className="spin" size={20} />
-            <div><strong>{executionSlow ? "Authorized — processing is taking longer than usual" : "Authorized and queued"}</strong><p>{executionSlow ? "No leave request has been submitted yet. Do not authorize it again; the private worker may be delayed and this page will keep checking safely." : "The existing V4 worker is processing this request. This page will update automatically."}</p></div>
+            <div><strong>{executionSlow ? "Authorized — processing is taking longer than usual" : "Authorized and queued"}</strong><p>{executionSlow ? "No leave request has been submitted yet. Do not authorize it again; the private worker may be delayed and this page will keep checking safely." : "The private action worker is processing this request. This page will update automatically."}</p></div>
           </div>
         ) : canReview ? (
           <div className="authorization-panel">
@@ -216,7 +220,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
             </button>
           </div>
         ) : (
-          <div className="terminal-note"><CircleAlert aria-hidden="true" size={20} /><div><strong>This request can no longer be authorized.</strong><p>Its current state is {detail.state.toLowerCase().replaceAll("_", " ")}.</p></div></div>
+          <div className="terminal-note"><CircleAlert aria-hidden="true" size={20} /><div><strong>This request can no longer be authorized.</strong><p>{reviewStatusCopy(detail.state, "leave")}</p></div></div>
         )}
         {error ? <div className="form-error" role="alert"><CircleAlert aria-hidden="true" size={17} />{error}</div> : null}
       </section>
@@ -228,7 +232,7 @@ export function ReviewAuthorization({ initialDetail }: { initialDetail: AnnualLe
         <ol>
           <li data-complete="true"><span>1</span><div><strong>Prepared</strong><p>Trusted data produced the persisted draft.</p></div></li>
           <li data-complete={challenge !== null || detail.state !== "AWAITING_CONFIRMATION"}><span>2</span><div><strong>Bound review</strong><p>A short-lived challenge matches this revision.</p></div></li>
-          <li data-complete={detail.state !== "AWAITING_CONFIRMATION"}><span>3</span><div><strong>Authorized</strong><p>Your explicit confirmation enters V4 execution.</p></div></li>
+          <li data-complete={detail.state !== "AWAITING_CONFIRMATION"}><span>3</span><div><strong>Authorized</strong><p>Your explicit confirmation enters deterministic execution.</p></div></li>
           <li data-complete={detail.state === "SUCCEEDED"}><span>4</span><div><strong>Recorded</strong><p>Result and audit evidence become visible.</p></div></li>
         </ol>
         <small>Action ID<br /><code>{detail.action_id}</code></small>

@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useRef, useState } from "react";
 
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import type { AssistantResponse, DemoReadiness, GuidedScenario } from "@/lib/contracts";
 import { formatDate, formatHours, sentenceCase } from "@/lib/format";
 
@@ -159,13 +160,17 @@ export function AssistantWorkspace({
                   {message.role === "assistant" ? <Bot aria-hidden="true" size={17} /> : <UserRound aria-hidden="true" size={17} />}
                 </span>
                 <div className="message-content" data-error={message.error || undefined}>
-                  <p>{message.body}</p>
+                  {message.role === "assistant" ? (
+                    <div className="assistant-markdown"><AssistantMarkdown>{message.body}</AssistantMarkdown></div>
+                  ) : <p>{message.body}</p>}
                   {message.response?.citations.length ? (
                     <div className="citation-list" aria-label="Sources">
                       {message.response.citations.map((citation) => (
                         <Link
                           href={`/policies/${encodeURIComponent(citation.doc_code)}/${encodeURIComponent(citation.version)}#${encodeURIComponent(citation.section_anchor)}`}
                           key={`${citation.doc_code}-${citation.version}-${citation.section_anchor}`}
+                          target="_blank"
+                          rel="noreferrer"
                         >
                           <BookOpenText aria-hidden="true" size={14} />
                           {citation.title} · {citation.section_anchor}
@@ -220,6 +225,8 @@ export function AssistantWorkspace({
           <label htmlFor="assistant-message" className="sr-only">Message the employee assistant</label>
           <textarea
             id="assistant-message"
+            name="assistant-message"
+            autoComplete="off"
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={onComposerKeyDown}
@@ -241,7 +248,7 @@ export function AssistantWorkspace({
         <div className="boundary-item"><span>01</span><div><strong>Reads trusted data</strong><p>Profile, balances and approved policies are scoped to you.</p></div></div>
         <div className="boundary-item"><span>02</span><div><strong>Prepares, never executes</strong><p>The assistant can create an authoritative draft for review.</p></div></div>
         <div className="boundary-item"><span>03</span><div><strong>You authorize elsewhere</strong><p>Typing “yes” in chat is never approval.</p></div></div>
-        <div className="aside-seal"><ShieldCheck aria-hidden="true" size={18} /><span>V4 execution boundary preserved</span></div>
+        <div className="aside-seal"><ShieldCheck aria-hidden="true" size={18} /><span>Deterministic execution boundary</span></div>
       </aside>
     </div>
   );

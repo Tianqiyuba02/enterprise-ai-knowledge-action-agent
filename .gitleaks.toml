@@ -1,0 +1,23 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic business request SHA-256 keys in checked-in V4 evaluation evidence"
+regexTarget = "match"
+paths = ['''^evals/results/(?:archive/)?v4-product-.*\.json$''']
+regexes = ['''business_request_key": "[0-9a-f]{64}"''']
+
+[[allowlists]]
+description = "Literal Melbourne timezone assertion"
+regexTarget = "match"
+paths = ['''^tests/v2/test_knowledge_context_and_clock\.py$''']
+regexes = ['''MELBOURNE_TIMEZONE\.key == "Australia/Melbourne"''']
+
+[[allowlists]]
+description = "Source-code path variables in M3 contract tests"
+regexTarget = "match"
+paths = ['''^tests/v5/test_m3_contracts\.py$''']
+regexes = [
+  '''blueprint = \(ROOT / "render\.yaml"\)\.read_text\(\)''',
+  '''session = \(ROOT / "ui/app/api/session/route\.ts"\)\.read_text\(\)''',
+]

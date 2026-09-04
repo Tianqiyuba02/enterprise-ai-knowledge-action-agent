@@ -1,13 +1,13 @@
 const dateFormatter = new Intl.DateTimeFormat("en-AU", {
   day: "numeric",
-  month: "short",
+  month: "long",
   year: "numeric",
   timeZone: "Australia/Melbourne",
 });
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-AU", {
   day: "numeric",
-  month: "short",
+  month: "long",
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
