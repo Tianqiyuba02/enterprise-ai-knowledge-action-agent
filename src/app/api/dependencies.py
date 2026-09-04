@@ -1,5 +1,6 @@
 """FastAPI dependencies for trusted identity and application services."""
 
+from collections.abc import Generator
 from types import MappingProxyType
 from typing import Annotated, Final, cast
 
@@ -9,8 +10,20 @@ from app.agent.client import GeminiAgentClient
 from app.agent.dispatcher import ToolDispatcher
 from app.agent.service import AgentService
 from app.api.assistant_application import AssistantApplicationService
-from app.config import load_agent_settings, load_knowledge_settings, load_settings
+from app.config import (
+    load_agent_settings,
+    load_knowledge_settings,
+    load_public_demo_settings,
+    load_settings,
+)
 from app.db.session import create_knowledge_engine, create_knowledge_session_factory
+from app.demo.adapters import (
+    MeteredAgentClient,
+    PublicDemoAssistantApplicationService,
+    QuotaActionCreationService,
+)
+from app.demo.leave_execution import M3ExecutablePreparationService
+from app.demo.service import MUTATION_LOCK_ID, DemoControlService
 from app.embeddings.client import GeminiDocumentEmbeddingClient
 from app.errors import InvalidDemoSessionError
 from app.grounding.client import GeminiGroundedGenerationClient
@@ -22,6 +35,7 @@ from app.knowledge.query_service import KnowledgeQueryService
 from app.knowledge.repository import KnowledgeRetrievalRepository
 from app.knowledge.service import KnowledgeRetrievalService
 from app.llm.client import GeminiStructuredClient
+from app.portal.service import PortalReadService
 from app.repositories.demo import DemoRepository
 from app.services.chat import ChatService
 from app.services.employee import EmployeeService
@@ -29,8 +43,11 @@ from app.services.it import ITService
 from app.services.leave_preparation import LeavePreparationService
 from app.workflow.action_creation import ActionCreationService
 from app.workflow.confirmation import ConfirmationService
+from app.workflow.it_action_creation import ITActionCreationService
+from app.workflow.it_revision import ITActionRevisionService
 
 DEMO_SESSION_HEADER: Final = "X-Demo-Session"
+DEMO_VISITOR_HEADER: Final = "X-Demo-Visitor-ID"
 DEMO_IDENTITY_BINDINGS: Final = MappingProxyType(
     {
         "demo-v1-7f4c2a91": AuthenticatedEmployeeContext(
@@ -67,6 +84,63 @@ def get_demo_repository(request: Request) -> DemoRepository:
     return cast(DemoRepository, request.app.state.demo_repository)
 
 
+def get_demo_visitor_id(
+    x_demo_visitor_id: Annotated[str | None, Header(alias=DEMO_VISITOR_HEADER)] = None,
+) -> str | None:
+    value = (x_demo_visitor_id or "").strip()
+    if not value or len(value) > 128:
+        return None
+    return value
+
+
+def get_workflow_session_factory(request: Request):
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    return factory
+
+
+def get_demo_control_service(request: Request) -> DemoControlService:
+    service = getattr(request.app.state, "demo_control_service", None)
+    if service is None:
+        service = DemoControlService(
+            get_workflow_session_factory(request),
+            load_public_demo_settings(),
+        )
+        request.app.state.demo_control_service = service
+    return cast(DemoControlService, service)
+
+
+def require_demo_mutation_window(request: Request) -> Generator[None, None, None]:
+    """Hold a shared DB lock for the complete public-demo mutation request."""
+
+    settings = load_public_demo_settings()
+    if not settings.enabled:
+        yield
+        return
+    factory = get_workflow_session_factory(request)
+    with factory() as session:
+        from sqlalchemy import text
+
+        session.execute(
+            text("SELECT pg_advisory_xact_lock_shared(:lock_id)"),
+            {"lock_id": MUTATION_LOCK_ID},
+        )
+        state = session.execute(
+            text("SELECT maintenance_mode FROM demo_runtime_state WHERE singleton_id = 1")
+        ).scalar_one_or_none()
+        if state is None or state:
+            from app.errors import DemoMaintenanceError
+
+            raise DemoMaintenanceError
+        yield
+        session.rollback()
+
+
 def get_knowledge_applicability_context(
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     repository: Annotated[DemoRepository, Depends(get_demo_repository)],
@@ -79,7 +153,19 @@ def get_employee_service(request: Request) -> EmployeeService:
 
 
 def get_it_service(request: Request) -> ITService:
-    return cast(ITService, request.app.state.it_service)
+    service = cast(ITService | None, request.app.state.it_service)
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITService(session_factory=factory)
+    request.app.state.it_service = service
+    return service
 
 
 def get_chat_service(request: Request) -> ChatService:
@@ -136,6 +222,43 @@ def get_confirmation_service(request: Request) -> ConfirmationService:
     return service
 
 
+def get_it_action_revision_service(request: Request) -> ITActionRevisionService:
+    service = getattr(request.app.state, "it_action_revision_service", None)
+    if service is not None:
+        return cast(ITActionRevisionService, service)
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITActionRevisionService(factory, settings)
+    request.app.state.it_action_revision_service = service
+    return service
+
+
+def get_portal_read_service(request: Request) -> PortalReadService:
+    """Build owner-scoped V5 projections over the existing authoritative tables."""
+
+    service = cast(
+        PortalReadService | None,
+        getattr(request.app.state, "portal_read_service", None),
+    )
+    if service is not None:
+        return service
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = PortalReadService(factory, get_demo_repository(request))
+    request.app.state.portal_read_service = service
+    return service
+
+
 def get_agent_service(
     request: Request,
 ) -> AgentService:
@@ -154,11 +277,16 @@ def get_agent_service(
             demo_repository=repository,
             leave_preparation_service=LeavePreparationService(employee_service),
         )
+        provider = GeminiAgentClient(settings, load_agent_settings())
+        demo_settings = load_public_demo_settings()
+        if demo_settings.enabled:
+            provider = MeteredAgentClient(
+                provider,
+                get_demo_control_service(request),
+                demo_settings.assistant_deadline_seconds,
+            )
         service = AgentService(
-            provider=GeminiAgentClient(
-                settings,
-                load_agent_settings(),
-            ),
+            provider=provider,
             dispatcher=dispatcher,
             clock=clock,
         )
@@ -177,8 +305,25 @@ def get_action_creation_service(request: Request):
         factory = create_knowledge_session_factory(engine)
         request.app.state.workflow_engine = engine
         request.app.state.workflow_session_factory = factory
-    service = ActionCreationService(factory, settings)
+    preparation = M3ExecutablePreparationService() if load_public_demo_settings().enabled else None
+    service = ActionCreationService(factory, settings, preparation=preparation)
     request.app.state.action_creation_service = service
+    return service
+
+
+def get_it_action_creation_service(request: Request) -> ITActionCreationService:
+    service = getattr(request.app.state, "it_action_creation_service", None)
+    if service is not None:
+        return cast(ITActionCreationService, service)
+    settings = getattr(request.app.state, "workflow_settings", None) or load_knowledge_settings()
+    factory = getattr(request.app.state, "workflow_session_factory", None)
+    if factory is None:
+        engine = create_knowledge_engine(settings)
+        factory = create_knowledge_session_factory(engine)
+        request.app.state.workflow_engine = engine
+        request.app.state.workflow_session_factory = factory
+    service = ITActionCreationService(factory, settings)
+    request.app.state.it_action_creation_service = service
     return service
 
 
@@ -186,9 +331,26 @@ def get_assistant_application_service(request: Request) -> AssistantApplicationS
     existing = getattr(request.app.state, "assistant_application_service", None)
     if existing is not None:
         return cast(AssistantApplicationService, existing)
-    service = AssistantApplicationService(
+    action_creation = get_action_creation_service(request)
+    it_action_creation = get_it_action_creation_service(request)
+    demo_settings = load_public_demo_settings()
+    if demo_settings.enabled:
+        control = get_demo_control_service(request)
+        action_creation = QuotaActionCreationService(action_creation, control)
+        it_action_creation = QuotaActionCreationService(it_action_creation, control)
+    base = AssistantApplicationService(
         get_agent_service(request),
-        get_action_creation_service(request),
+        action_creation,
+        it_action_creation,
+    )
+    service = (
+        PublicDemoAssistantApplicationService(
+            base,
+            get_demo_control_service(request),
+            demo_settings.assistant_deadline_seconds,
+        )
+        if demo_settings.enabled
+        else base
     )
     request.app.state.assistant_application_service = service
     return service

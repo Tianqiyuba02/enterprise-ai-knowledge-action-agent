@@ -337,9 +337,6 @@ def test_separate_yes_request_cannot_recover_or_execute_previous_draft() -> None
     assert first.json()["prepared_action"]["non_executing"] is True
     assert second.status_code == 200
     assert second.json()["prepared_action"] is None
-    assert "cannot submit" in second.json()["answer"]
-    assert provider.messages == [
-        "Prepare annual leave for Friday.",
-        "Yes, submit it.",
-    ]
+    assert "cannot authorize or execute" in second.json()["answer"]
+    assert provider.messages == ["Prepare annual leave for Friday."]
     assert employee_service.get_my_leave_balances(context) == before_balances

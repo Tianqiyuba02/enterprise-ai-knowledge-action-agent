@@ -26,6 +26,7 @@ from app.workflow.canonical import business_request_key
 from app.workflow.challenge_repository import ChallengeRepository
 from app.workflow.confirmation import ConfirmationService
 from app.workflow.domain import ActionType, ChallengeStatus, LeaveType, WorkflowState
+from app.workflow.executable_preparation import serialize_canonical_draft
 from app.workflow.tokens import hash_confirmation_token
 from app.workflow.workflow_repository import NewWorkflowRevision, WorkflowRepository
 
@@ -154,7 +155,11 @@ def _create_action(
             jurisdiction="AU-VIC",
             action_type=ActionType.SUBMIT_ANNUAL_LEAVE,
             state=WorkflowState.AWAITING_CONFIRMATION,
-            draft_payload={"leave_type": "annual", "reason": "Family visit"},
+            draft_payload=serialize_canonical_draft(
+                draft,
+                scheduled_work_days=1,
+                snapshot=snapshot,
+            ),
             draft_hash=draft.fingerprint(),
             authority_snapshot_hash=snapshot.fingerprint(),
             business_request_key=business_request_key(
@@ -281,7 +286,12 @@ def test_owner_read_issue_confirm_replay_and_isolation(
     assert consumed.status == ChallengeStatus.CONSUMED.value
     assert token not in str(audits)
     assert _count(engine, "leave_requests") == 0
-    assert _count(engine, "public_holidays") == 14
+    with engine.connect() as connection:
+        v4_holiday_count = connection.execute(
+            text("SELECT count(*) FROM public_holidays WHERE calendar_version = :version"),
+            {"version": V4_CALENDAR_VERSION},
+        ).scalar_one()
+    assert v4_holiday_count == 14
 
 
 def test_session_mismatch_expired_challenge_and_expired_action(

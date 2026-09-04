@@ -47,9 +47,11 @@ def test_no_v4_execution_tool_exists() -> None:
         V3ToolName.GET_MY_LEAVE_BALANCES.value,
         V3ToolName.GET_MY_TICKET.value,
         V3ToolName.PREPARE_LEAVE_REQUEST.value,
+        V3ToolName.PREPARE_IT_SUPPORT_TICKET.value,
     }
     assert all(not any(fragment in name for fragment in FORBIDDEN_TOOL_FRAGMENTS) for name in names)
     assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_LEAVE_REQUEST].capability.value == "prepare"
+    assert V3_TOOL_ALLOWLIST[V3ToolName.PREPARE_IT_SUPPORT_TICKET].capability.value == "prepare"
 
 
 def test_confirmation_control_plane_has_no_execution_path() -> None:

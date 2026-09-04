@@ -519,7 +519,7 @@ def test_provider_declarations_match_fixed_registry_without_identity_or_write_fi
     assert [declaration.name for declaration in declarations] == [
         contract.name.value for contract in V3_TOOL_ALLOWLIST.values()
     ]
-    assert len({declaration.name for declaration in declarations}) == 5
+    assert len({declaration.name for declaration in declarations}) == 6
     for declaration in declarations:
         schema = declaration.parameters_json_schema
         assert schema == contracts_by_name[declaration.name].argument_model.model_json_schema()
@@ -564,7 +564,7 @@ _UNCHANGED_READ_TOOL_SCHEMAS = {
         "additionalProperties": False,
         "properties": {
             "ticket_id": {
-                "pattern": "^TKT-[0-9]{4}$",
+                "pattern": "^TKT-[0-9]+$",
                 "title": "Ticket Id",
                 "type": "string",
             }

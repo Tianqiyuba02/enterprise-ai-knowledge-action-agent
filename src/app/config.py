@@ -122,6 +122,24 @@ class KnowledgeSettings(BaseSettings):
         ge=1,
         le=86_400,
     )
+    database_pool_size: int = Field(
+        default=5,
+        validation_alias="DATABASE_POOL_SIZE",
+        ge=1,
+        le=20,
+    )
+    database_max_overflow: int = Field(
+        default=2,
+        validation_alias="DATABASE_MAX_OVERFLOW",
+        ge=0,
+        le=20,
+    )
+    database_pool_timeout_seconds: int = Field(
+        default=10,
+        validation_alias="DATABASE_POOL_TIMEOUT_SECONDS",
+        ge=1,
+        le=60,
+    )
 
     @property
     def database_url(self) -> SecretStr:
@@ -161,6 +179,83 @@ class AgentSettings(BaseSettings):
     )
 
 
+class PublicDemoSettings(BaseSettings):
+    """M3 public-demo controls. Disabled by default for all V1-V5 local paths."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    enabled: bool = Field(default=False, validation_alias="PUBLIC_DEMO_MODE")
+    internal_portal_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="INTERNAL_PORTAL_KEY",
+    )
+    visitor_assistant_daily_limit: int = Field(
+        default=8,
+        validation_alias="DEMO_VISITOR_ASSISTANT_DAILY_LIMIT",
+        ge=1,
+    )
+    visitor_action_daily_limit: int = Field(
+        default=4,
+        validation_alias="DEMO_VISITOR_ACTION_DAILY_LIMIT",
+        ge=1,
+    )
+    visitor_revision_daily_limit: int = Field(
+        default=8,
+        validation_alias="DEMO_VISITOR_REVISION_DAILY_LIMIT",
+        ge=1,
+    )
+    global_assistant_daily_limit: int = Field(
+        default=60,
+        validation_alias="DEMO_GLOBAL_ASSISTANT_DAILY_LIMIT",
+        ge=1,
+    )
+    global_execution_daily_limit: int = Field(
+        default=40,
+        validation_alias="DEMO_GLOBAL_EXECUTION_DAILY_LIMIT",
+        ge=1,
+    )
+    global_provider_daily_limit: int = Field(
+        default=300,
+        validation_alias="DEMO_GLOBAL_PROVIDER_DAILY_LIMIT",
+        ge=1,
+    )
+    expected_document_count: int = Field(
+        default=13,
+        validation_alias="DEMO_EXPECTED_DOCUMENT_COUNT",
+        ge=1,
+    )
+    expected_chunk_count: int = Field(
+        default=47,
+        validation_alias="DEMO_EXPECTED_CHUNK_COUNT",
+        ge=1,
+    )
+    worker_stale_seconds: int = Field(
+        default=20,
+        validation_alias="DEMO_WORKER_STALE_SECONDS",
+        ge=5,
+        le=300,
+    )
+    assistant_deadline_seconds: int = Field(
+        default=45,
+        validation_alias="DEMO_ASSISTANT_DEADLINE_SECONDS",
+        ge=5,
+        le=60,
+    )
+
+    def require_internal_key(self) -> str:
+        key = self.internal_portal_key
+        value = key.get_secret_value() if key is not None else ""
+        if self.enabled and len(value) < 24:
+            raise KnowledgeConfigurationError
+        return value
+
+
 def load_settings() -> Settings:
     """Load settings while replacing validation details with a safe CLI message."""
 
@@ -186,3 +281,14 @@ def load_agent_settings() -> AgentSettings:
         return AgentSettings()
     except ValidationError as exc:
         raise AgentConfigurationError from exc
+
+
+def load_public_demo_settings() -> PublicDemoSettings:
+    """Load public-demo controls without enabling them implicitly."""
+
+    try:
+        settings = PublicDemoSettings()
+        settings.require_internal_key()
+        return settings
+    except ValidationError as exc:
+        raise KnowledgeConfigurationError from exc

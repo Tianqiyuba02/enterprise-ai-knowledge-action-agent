@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Final
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
+from app.it.domain import parse_authoritative_it_draft
 from app.workflow.canonical import business_request_key
 from app.workflow.domain import ActionType, ChallengeStatus, LeaveType, WorkflowState
 from app.workflow.errors import WorkflowIntegrityError
@@ -29,6 +30,7 @@ FINAL_OCCUPANCY_STATES: Final = (
 )
 OCCUPYING_STATES: Final = FINAL_OCCUPANCY_STATES
 LEAVE_BUSINESS_KEY_UNIQUE_CONSTRAINT: Final = "uq_leave_requests_business_request_key"
+IT_TICKET_SOURCE_ACTION_UNIQUE_CONSTRAINT: Final = "uq_it_tickets_source_action_id"
 PREPARE_NORMALIZABLE_STATES: Final = frozenset(
     {
         WorkflowState.AWAITING_CONFIRMATION.value,
@@ -89,6 +91,10 @@ def is_leave_unique_violation(exc: BaseException) -> bool:
     )
 
 
+def is_it_ticket_source_unique_violation(exc: BaseException) -> bool:
+    return _named_unique_violation(exc, IT_TICKET_SOURCE_ACTION_UNIQUE_CONSTRAINT)
+
+
 def _named_unique_violation(exc: BaseException, constraint_name: str) -> bool:
     current: BaseException | None = exc
     seen: set[int] = set()
@@ -115,6 +121,11 @@ def collect_phase1a_invariant_violations(connection: Connection) -> tuple[str, .
     findings.extend(_succeeded_without_leave(connection))
     findings.extend(_contradictory_terminal_with_leave(connection))
     findings.extend(_nonterminal_with_leave(connection))
+    if inspect(connection).has_table("it_tickets"):
+        findings.extend(_duplicate_ticket_source_action_ids(connection))
+        findings.extend(_succeeded_without_ticket(connection))
+        findings.extend(_contradictory_terminal_with_ticket(connection))
+        findings.extend(_nonterminal_with_ticket(connection))
     findings.extend(_invalid_active_challenges(connection))
     findings.extend(_malformed_confirmation_timestamps(connection))
     findings.extend(_inconsistent_stored_business_keys(connection))
@@ -230,13 +241,31 @@ def _duplicate_source_action_ids(connection: Connection) -> list[str]:
     return [f"duplicate leave_requests.source_action_id={row['source_action_id']}" for row in rows]
 
 
+def _duplicate_ticket_source_action_ids(connection: Connection) -> list[str]:
+    ticket_rows = _rows(
+        connection,
+        """
+        SELECT source_action_id, count(*) AS ticket_count
+        FROM it_tickets
+        WHERE source_action_id IS NOT NULL
+        GROUP BY source_action_id
+        HAVING count(*) > 1
+        """,
+    )
+    return [
+        f"duplicate it_tickets.source_action_id={row['source_action_id']}" for row in ticket_rows
+    ]
+
+
 def _succeeded_without_leave(connection: Connection) -> list[str]:
     rows = _rows(
         connection,
         """
-        SELECT ar.action_id
+        SELECT ar.action_id, aw.action_type
         FROM action_revisions ar
+        JOIN action_workflows aw ON aw.action_id = ar.action_id
         WHERE ar.state = :state
+          AND aw.action_type = :leave_type
           AND NOT EXISTS (
                 SELECT 1 FROM leave_requests lr
                 WHERE lr.source_action_id = ar.action_id
@@ -244,11 +273,32 @@ def _succeeded_without_leave(connection: Connection) -> list[str]:
           )
         """,
         state=WorkflowState.SUCCEEDED.value,
+        leave_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
     )
     return [
-        f"SUCCEEDED action {row['action_id']} has no valid corresponding leave result"
+        f"SUCCEEDED leave action {row['action_id']} has no valid corresponding leave request"
         for row in rows
     ]
+
+
+def _succeeded_without_ticket(connection: Connection) -> list[str]:
+    rows = _rows(
+        connection,
+        """
+        SELECT ar.action_id
+        FROM action_revisions ar
+        JOIN action_workflows aw ON aw.action_id = ar.action_id
+        WHERE ar.state = :state
+          AND aw.action_type = :it_type
+          AND NOT EXISTS (
+                SELECT 1 FROM it_tickets it
+                WHERE it.source_action_id = ar.action_id
+          )
+        """,
+        state=WorkflowState.SUCCEEDED.value,
+        it_type=ActionType.CREATE_IT_SUPPORT_TICKET.value,
+    )
+    return [f"SUCCEEDED IT action {row['action_id']} has no ticket" for row in rows]
 
 
 def _contradictory_terminal_with_leave(connection: Connection) -> list[str]:
@@ -259,7 +309,9 @@ def _contradictory_terminal_with_leave(connection: Connection) -> list[str]:
             """
             SELECT ar.action_id
             FROM action_revisions ar
+            JOIN action_workflows aw ON aw.action_id = ar.action_id
             WHERE ar.state = :state
+              AND aw.action_type = :leave_type
               AND EXISTS (
                     SELECT 1 FROM leave_requests lr
                     WHERE lr.source_action_id = ar.action_id
@@ -267,10 +319,32 @@ def _contradictory_terminal_with_leave(connection: Connection) -> list[str]:
               )
             """,
             state=state,
+            leave_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
         )
-        findings.extend(
-            f"{state} action {row['action_id']} has a committed business result" for row in rows
+        findings.extend(f"{state} action {row['action_id']} has a committed leave" for row in rows)
+    return findings
+
+
+def _contradictory_terminal_with_ticket(connection: Connection) -> list[str]:
+    findings: list[str] = []
+    for state in CONTRADICTORY_TERMINAL_WITH_LEAVE:
+        rows = _rows(
+            connection,
+            """
+            SELECT ar.action_id
+            FROM action_revisions ar
+            JOIN action_workflows aw ON aw.action_id = ar.action_id
+            WHERE ar.state = :state
+              AND aw.action_type = :it_type
+              AND EXISTS (
+                    SELECT 1 FROM it_tickets it
+                    WHERE it.source_action_id = ar.action_id
+              )
+            """,
+            state=state,
+            it_type=ActionType.CREATE_IT_SUPPORT_TICKET.value,
         )
+        findings.extend(f"{state} action {row['action_id']} has a committed ticket" for row in rows)
     return findings
 
 
@@ -280,18 +354,21 @@ def _nonterminal_with_leave(connection: Connection) -> list[str]:
         source_rows = _rows(
             connection,
             """
-            SELECT ar.action_id
+            SELECT ar.action_id, aw.action_type
             FROM action_revisions ar
+            JOIN action_workflows aw ON aw.action_id = ar.action_id
             WHERE ar.state = :state
+              AND aw.action_type = :leave_type
               AND EXISTS (
                     SELECT 1 FROM leave_requests lr
                     WHERE lr.source_action_id = ar.action_id
               )
             """,
             state=state,
+            leave_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
         )
         findings.extend(
-            f"{state} action {row['action_id']} has a source-linked committed leave"
+            f"{state} action {row['action_id']} has a source-linked committed business result"
             for row in source_rows
         )
         key_rows = _rows(
@@ -299,17 +376,46 @@ def _nonterminal_with_leave(connection: Connection) -> list[str]:
             """
             SELECT ar.action_id
             FROM action_revisions ar
+            JOIN action_workflows aw ON aw.action_id = ar.action_id
             WHERE ar.state = :state
+              AND aw.action_type = :leave_type
               AND EXISTS (
                     SELECT 1 FROM leave_requests lr
                     WHERE lr.business_request_key = ar.business_request_key
               )
             """,
             state=state,
+            leave_type=ActionType.SUBMIT_ANNUAL_LEAVE.value,
         )
         findings.extend(
             f"{state} action {row['action_id']} has a same-business-key committed leave"
             for row in key_rows
+        )
+    return findings
+
+
+def _nonterminal_with_ticket(connection: Connection) -> list[str]:
+    findings: list[str] = []
+    for state in NONTERMINAL_CONFIRMATION_STATES:
+        rows = _rows(
+            connection,
+            """
+            SELECT ar.action_id
+            FROM action_revisions ar
+            JOIN action_workflows aw ON aw.action_id = ar.action_id
+            WHERE ar.state = :state
+              AND aw.action_type = :it_type
+              AND EXISTS (
+                    SELECT 1 FROM it_tickets it
+                    WHERE it.source_action_id = ar.action_id
+              )
+            """,
+            state=state,
+            it_type=ActionType.CREATE_IT_SUPPORT_TICKET.value,
+        )
+        findings.extend(
+            f"{state} action {row['action_id']} has a source-linked committed ticket"
+            for row in rows
         )
     return findings
 
@@ -369,6 +475,12 @@ def _inconsistent_stored_business_keys(connection: Connection) -> list[str]:
         payload = row["draft_payload"]
         if not isinstance(payload, dict):
             findings.append(f"action {row['action_id']} stored draft payload is not an object")
+            continue
+        if row["action_type"] == ActionType.CREATE_IT_SUPPORT_TICKET.value:
+            try:
+                parse_authoritative_it_draft(payload)
+            except (TypeError, ValueError):
+                findings.append(f"action {row['action_id']} stored IT draft is invalid")
             continue
         try:
             draft = reconstruct_canonical_draft(payload)

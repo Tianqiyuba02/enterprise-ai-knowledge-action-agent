@@ -946,11 +946,11 @@ def test_action_specific_transient_enters_process_local_cooldown(
         AtomicExecutionFailpoints(raise_after_claim=transient),
     )
     first = executor.execute_action(cooling)
+    assert executor.action_cooldown_active(cooling)
     skipped = executor.execute_action(cooling)
     progressed = executor.execute_one()
     assert first.outcome is AtomicOutcome.TRANSIENT
     assert first.failure_kind == FailureScope.ACTION.value
-    assert executor.action_cooldown_active(cooling)
     assert not executor.outage_backoff_active()
     assert skipped.outcome is AtomicOutcome.SKIPPED
     assert progressed.action_id == other

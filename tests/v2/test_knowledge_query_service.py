@@ -102,6 +102,31 @@ def test_linear_query_service_constructs_answered_response_from_references() -> 
     assert response.citations[0].section_anchor == "entitlement"
 
 
+def test_it_support_question_returns_governed_applicable_citation() -> None:
+    evidence = (_evidence("SOP-IT-003", "1.0", "urgency-guidance"),)
+    service = KnowledgeQueryService(
+        retrieval=FakeRetrieval(evidence),
+        generator=FakeGenerator(
+            GroundedAnswerDraft(
+                status="answered",
+                answer="Use high urgency only when essential work is blocked.",
+                evidence_refs=("E1",),
+            )
+        ),
+    )
+
+    response = service.query("When should an IT request be high urgency?", _context())
+
+    assert response.status == "answered"
+    assert response.citations[0].model_dump() == {
+        "doc_code": "SOP-IT-003",
+        "title": "Synthetic SOP-IT-003",
+        "version": "1.0",
+        "section_anchor": "urgency-guidance",
+        "page": None,
+    }
+
+
 def test_empty_retrieval_returns_deterministic_insufficient_without_model_call() -> None:
     retrieval = FakeRetrieval(())
     generator = FakeGenerator()

@@ -10,6 +10,7 @@ from app.agent.leave_models import LeaveRequestDraft
 from app.agent.models import ToolResult
 from app.agent.provider_failures import AgentProviderFailureDetail
 from app.api.knowledge_models import KnowledgeCitation
+from app.it.domain import PreparedITSupportTicket
 
 MAX_AGENT_CITATIONS = 24
 
@@ -74,6 +75,7 @@ class AgentRunResult(BaseModel):
     answer: AgentText | None = None
     citations: tuple[KnowledgeCitation, ...] = Field(max_length=MAX_AGENT_CITATIONS)
     prepared_leave_request: LeaveRequestDraft | None = None
+    prepared_it_support_ticket: PreparedITSupportTicket | None = None
     safe_message: str | None = None
     tool_calls_attempted: Annotated[int, Field(ge=0, le=5)]
     model_rounds: Annotated[int, Field(ge=0, le=7)]

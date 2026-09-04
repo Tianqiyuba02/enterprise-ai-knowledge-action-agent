@@ -15,6 +15,7 @@ class WorkflowState(StrEnum):
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
     STALE = "STALE"
+    SUPERSEDED = "SUPERSEDED"
 
 
 NON_TERMINAL_WORKFLOW_STATES: Final = frozenset(
@@ -30,6 +31,7 @@ TERMINAL_WORKFLOW_STATES: Final = frozenset(
         WorkflowState.CANCELLED,
         WorkflowState.EXPIRED,
         WorkflowState.STALE,
+        WorkflowState.SUPERSEDED,
     }
 )
 ALL_WORKFLOW_STATES: Final = NON_TERMINAL_WORKFLOW_STATES | TERMINAL_WORKFLOW_STATES
@@ -41,11 +43,13 @@ FINAL_TARGET_WORKFLOW_STATES: Final = (
     WorkflowState.STALE,
     WorkflowState.CANCELLED,
     WorkflowState.EXPIRED,
+    WorkflowState.SUPERSEDED,
 )
 
 
 class ActionType(StrEnum):
     SUBMIT_ANNUAL_LEAVE = "submit_annual_leave"
+    CREATE_IT_SUPPORT_TICKET = "create_it_support_ticket"
 
 
 class ChallengeStatus(StrEnum):

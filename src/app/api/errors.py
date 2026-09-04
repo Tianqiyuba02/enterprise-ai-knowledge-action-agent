@@ -33,8 +33,12 @@ from app.errors import (
     ActionNotFoundError,
     ApplicationError,
     ConfirmationInvalidError,
+    DemoCapacityReachedError,
+    DemoMaintenanceError,
     EmployeeNotFoundError,
     InvalidDemoSessionError,
+    PolicyDocumentNotFoundError,
+    PortalReadUnavailableError,
     TicketNotFoundError,
 )
 from app.grounding.client import (
@@ -92,6 +96,10 @@ async def application_error_handler(request: Request, exc: ApplicationError) -> 
         ConfirmationInvalidError: HTTPStatus.CONFLICT,
         ActionConflictError: HTTPStatus.CONFLICT,
         ActionCreationIdentityError: HTTPStatus.BAD_REQUEST,
+        PortalReadUnavailableError: HTTPStatus.SERVICE_UNAVAILABLE,
+        PolicyDocumentNotFoundError: HTTPStatus.NOT_FOUND,
+        DemoCapacityReachedError: HTTPStatus.TOO_MANY_REQUESTS,
+        DemoMaintenanceError: HTTPStatus.SERVICE_UNAVAILABLE,
     }.get(type(exc), HTTPStatus.BAD_REQUEST)
     logger.info(
         "application_error request_id=%s error_code=%s",

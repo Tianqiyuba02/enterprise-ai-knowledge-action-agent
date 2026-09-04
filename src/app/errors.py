@@ -60,3 +60,31 @@ class ActionCreationIdentityError(ApplicationError):
 
     error_code = "action_identity_incomplete"
     public_message = "A complete trusted identity is required to create an action."
+
+
+class PortalReadUnavailableError(ApplicationError):
+    """Raised when an owner-scoped portal projection cannot query PostgreSQL."""
+
+    error_code = "portal_read_unavailable"
+    public_message = "The employee portal data is temporarily unavailable."
+
+
+class PolicyDocumentNotFoundError(ApplicationError):
+    """Raised when a policy revision is absent or inapplicable to the current employee."""
+
+    error_code = "policy_document_not_found"
+    public_message = "The requested policy document was not found."
+
+
+class DemoCapacityReachedError(ApplicationError):
+    """Raised when an atomic public-demo allowance cannot be reserved."""
+
+    error_code = "demo_capacity_reached"
+    public_message = "The public demo has reached its current usage limit. Please try again later."
+
+
+class DemoMaintenanceError(ApplicationError):
+    """Raised while the private deterministic reset owns the mutation boundary."""
+
+    error_code = "demo_maintenance"
+    public_message = "The demo is refreshing its sample data. Please try again shortly."

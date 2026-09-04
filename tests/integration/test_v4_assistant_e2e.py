@@ -316,6 +316,25 @@ def test_full_offline_prepare_confirm_execute_and_replay(
         json={"message": "Prepare annual leave for 21 October."},
     )
     action_id = prepared.json()["action"]["action_id"]
+    listed = client.get("/api/v1/me/actions", headers=ALEX_HEADERS)
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["action_id"] == action_id
+    assert listed.json()["items"][0]["requested_hours"] == "7.60"
+    detail_before = client.get(
+        f"/api/v1/actions/{action_id}/detail",
+        headers=ALEX_HEADERS,
+    )
+    assert detail_before.status_code == 200
+    assert detail_before.json()["authoritative_draft"] == prepared.json()["action"]["draft"]
+    assert detail_before.json()["result"] is None
+    assert detail_before.json()["audit_events"][0]["event_type"] == "ACTION_PREPARED"
+    assert (
+        client.get(f"/api/v1/actions/{action_id}/detail", headers=JORDAN_HEADERS).status_code == 404
+    )
+    assert client.get("/api/v1/me/actions", headers=JORDAN_HEADERS).json()["total"] == 0
+    before_balance = client.get("/api/v1/me/leave/summary", headers=ALEX_HEADERS).json()
+    assert before_balance["balances"][0]["available_hours"] == "76.00"
     issued = client.post(
         f"/api/v1/actions/{action_id}/confirmation-challenges",
         headers=ALEX_HEADERS,
@@ -335,6 +354,27 @@ def test_full_offline_prepare_confirm_execute_and_replay(
     assert first.observed_state == WorkflowState.SUCCEEDED.value
     assert _count(engine, "action_workflows") == 1
     assert _count(engine, "leave_requests") == 1
+    detail_after = client.get(
+        f"/api/v1/actions/{action_id}/detail",
+        headers=ALEX_HEADERS,
+    ).json()
+    assert detail_after["state"] == WorkflowState.SUCCEEDED.value
+    assert detail_after["result"]["source_action_id"] == action_id
+    assert {event["event_type"] for event in detail_after["audit_events"]} >= {
+        "ACTION_PREPARED",
+        "ACTION_CONFIRMED",
+        "EXECUTION_SUCCEEDED",
+    }
+    succeeded_event = next(
+        event
+        for event in detail_after["audit_events"]
+        if event["event_type"] == "EXECUTION_SUCCEEDED"
+    )
+    assert succeeded_event["safe_metadata"] == {}
+    after_balance = client.get("/api/v1/me/leave/summary", headers=ALEX_HEADERS).json()
+    assert after_balance["balances"][0]["committed_hours"] == "7.60"
+    assert after_balance["balances"][0]["available_hours"] == "68.40"
+    assert after_balance["requests"][0]["source_action_id"] == action_id
     replay_confirm = client.post(
         f"/api/v1/actions/{action_id}/confirm",
         headers=ALEX_HEADERS,
@@ -611,12 +651,13 @@ def test_chat_yes_with_model_prepare_cannot_confirm(
         json={"message": "yes, submit it"},
     )
     payload = yes.json()
-    assert agent.messages[-1] == "yes, submit it"
-    assert payload["action"]["action_id"] == action_id
-    assert payload["action_status"] == "reused"
-    assert payload["action"]["state"] == WorkflowState.AWAITING_CONFIRMATION.value
-    assert payload["action"]["confirmation_required"] is True
-    assert payload["action"]["authority"] == "authoritative"
+    assert agent.messages == ["Prepare annual leave for 5 November."]
+    assert payload["action"] is None
+    assert payload["action_status"] is None
+    assert "cannot authorize or execute" in payload["answer"]
+    fetched = client.get(f"/api/v1/actions/{action_id}", headers=ALEX_HEADERS)
+    assert fetched.json()["state"] == WorkflowState.AWAITING_CONFIRMATION.value
+    assert fetched.json()["confirmation_required"] is True
     assert "confirmation_token" not in yes.text
     _assert_no_confirmation_or_execution(engine)
     assert _count(engine, "action_workflows") == 1

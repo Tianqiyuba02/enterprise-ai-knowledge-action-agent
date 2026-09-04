@@ -18,7 +18,10 @@ target_metadata = Base.metadata
 
 def _database_url() -> str:
     settings = load_knowledge_settings()
-    return settings.database_url.get_secret_value()
+    value = settings.database_url.get_secret_value()
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+psycopg://", 1)
+    return value
 
 
 def run_migrations_offline() -> None:

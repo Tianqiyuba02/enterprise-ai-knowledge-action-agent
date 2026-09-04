@@ -8,16 +8,23 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     schema = response.json()
     assert set(schema["paths"]) == {
         "/api/v1/actions/{action_id}",
+        "/api/v1/actions/{action_id}/detail",
         "/api/v1/actions/{action_id}/cancel",
         "/api/v1/actions/{action_id}/confirm",
         "/api/v1/actions/{action_id}/confirmation-challenges",
+        "/api/v1/actions/{action_id}/revisions",
         "/api/v1/assistant/query",
         "/api/v1/chat",
         "/api/v1/health",
         "/api/v1/knowledge/query",
+        "/api/v1/knowledge/documents",
+        "/api/v1/knowledge/documents/{doc_code}/versions/{version}",
+        "/api/v1/me/actions",
         "/api/v1/me/leave/balances",
+        "/api/v1/me/leave/summary",
         "/api/v1/me/profile",
         "/api/v1/me/tickets/{ticket_id}",
+        "/api/v1/me/tickets",
     }
     component_names = set(schema["components"]["schemas"])
     assert {
@@ -32,6 +39,11 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
         "KnowledgeQueryRequest",
         "KnowledgeQueryResponse",
         "LeaveBalancesResponse",
+        "LeaveSummaryResponse",
+        "ActionDetailResponse",
+        "ActionListResponse",
+        "PolicyDocumentListResponse",
+        "PolicyDocumentDetailResponse",
         "PreparedLeaveRequestAction",
         "TicketResponse",
     } <= component_names
@@ -43,7 +55,7 @@ def test_openapi_lists_v1_paths_and_typed_contracts(api_client: TestClient) -> N
     knowledge_parameters = schema["paths"]["/api/v1/knowledge/query"]["post"]["parameters"]
     assert any(parameter["name"] == "X-Demo-Session" for parameter in knowledge_parameters)
     assistant_properties = schema["components"]["schemas"]["AssistantQueryRequest"]["properties"]
-    assert set(assistant_properties) == {"message"}
+    assert set(assistant_properties) == {"message", "initiation_id"}
     assistant_response_properties = schema["components"]["schemas"]["AssistantQueryResponse"][
         "properties"
     ]
