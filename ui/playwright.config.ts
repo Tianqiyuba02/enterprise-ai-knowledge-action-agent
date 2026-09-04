@@ -12,7 +12,11 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /mobile\.spec\.ts/ },
-    { name: "mobile", use: { ...devices["iPhone 13"] }, testMatch: /mobile\.spec\.ts/ },
+    {
+      name: "mobile",
+      use: { ...devices["iPhone 13"], browserName: "chromium" },
+      testMatch: /mobile\.spec\.ts/,
+    },
   ],
   webServer: [
     {
