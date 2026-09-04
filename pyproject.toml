@@ -27,6 +27,9 @@ enterprise-ai = "app.main:run"
 enterprise-ai-eval = "app.evaluation.cli:run"
 enterprise-ai-ingest = "app.ingestion.cli:run"
 enterprise-ai-workflow-worker = "app.workflow.worker_cli:run"
+enterprise-ai-demo-bootstrap = "app.demo.cli:bootstrap"
+enterprise-ai-demo-reset = "app.demo.cli:reset"
+enterprise-ai-demo-worker = "app.demo.worker_cli:run"
 
 [dependency-groups]
 dev = [

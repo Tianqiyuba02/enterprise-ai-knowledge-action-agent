@@ -118,7 +118,7 @@ def _insert_action(connection: Connection) -> uuid.UUID:
 def test_alembic_head_includes_applied_v4_migrations(additive_engine: Engine) -> None:
     with additive_engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0007_v5_m2_multi_domain_actions"
+    assert version == "0008_v5_m3_public_demo"
 
 
 def test_v2_corpus_and_holiday_seed_survive_additive_upgrade(additive_engine: Engine) -> None:

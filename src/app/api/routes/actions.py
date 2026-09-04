@@ -8,8 +8,11 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import (
     get_authenticated_employee,
     get_confirmation_service,
+    get_demo_control_service,
+    get_demo_visitor_id,
     get_it_action_revision_service,
     get_portal_read_service,
+    require_demo_mutation_window,
 )
 from app.api.models import (
     ActionResponse,
@@ -18,6 +21,8 @@ from app.api.models import (
     ErrorResponse,
 )
 from app.api.portal_models import ActionDetail
+from app.config import load_public_demo_settings
+from app.demo.service import DemoControlService
 from app.identity import AuthenticatedEmployeeContext
 from app.it.domain import ReviseITSupportTicketRequest
 from app.portal.service import PortalReadService
@@ -76,7 +81,12 @@ def create_action_revision(
     payload: ReviseITSupportTicketRequest,
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     service: Annotated[ITActionRevisionService, Depends(get_it_action_revision_service)],
+    demo: Annotated[DemoControlService, Depends(get_demo_control_service)],
+    visitor_id: Annotated[str | None, Depends(get_demo_visitor_id)],
+    _mutation_window: Annotated[None, Depends(require_demo_mutation_window)],
 ) -> ActionResponse:
+    if load_public_demo_settings().enabled:
+        demo.consume(visitor_id=visitor_id, metric="revision")
     return _action_response(
         service.create_revision(action_id=action_id, request=payload, context=context)
     )
@@ -91,6 +101,7 @@ def issue_confirmation_challenge(
     action_id: UUID,
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     service: Annotated[ConfirmationService, Depends(get_confirmation_service)],
+    _mutation_window: Annotated[None, Depends(require_demo_mutation_window)],
 ) -> ConfirmationChallengeResponse:
     issued = service.issue_challenge(action_id=action_id, context=context)
     return _challenge_response(issued)
@@ -106,7 +117,11 @@ def confirm_action(
     payload: ConfirmActionRequest,
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     service: Annotated[ConfirmationService, Depends(get_confirmation_service)],
+    demo: Annotated[DemoControlService, Depends(get_demo_control_service)],
+    _mutation_window: Annotated[None, Depends(require_demo_mutation_window)],
 ) -> ActionResponse:
+    if load_public_demo_settings().enabled:
+        demo.consume(visitor_id=None, metric="execution")
     return _action_response(
         service.confirm(
             action_id=action_id,
@@ -126,6 +141,7 @@ def cancel_action(
     action_id: UUID,
     context: Annotated[AuthenticatedEmployeeContext, Depends(get_authenticated_employee)],
     service: Annotated[ConfirmationService, Depends(get_confirmation_service)],
+    _mutation_window: Annotated[None, Depends(require_demo_mutation_window)],
 ) -> ActionResponse:
     return _action_response(service.cancel(action_id=action_id, context=context))
 

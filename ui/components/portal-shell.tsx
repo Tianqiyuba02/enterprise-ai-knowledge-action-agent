@@ -32,7 +32,7 @@ export function PortalShell({
           <ShieldCheck aria-hidden="true" size={17} />
           <span>
             <strong>Governed actions</strong>
-            <small>Human authorization required</small>
+            <small>Public demo · Human authorization required</small>
           </span>
         </div>
         <IdentitySwitcher current={persona} />
@@ -45,6 +45,10 @@ export function PortalShell({
           <span>{name}</span>
         </header>
         <main id="main-content">{children}</main>
+        <footer className="portal-footer">
+          <span>Synthetic public demo · shared data resets regularly</span>
+          <Link href="/about">Architecture &amp; safety</Link>
+        </footer>
       </div>
     </div>
   );

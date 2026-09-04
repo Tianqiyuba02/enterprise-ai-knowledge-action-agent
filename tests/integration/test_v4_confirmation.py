@@ -286,7 +286,12 @@ def test_owner_read_issue_confirm_replay_and_isolation(
     assert consumed.status == ChallengeStatus.CONSUMED.value
     assert token not in str(audits)
     assert _count(engine, "leave_requests") == 0
-    assert _count(engine, "public_holidays") == 14
+    with engine.connect() as connection:
+        v4_holiday_count = connection.execute(
+            text("SELECT count(*) FROM public_holidays WHERE calendar_version = :version"),
+            {"version": V4_CALENDAR_VERSION},
+        ).scalar_one()
+    assert v4_holiday_count == 14
 
 
 def test_session_mismatch_expired_challenge_and_expired_action(

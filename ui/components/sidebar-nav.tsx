@@ -7,6 +7,7 @@ import {
   Headphones,
   MessageCircleMore,
   Rows3,
+  Info,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -18,6 +19,7 @@ const links = [
   { href: "/it", label: "IT Support", icon: Headphones },
   { href: "/requests", label: "My requests", icon: Rows3 },
   { href: "/policies", label: "Policy library", icon: BookOpenText },
+  { href: "/about", label: "About", icon: Info },
 ];
 
 export function SidebarNav() {
