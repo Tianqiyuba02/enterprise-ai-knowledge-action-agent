@@ -6,14 +6,14 @@ import { PageIntro } from "@/components/shared";
 export const metadata = { title: "About this demo" };
 
 export default function AboutPage() {
-  const repository = process.env.GITHUB_REPOSITORY_URL ?? "https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent";
+  const repository = process.env.GITHUB_REPOSITORY_URL;
   return (
     <div className="page-shell about-page">
       <PageIntro
         eyebrow="Architecture & safety"
         title="Built to show the boundary, not hide it."
         description="A recruiter-ready demonstration of governed knowledge, trusted synthetic identity, explicit authorization, and PostgreSQL-authoritative action execution."
-        action={<a className="button button-secondary" href={repository} target="_blank" rel="noreferrer">View source <ExternalLink aria-hidden="true" size={15} /></a>}
+        action={repository ? <a className="button button-secondary" href={repository} target="_blank" rel="noreferrer">View source <ExternalLink aria-hidden="true" size={15} /></a> : undefined}
       />
       <section className="about-grid">
         <article><Server aria-hidden="true" /><p className="eyebrow">Public edge</p><h2>Next.js portal + BFF</h2><p>The browser talks only to the portal. Trusted demo credentials and private-service addresses remain server-side.</p></article>

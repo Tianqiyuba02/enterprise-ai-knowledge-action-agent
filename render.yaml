@@ -41,8 +41,6 @@ projects:
                   type: pserv
                   name: enterprise-ai-demo-api
                   property: hostport
-              - key: GITHUB_REPOSITORY_URL
-                value: https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent
           - type: pserv
             name: enterprise-ai-demo-api
             runtime: docker
