@@ -6,7 +6,7 @@ A production-minded portfolio prototype showing how probabilistic AI can prepare
 
 > The deployed portal uses shared synthetic identities and synthetic business systems. Do not enter personal, confidential, password, or employer information.
 
-Current source version: **1.0.0 release candidate**. The `v1.0.0` tag and GitHub Release remain pending the final release gate.
+Current version: **1.0.0**, released 4 September 2026 ([release notes](https://github.com/Tianqiyuba02/enterprise-ai-knowledge-action-agent/releases/tag/v1.0.0)).
 
 ![Northstar employee portal Home page using synthetic Alex data](docs/assets/portal-home.png)
 
