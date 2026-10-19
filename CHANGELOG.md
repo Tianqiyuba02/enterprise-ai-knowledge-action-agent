@@ -2,7 +2,7 @@
 
 All notable portfolio releases are recorded here. Historical technical evidence remains in `docs/` and `evals/`.
 
-## 1.0.0 — release candidate
+## 1.0.0 — 2026-09-04
 
 v1.0.0 brings the completed knowledge, action, portal, multi-domain trust, and public-demo work into one reviewable portfolio release.
 
